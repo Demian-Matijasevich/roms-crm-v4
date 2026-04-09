@@ -22,10 +22,10 @@ export default async function CalendarioPage() {
   const endStr = `${rangeEnd.getFullYear()}-${String(rangeEnd.getMonth() + 1).padStart(2, "0")}-${String(rangeEnd.getDate()).padStart(2, "0")}`;
 
   const [leadsRes, paymentsRes, renewalsRes] = await Promise.all([
-    // Leads with fecha_llamada in range — full contact info + closer name
+    // Leads with fecha_llamada in range — full contact info + closer + setter + ticket
     supabase
       .from("leads")
-      .select("id, nombre, fecha_llamada, estado, instagram, telefono, programa_pitcheado, link_llamada, closer:team_members!leads_closer_id_fkey(nombre)")
+      .select("id, nombre, fecha_llamada, estado, instagram, telefono, programa_pitcheado, link_llamada, ticket_total, closer:team_members!leads_closer_id_fkey(nombre), setter:team_members!leads_setter_id_fkey(nombre)")
       .gte("fecha_llamada", startStr)
       .lte("fecha_llamada", endStr),
     // Payments with fecha_vencimiento in range and estado=pendiente — join lead for contact info
@@ -81,6 +81,8 @@ export default async function CalendarioPage() {
     programa_pitcheado: (l.programa_pitcheado as string) || null,
     link_llamada: (l.link_llamada as string) || null,
     closer_nombre: (l.closer as Record<string, unknown>)?.nombre as string || null,
+    setter_nombre: (l.setter as Record<string, unknown>)?.nombre as string || null,
+    ticket_total: (l.ticket_total as number) || 0,
   }));
 
   // Map payments to CalendarPayment
@@ -103,7 +105,6 @@ export default async function CalendarioPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">Calendario</h1>
       <CalendarioClient
         leads={leads}
         payments={payments}
