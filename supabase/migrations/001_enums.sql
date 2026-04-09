@@ -24,7 +24,7 @@ CREATE TYPE concepto_pago AS ENUM ('pif', 'fee', 'primera_cuota', 'segunda_cuota
 
 CREATE TYPE plan_pago AS ENUM ('paid_in_full', '2_cuotas', '3_cuotas', 'personalizado');
 
-CREATE TYPE payment_estado AS ENUM ('pendiente', 'pagado', 'perdido');
+CREATE TYPE payment_estado AS ENUM ('pendiente', 'pagado', 'perdido', 'refund');
 
 CREATE TYPE metodo_pago AS ENUM (
   'mercado_pago', 'transferencia', 'cash', 'binance', 'stripe', 'wise'

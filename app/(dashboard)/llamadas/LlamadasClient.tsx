@@ -39,6 +39,7 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
   const [closerFilter, setCloserFilter] = useState<string>("todos");
   const [setterFilter, setSetterFilter] = useState<string>("todos");
   const [monthFilter, setMonthFilter] = useState<string>("todos");
+  const [pagoFilter, setPagoFilter] = useState<string>("todos"); // todos, con_pago, sin_pago, solo_ventas
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showEstadoCuenta, setShowEstadoCuenta] = useState<string | null>(null);
 
@@ -121,12 +122,21 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
       // Setter filter
       if (setterFilter !== "todos" && lead.setter_id !== setterFilter) return false;
 
-      // Month filter (7-7)
+      // Month filter
       if (monthFilter !== "todos" && lead.fecha_llamada) {
-        const llamadaDate = parseLocalDate(lead.fecha_llamada);
+        const llamadaDate = parseLocalDate(lead.fecha_llamada.split("T")[0]);
         const monthStart = parseLocalDate(monthFilter);
         const monthEnd = getFiscalEnd(monthStart);
         if (llamadaDate < monthStart || llamadaDate > monthEnd) return false;
+      }
+
+      // Payment filter
+      if (pagoFilter !== "todos") {
+        const leadPayments = paymentsByLead.get(lead.id) || [];
+        const hasPago = leadPayments.some(p => p.estado === "pagado" && p.monto_usd > 0);
+        if (pagoFilter === "solo_ventas" && lead.estado !== "cerrado") return false;
+        if (pagoFilter === "con_pago" && !hasPago) return false;
+        if (pagoFilter === "sin_pago" && hasPago) return false;
       }
 
       return true;
@@ -295,6 +305,17 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
           {monthOptions.map((m) => (
             <option key={m.value} value={m.value}>{m.label}</option>
           ))}
+        </select>
+
+        <select
+          value={pagoFilter}
+          onChange={(e) => setPagoFilter(e.target.value)}
+          className={selectClass}
+        >
+          <option value="todos">Todos los pagos</option>
+          <option value="solo_ventas">Solo ventas (cerradas)</option>
+          <option value="con_pago">Con pago registrado</option>
+          <option value="sin_pago">Sin pago</option>
         </select>
       </div>
 
