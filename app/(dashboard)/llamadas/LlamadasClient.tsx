@@ -33,13 +33,24 @@ function LeadScoreBadge({ score }: { score: LeadScore | null }) {
   );
 }
 
+// Sort direction type
+type SortDir = "asc" | "desc" | null;
+type SortKey = "nombre" | "fecha" | "cash" | "ticket" | "saldo";
+
+function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
+  if (!active || !dir) return <span className="ml-1 text-[10px] opacity-40">&#8597;</span>;
+  return <span className="ml-1 text-[10px] text-[var(--purple-light)]">{dir === "asc" ? "\u2191" : "\u2193"}</span>;
+}
+
 export default function LlamadasClient({ leads, closers, setters, payments, session }: Props) {
   const [search, setSearch] = useState("");
   const [estadoFilter, setEstadoFilter] = useState<string>("todos");
   const [closerFilter, setCloserFilter] = useState<string>("todos");
   const [setterFilter, setSetterFilter] = useState<string>("todos");
   const [monthFilter, setMonthFilter] = useState<string>("todos");
-  const [pagoFilter, setPagoFilter] = useState<string>("todos"); // todos, con_pago, sin_pago, solo_ventas
+  const [pagoFilter, setPagoFilter] = useState<string>("todos");
+  const [programaFilter, setProgramaFilter] = useState<string>("todos");
+  const [calificadoFilter, setCalificadoFilter] = useState<string>("todos");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showEstadoCuenta, setShowEstadoCuenta] = useState<string | null>(null);
   const [showRefundForm, setShowRefundForm] = useState<string | null>(null);
@@ -48,10 +59,26 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
   const [refundLoading, setRefundLoading] = useState(false);
   const [refundMsg, setRefundMsg] = useState<string | null>(null);
 
+  // Sort state
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>(null);
+
   // Inline edit state
   const [editData, setEditData] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey !== key) {
+      setSortKey(key);
+      setSortDir("asc");
+    } else if (sortDir === "asc") {
+      setSortDir("desc");
+    } else {
+      setSortKey(null);
+      setSortDir(null);
+    }
+  };
 
   const handleSave = useCallback(async (leadId: string) => {
     setSaving(true);
@@ -65,7 +92,6 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
       const json = await res.json();
       if (json.ok) {
         setSaveMsg("Guardado correctamente");
-        // Reload page to reflect changes
         setTimeout(() => window.location.reload(), 800);
       } else {
         setSaveMsg(`Error: ${json.error || "desconocido"}`);
@@ -167,6 +193,15 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
       // Setter filter
       if (setterFilter !== "todos" && lead.setter_id !== setterFilter) return false;
 
+      // Programa filter
+      if (programaFilter !== "todos" && lead.programa_pitcheado !== programaFilter) return false;
+
+      // Calificado filter
+      if (calificadoFilter !== "todos") {
+        if (calificadoFilter === "si" && lead.lead_calificado !== "calificado") return false;
+        if (calificadoFilter === "no" && lead.lead_calificado === "calificado") return false;
+      }
+
       // Month filter
       if (monthFilter !== "todos" && lead.fecha_llamada) {
         const llamadaDate = parseLocalDate(lead.fecha_llamada.split("T")[0]);
@@ -186,7 +221,33 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
 
       return true;
     });
-  }, [leads, search, estadoFilter, closerFilter, setterFilter, monthFilter]);
+  }, [leads, search, estadoFilter, closerFilter, setterFilter, monthFilter, programaFilter, calificadoFilter, pagoFilter, paymentsByLead]);
+
+  // Sorted data
+  const sorted = useMemo(() => {
+    if (!sortKey || !sortDir) return filtered;
+    const arr = [...filtered];
+    const dir = sortDir === "asc" ? 1 : -1;
+    arr.sort((a, b) => {
+      const auditA = getAuditData(a.id, a.ticket_total);
+      const auditB = getAuditData(b.id, b.ticket_total);
+      switch (sortKey) {
+        case "nombre":
+          return dir * (a.nombre || "").localeCompare(b.nombre || "");
+        case "fecha":
+          return dir * (a.fecha_llamada || "").localeCompare(b.fecha_llamada || "");
+        case "cash":
+          return dir * (auditA.cashCollected - auditB.cashCollected);
+        case "ticket":
+          return dir * (a.ticket_total - b.ticket_total);
+        case "saldo":
+          return dir * (auditA.saldoPendiente - auditB.saldoPendiente);
+        default:
+          return 0;
+      }
+    });
+    return arr;
+  }, [filtered, sortKey, sortDir, getAuditData]);
 
   // Summary totals
   const totals = useMemo(() => {
@@ -205,18 +266,9 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
   // CSV export
   const handleExportCSV = useCallback(() => {
     const headers = [
-      "Nombre",
-      "Instagram",
-      "Fecha",
-      "Estado",
-      "Closer",
-      "Setter",
-      "Ticket Total",
-      "Score",
-      "Cash Collected",
-      "Cuotas Pagadas",
-      "Saldo Pendiente",
-      "Receptor",
+      "Nombre", "Instagram", "Fecha", "Estado", "Closer", "Setter",
+      "Ticket Total", "Score", "Cash Collected", "Cuotas Pagadas",
+      "Saldo Pendiente", "Receptor",
     ];
 
     const escapeCSV = (val: string) => {
@@ -244,21 +296,11 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
       ].map(escapeCSV);
     });
 
-    // Add totals row
     rows.push([
-      "TOTALES",
-      "",
-      "",
-      "",
-      "",
-      "",
-      totals.totalTicket.toString(),
-      "",
-      totals.totalCash.toString(),
-      "",
-      totals.totalSaldo.toString(),
-      "",
-      "",
+      "TOTALES", "", "", "", "", "",
+      totals.totalTicket.toString(), "",
+      totals.totalCash.toString(), "",
+      totals.totalSaldo.toString(), "", "",
     ]);
 
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -279,6 +321,8 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
 
   // Suppress unused variable warning
   void session;
+
+  const thSortClass = "px-4 py-3 text-[var(--muted)] font-medium cursor-pointer select-none hover:text-[var(--foreground)] transition-colors";
 
   return (
     <div className="space-y-4">
@@ -353,6 +397,27 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
         </select>
 
         <select
+          value={programaFilter}
+          onChange={(e) => setProgramaFilter(e.target.value)}
+          className={selectClass}
+        >
+          <option value="todos">Todos los programas</option>
+          {Object.entries(PROGRAMS).map(([key, p]) => (
+            <option key={key} value={key}>{p.label}</option>
+          ))}
+        </select>
+
+        <select
+          value={calificadoFilter}
+          onChange={(e) => setCalificadoFilter(e.target.value)}
+          className={selectClass}
+        >
+          <option value="todos">Calificado: Todos</option>
+          <option value="si">Calificado: Si</option>
+          <option value="no">Calificado: No</option>
+        </select>
+
+        <select
           value={pagoFilter}
           onChange={(e) => setPagoFilter(e.target.value)}
           className={selectClass}
@@ -370,35 +435,46 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--card-border)] text-left">
-                <th className="px-4 py-3 text-[var(--muted)] font-medium">Nombre</th>
+                <th className={thSortClass} onClick={() => toggleSort("nombre")}>
+                  Nombre<SortIndicator active={sortKey === "nombre"} dir={sortKey === "nombre" ? sortDir : null} />
+                </th>
                 <th className="px-4 py-3 text-[var(--muted)] font-medium">Instagram</th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium">Fecha</th>
+                <th className={thSortClass} onClick={() => toggleSort("fecha")}>
+                  Fecha<SortIndicator active={sortKey === "fecha"} dir={sortKey === "fecha" ? sortDir : null} />
+                </th>
                 <th className="px-4 py-3 text-[var(--muted)] font-medium">Estado</th>
                 <th className="px-4 py-3 text-[var(--muted)] font-medium">Closer</th>
                 <th className="px-4 py-3 text-[var(--muted)] font-medium">Setter</th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium text-right">Ticket</th>
+                <th className={`${thSortClass} text-right`} onClick={() => toggleSort("ticket")}>
+                  Ticket<SortIndicator active={sortKey === "ticket"} dir={sortKey === "ticket" ? sortDir : null} />
+                </th>
                 <th className="px-4 py-3 text-[var(--muted)] font-medium text-center">Score</th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium text-right">Cash Collected</th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium text-center">Cuotas Pagadas</th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium text-right">Saldo Pendiente</th>
+                <th className={`${thSortClass} text-right`} onClick={() => toggleSort("cash")}>
+                  Cash<SortIndicator active={sortKey === "cash"} dir={sortKey === "cash" ? sortDir : null} />
+                </th>
+                <th className="px-4 py-3 text-[var(--muted)] font-medium text-center">Cuotas</th>
+                <th className={`${thSortClass} text-right`} onClick={() => toggleSort("saldo")}>
+                  Saldo<SortIndicator active={sortKey === "saldo"} dir={sortKey === "saldo" ? sortDir : null} />
+                </th>
                 <th className="px-4 py-3 text-[var(--muted)] font-medium">Receptor</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && (
+              {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={15} className="px-4 py-12 text-center text-[var(--muted)]">
+                  <td colSpan={12} className="px-4 py-12 text-center text-[var(--muted)]">
                     No se encontraron leads con esos filtros.
                   </td>
                 </tr>
               )}
-              {filtered.map((lead) => {
+              {sorted.map((lead) => {
                 const audit = getAuditData(lead.id, lead.ticket_total);
+                const isExpanded = expandedId === lead.id;
                 return (
                   <tr
                     key={lead.id}
-                    onClick={() => setExpandedId(expandedId === lead.id ? null : lead.id)}
-                    className="border-b border-[var(--card-border)] hover:bg-[var(--purple)]/5 cursor-pointer transition-colors"
+                    onClick={() => setExpandedId(isExpanded ? null : lead.id)}
+                    className={`border-b border-[var(--card-border)] hover:bg-[var(--purple)]/5 cursor-pointer transition-colors ${isExpanded ? "bg-[var(--purple)]/5" : ""}`}
                   >
                     <td className="px-4 py-3 font-medium text-[var(--foreground)]">
                       {lead.nombre || "Sin nombre"}
@@ -453,14 +529,14 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                 );
               })}
             </tbody>
-            {/* Summary row */}
+            {/* Footer totals row */}
             {filtered.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 border-[var(--purple)]/30 bg-[var(--purple)]/5 font-semibold">
                   <td className="px-4 py-3" colSpan={6}>
                     TOTALES ({filtered.length} leads)
                   </td>
-                  <td className="px-4 py-3 text-right font-mono">
+                  <td className="px-4 py-3 text-right font-mono text-yellow-400">
                     {formatUSD(totals.totalTicket)}
                   </td>
                   <td className="px-4 py-3"></td>
@@ -471,6 +547,7 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                   <td className="px-4 py-3 text-right font-mono text-red-400">
                     {formatUSD(totals.totalSaldo)}
                   </td>
+                  <td className="px-4 py-3"></td>
                 </tr>
               </tfoot>
             )}
@@ -478,13 +555,15 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
         </div>
       </div>
 
-      {/* Expanded Lead Detail (inline) */}
+      {/* Expanded Lead Detail — Grid layout */}
       {expandedId && (() => {
-        const lead = filtered.find((l) => l.id === expandedId);
+        const lead = sorted.find((l) => l.id === expandedId);
         if (!lead) return null;
+        const leadPayments = paymentsByLead.get(lead.id) || [];
+        const audit = getAuditData(lead.id, lead.ticket_total);
+
         // Initialize edit data when expanding a different lead
         if (editData._leadId !== lead.id) {
-          // Use setTimeout to avoid setState during render
           setTimeout(() => {
             setEditData({
               _leadId: lead.id,
@@ -499,9 +578,10 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
           }, 0);
         }
         return (
-          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6 space-y-4">
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6 space-y-6">
+            {/* Header */}
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-semibold">{lead.nombre}</h3>
+              <h3 className="text-lg font-semibold">{lead.nombre}</h3>
               <button
                 onClick={() => setExpandedId(null)}
                 className="text-[var(--muted)] hover:text-[var(--foreground)] text-lg"
@@ -510,37 +590,124 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
               </button>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <p className="text-[var(--muted)] text-xs mb-0.5">Email</p>
-                <p>{lead.email || "---"}</p>
+            {/* ── Section Grid: 3 columns ── */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+              {/* Contacto */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold uppercase text-[var(--purple-light)] tracking-wider">Contacto</h4>
+                <div className="space-y-1.5 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">Email</span>
+                    {lead.email ? (
+                      <a href={`mailto:${lead.email}`} className="text-blue-400 hover:underline truncate ml-2">{lead.email}</a>
+                    ) : <span className="text-[var(--muted)]">---</span>}
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">Telefono</span>
+                    {lead.telefono ? (
+                      <a href={`tel:${lead.telefono}`} className="text-blue-400 hover:underline">{lead.telefono}</a>
+                    ) : <span className="text-[var(--muted)]">---</span>}
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">Instagram</span>
+                    {lead.instagram ? (
+                      <a href={`https://instagram.com/${lead.instagram.replace(/^@/, "")}`} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+                        @{lead.instagram.replace(/^@/, "")}
+                      </a>
+                    ) : <span className="text-[var(--muted)]">---</span>}
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">Fuente</span>
+                    <span>{lead.fuente || "---"}</span>
+                  </div>
+                </div>
               </div>
-              <div>
-                <p className="text-[var(--muted)] text-xs mb-0.5">Telefono</p>
-                <p>{lead.telefono || "---"}</p>
+
+              {/* Detalles */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold uppercase text-[var(--purple-light)] tracking-wider">Detalles</h4>
+                <div className="space-y-1.5 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">Fecha Agenda</span>
+                    <span>{formatDate(lead.fecha_agendado)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">Se Presento</span>
+                    <span>{lead.estado === "no_show" ? "No" : lead.fecha_llamada ? "Si" : "---"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">Calificado</span>
+                    <span>{lead.lead_calificado ? lead.lead_calificado.replace(/_/g, " ") : "---"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">Cash Total</span>
+                    <span className="font-mono text-green-400">{formatUSD(audit.cashCollected)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">Decisor</span>
+                    <span>{lead.decisor || "---"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">Exp. Ecommerce</span>
+                    <span>{lead.experiencia_ecommerce || "---"}</span>
+                  </div>
+                </div>
               </div>
-              <div>
-                <p className="text-[var(--muted)] text-xs mb-0.5">Fuente</p>
-                <p>{lead.fuente || "---"}</p>
-              </div>
-              <div>
-                <p className="text-[var(--muted)] text-xs mb-0.5">Plan de pago</p>
-                <p>{lead.plan_pago || "---"}</p>
-              </div>
-              <div>
-                <p className="text-[var(--muted)] text-xs mb-0.5">Decisor</p>
-                <p>{lead.decisor || "---"}</p>
-              </div>
-              <div>
-                <p className="text-[var(--muted)] text-xs mb-0.5">Experiencia ecommerce</p>
-                <p>{lead.experiencia_ecommerce || "---"}</p>
+
+              {/* Pagos */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold uppercase text-[var(--purple-light)] tracking-wider">Pagos</h4>
+                <div className="space-y-1.5 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">Plan</span>
+                    <span>{lead.plan_pago?.replace(/_/g, " ") || "---"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--muted)]">Metodo</span>
+                    <span>{leadPayments[0]?.metodo_pago?.replace(/_/g, " ") || "---"}</span>
+                  </div>
+                  {leadPayments.length > 0 ? (
+                    leadPayments
+                      .sort((a, b) => a.numero_cuota - b.numero_cuota)
+                      .map((p) => (
+                        <div key={p.id} className="flex justify-between items-center">
+                          <span className="text-[var(--muted)]">Cuota #{p.numero_cuota}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono">{formatUSD(p.monto_usd)}</span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                              p.estado === "pagado" ? "bg-green-500/15 text-green-400 border-green-500/20" :
+                              p.estado === "pendiente" ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/20" :
+                              p.estado === "perdido" ? "bg-red-500/15 text-red-400 border-red-500/20" :
+                              "bg-orange-400/15 text-orange-400 border-orange-400/20"
+                            }`}>
+                              {p.estado}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                  ) : (
+                    <p className="text-[var(--muted)] text-xs">Sin pagos registrados</p>
+                  )}
+                </div>
               </div>
             </div>
 
-            {lead.contexto_setter && (
-              <div className="pt-3 border-t border-[var(--card-border)]">
-                <p className="text-xs text-[var(--muted)] mb-1">Contexto setter</p>
-                <p className="text-sm leading-relaxed">{lead.contexto_setter}</p>
+            {/* Contextos */}
+            {(lead.contexto_setter || lead.reporte_general) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-[var(--card-border)]">
+                {lead.contexto_setter && (
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase text-[var(--purple-light)] tracking-wider mb-1">Contexto Setter</h4>
+                    <p className="text-sm leading-relaxed bg-white/5 rounded-lg p-3">{lead.contexto_setter}</p>
+                  </div>
+                )}
+                {lead.reporte_general && (
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase text-[var(--purple-light)] tracking-wider mb-1">Contexto Closer</h4>
+                    <p className="text-sm leading-relaxed bg-white/5 rounded-lg p-3">{lead.reporte_general}</p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -724,7 +891,6 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
 
             {/* Inline Estado de Cuenta */}
             {showEstadoCuenta === lead.id && (() => {
-              const leadPayments = paymentsByLead.get(lead.id) || [];
               const pagados = leadPayments.filter((p) => p.estado === "pagado");
               const pendientes = leadPayments.filter((p) => p.estado === "pendiente");
               const perdidos = leadPayments.filter((p) => p.estado === "perdido");
@@ -776,7 +942,6 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                     </button>
                   </div>
 
-                  {/* Payment history table */}
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
@@ -821,7 +986,6 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                     </table>
                   </div>
 
-                  {/* Totals */}
                   <div className="space-y-2 text-sm pt-2 border-t border-[var(--card-border)]">
                     <div className="flex justify-between">
                       <span className="text-[var(--muted)]">Total Pagado</span>
@@ -850,20 +1014,6 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                       </span>
                     </div>
                   </div>
-
-                  {/* Contexto setter & Reporte */}
-                  {lead.contexto_setter && (
-                    <div className="pt-3 border-t border-[var(--card-border)]">
-                      <p className="text-xs text-[var(--muted)] mb-1">Contexto setter</p>
-                      <p className="text-sm leading-relaxed">{lead.contexto_setter}</p>
-                    </div>
-                  )}
-                  {lead.reporte_general && (
-                    <div className="pt-3 border-t border-[var(--card-border)]">
-                      <p className="text-xs text-[var(--muted)] mb-1">Reporte general</p>
-                      <p className="text-sm leading-relaxed">{lead.reporte_general}</p>
-                    </div>
-                  )}
                 </div>
               );
             })()}

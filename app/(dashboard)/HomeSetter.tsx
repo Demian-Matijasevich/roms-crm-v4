@@ -33,6 +33,20 @@ export default function HomeSetter({
 }: Props) {
   const fiscalStart = getFiscalStart();
   const fiscalEnd = getFiscalEnd();
+  const today = new Date().toISOString().split("T")[0];
+
+  // Today's report
+  const todayReport = useMemo(() => {
+    return reports.find((r) => r.fecha === today);
+  }, [reports, today]);
+
+  // Agendas generadas hoy
+  const agendasHoy = useMemo(() => {
+    return leads.filter((l) => {
+      if (!l.fecha_agendado) return false;
+      return l.fecha_agendado.split("T")[0] === today;
+    }).length;
+  }, [leads, today]);
 
   // Agendas generadas este mes (leads where setter_id = me, fecha_agendado in fiscal range)
   const agendasMes = useMemo(() => {
@@ -79,6 +93,14 @@ export default function HomeSetter({
       .reduce((s, r) => s + r.conversaciones_iniciadas, 0);
   }, [reports, fiscalStart, fiscalEnd]);
 
+  // Today's auto-calculated metrics
+  const todayConversaciones = todayReport?.conversaciones_iniciadas ?? 0;
+  const todayCalendarios = todayReport?.calendarios_enviados ?? 0;
+  const todayVentasChat = todayReport?.ventas_por_chat ? 1 : 0;
+
+  // Objective target for agendas
+  const objetivoAgendas = objective?.objetivo_agendas ?? 5;
+
   // Last 7 reports for quick view
   const recentReports = reports.slice(0, 7);
 
@@ -92,6 +114,58 @@ export default function HomeSetter({
         <p className="text-[var(--muted)] text-sm mt-1">
           Tu resumen del mes
         </p>
+      </div>
+
+      {/* Live Counter — Hoy agendaste X / objetivo Y */}
+      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-white">Hoy</h2>
+          <span className="text-sm text-[var(--muted)]">
+            {new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "short" })}
+          </span>
+        </div>
+
+        {/* Agendas progress bar */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between text-sm mb-1.5">
+            <span className="text-[var(--foreground)] font-medium">
+              Hoy agendaste <span className="text-[var(--purple-light)] font-bold">{agendasHoy}</span> &mdash; objetivo: <span className="font-bold">{Math.ceil(objetivoAgendas / 22)}</span>
+            </span>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+              agendasHoy >= Math.ceil(objetivoAgendas / 22)
+                ? "bg-green-500/15 text-green-400"
+                : agendasHoy > 0
+                ? "bg-yellow-500/15 text-yellow-400"
+                : "bg-white/5 text-[var(--muted)]"
+            }`}>
+              {agendasHoy >= Math.ceil(objetivoAgendas / 22) ? "Objetivo cumplido" : agendasHoy > 0 ? "En progreso" : "Sin agendas"}
+            </span>
+          </div>
+          <div className="w-full bg-white/5 rounded-full h-4 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${
+                agendasHoy >= Math.ceil(objetivoAgendas / 22) ? "bg-[var(--green)]" : "bg-[var(--purple)]"
+              }`}
+              style={{ width: `${Math.min((agendasHoy / Math.max(Math.ceil(objetivoAgendas / 22), 1)) * 100, 100)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Today's metrics in a row */}
+        <div className="grid grid-cols-3 gap-4">
+          <div className="bg-white/5 rounded-lg p-3 text-center">
+            <p className="text-2xl font-bold text-[var(--foreground)]">{todayConversaciones}</p>
+            <p className="text-xs text-[var(--muted)]">Conversaciones</p>
+          </div>
+          <div className="bg-white/5 rounded-lg p-3 text-center">
+            <p className="text-2xl font-bold text-[var(--foreground)]">{todayCalendarios}</p>
+            <p className="text-xs text-[var(--muted)]">Calendarios</p>
+          </div>
+          <div className="bg-white/5 rounded-lg p-3 text-center">
+            <p className="text-2xl font-bold text-[var(--foreground)]">{todayVentasChat}</p>
+            <p className="text-xs text-[var(--muted)]">Ventas chat</p>
+          </div>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -166,25 +240,35 @@ export default function HomeSetter({
       )}
 
       {/* Quick Access */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <a
-          href="/venta-chat"
-          className="bg-[var(--purple)]/10 border border-[var(--purple)]/20 rounded-xl p-6 hover:bg-[var(--purple)]/15 transition-colors"
+          href="/form/venta-chat"
+          className="bg-[var(--purple)]/10 border border-[var(--purple)]/20 rounded-xl p-5 hover:bg-[var(--purple)]/15 transition-colors"
         >
           <span className="text-2xl mb-2 block">{"\u{1F4AC}"}</span>
-          <h3 className="text-lg font-semibold text-white">Cargar Venta por Chat</h3>
-          <p className="text-sm text-[var(--muted)] mt-1">
-            Registrar una venta directa por mensajeria
+          <h3 className="text-base font-semibold text-white">Venta por Chat</h3>
+          <p className="text-xs text-[var(--muted)] mt-1">
+            Registrar venta directa
           </p>
         </a>
         <a
-          href="/reporte-diario"
-          className="bg-[var(--green)]/10 border border-[var(--green)]/20 rounded-xl p-6 hover:bg-[var(--green)]/15 transition-colors"
+          href="/form/reporte-setter"
+          className="bg-[var(--green)]/10 border border-[var(--green)]/20 rounded-xl p-5 hover:bg-[var(--green)]/15 transition-colors"
         >
           <span className="text-2xl mb-2 block">{"\u{1F4DD}"}</span>
-          <h3 className="text-lg font-semibold text-white">Reporte Diario</h3>
-          <p className="text-sm text-[var(--muted)] mt-1">
-            Cargar tu actividad del dia
+          <h3 className="text-base font-semibold text-white">Reporte Diario</h3>
+          <p className="text-xs text-[var(--muted)] mt-1">
+            Cargar actividad del dia
+          </p>
+        </a>
+        <a
+          href="/calendario"
+          className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-5 hover:bg-blue-500/15 transition-colors"
+        >
+          <span className="text-2xl mb-2 block">{"\u{1F4C5}"}</span>
+          <h3 className="text-base font-semibold text-white">Calendario</h3>
+          <p className="text-xs text-[var(--muted)] mt-1">
+            Ver agendas y leads
           </p>
         </a>
       </div>

@@ -146,8 +146,7 @@ export default async function DashboardPage() {
       supabase
         .from("leads")
         .select("*")
-        .eq("setter_id", session.team_member_id)
-        .in("estado", ["cerrado", "adentro_seguimiento"]),
+        .eq("setter_id", session.team_member_id),
       supabase
         .from("objectives")
         .select("*")

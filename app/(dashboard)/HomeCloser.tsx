@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import KPICard from "@/app/components/KPICard";
 import StatusBadge from "@/app/components/StatusBadge";
 import { formatUSD, formatDate } from "@/lib/format";
@@ -22,6 +22,34 @@ interface Props {
   currentMemberId: string;
   currentName: string;
   objective?: ObjectiveData | null;
+}
+
+function CountdownTimer({ targetDate }: { targetDate: string }) {
+  const [timeLeft, setTimeLeft] = useState("");
+
+  useEffect(() => {
+    const update = () => {
+      const now = new Date();
+      const target = new Date(targetDate);
+      const diff = target.getTime() - now.getTime();
+      if (diff <= 0) {
+        setTimeLeft("Ahora");
+        return;
+      }
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      if (hours > 0) {
+        setTimeLeft(`${hours}h ${mins}m`);
+      } else {
+        setTimeLeft(`${mins} min`);
+      }
+    };
+    update();
+    const interval = setInterval(update, 30000); // Update every 30s
+    return () => clearInterval(interval);
+  }, [targetDate]);
+
+  return <span>{timeLeft}</span>;
 }
 
 export default function HomeCloser({
@@ -73,11 +101,35 @@ export default function HomeCloser({
     [leads, today]
   );
 
+  // Next call countdown
+  const nextCall = useMemo(() => {
+    const now = new Date();
+    return todayAgenda.find((l) => {
+      if (!l.fecha_llamada) return false;
+      return new Date(l.fecha_llamada) > now;
+    });
+  }, [todayAgenda]);
+
   // Calls made today (including cerrados)
-  const callsToday = leads.filter((l) => {
-    if (!l.fecha_llamada) return false;
-    return l.fecha_llamada.split("T")[0] === today;
-  }).length;
+  const todayLeads = useMemo(() => {
+    return leads.filter((l) => {
+      if (!l.fecha_llamada) return false;
+      return l.fecha_llamada.split("T")[0] === today;
+    });
+  }, [leads, today]);
+
+  const callsToday = todayLeads.length;
+
+  // Today's closings
+  const cierresToday = useMemo(() => {
+    return todayLeads.filter(
+      (l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento"
+    );
+  }, [todayLeads]);
+
+  const cashToday = useMemo(() => {
+    return cierresToday.reduce((s, l) => s + l.ticket_total, 0);
+  }, [cierresToday]);
 
   // Recent sales
   const recentSales = useMemo(
@@ -117,6 +169,48 @@ export default function HomeCloser({
             ? `Racha de ${myStreak} dia${myStreak > 1 ? "s" : ""} cerrando`
             : "Empeza tu racha hoy!"}
         </p>
+      </div>
+
+      {/* Daily Stats Bar */}
+      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl px-6 py-4 flex flex-wrap items-center gap-6">
+        <div className="flex items-center gap-2">
+          <span className="text-xl">&#128222;</span>
+          <div>
+            <p className="text-xs text-[var(--muted)]">Hoy</p>
+            <p className="text-sm font-semibold text-white">{callsToday} llamadas</p>
+          </div>
+        </div>
+        <div className="w-px h-8 bg-[var(--card-border)]" />
+        <div className="flex items-center gap-2">
+          <span className="text-xl">&#9989;</span>
+          <div>
+            <p className="text-xs text-[var(--muted)]">Cierres</p>
+            <p className="text-sm font-semibold text-green-400">{cierresToday.length}</p>
+          </div>
+        </div>
+        <div className="w-px h-8 bg-[var(--card-border)]" />
+        <div className="flex items-center gap-2">
+          <span className="text-xl">&#128176;</span>
+          <div>
+            <p className="text-xs text-[var(--muted)]">Cash hoy</p>
+            <p className="text-sm font-semibold text-green-400">{formatUSD(cashToday)}</p>
+          </div>
+        </div>
+        {nextCall && (
+          <>
+            <div className="w-px h-8 bg-[var(--card-border)]" />
+            <div className="flex items-center gap-2">
+              <span className="text-xl">&#9200;</span>
+              <div>
+                <p className="text-xs text-[var(--muted)]">Proxima llamada</p>
+                <p className="text-sm font-semibold text-[var(--purple-light)]">
+                  <CountdownTimer targetDate={nextCall.fecha_llamada!} />
+                  <span className="text-[var(--muted)] font-normal ml-1">({nextCall.nombre})</span>
+                </p>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Earned Badges */}
@@ -211,7 +305,7 @@ export default function HomeCloser({
         </div>
       )}
 
-      {/* Today's Agenda */}
+      {/* Today's Agenda with Quick Actions */}
       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
         <h2 className="text-lg font-semibold text-white mb-4">
           Agenda de Hoy ({todayAgenda.length})
@@ -222,28 +316,58 @@ export default function HomeCloser({
           </p>
         ) : (
           <div className="space-y-2">
-            {todayAgenda.map((l) => (
-              <div
-                key={l.id}
-                className="flex items-center justify-between bg-white/5 rounded-lg px-4 py-3"
-              >
-                <div>
-                  <p className="text-sm font-medium text-white">{l.nombre}</p>
-                  <p className="text-xs text-[var(--muted)]">
-                    {l.programa_pitcheado
-                      ? l.programa_pitcheado.replace(/_/g, " ")
-                      : "Sin programa"}{" "}
-                    {l.fecha_llamada
-                      ? new Date(l.fecha_llamada).toLocaleTimeString("es-AR", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
-                      : ""}
-                  </p>
+            {todayAgenda.map((l) => {
+              const callTime = l.fecha_llamada
+                ? new Date(l.fecha_llamada).toLocaleTimeString("es-AR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                : "";
+              return (
+                <div
+                  key={l.id}
+                  className="flex items-center justify-between bg-white/5 rounded-lg px-4 py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="text-xs text-[var(--muted)] font-mono w-12">{callTime}</div>
+                    <div>
+                      <p className="text-sm font-medium text-white">{l.nombre}</p>
+                      <div className="flex items-center gap-2">
+                        {l.instagram && (
+                          <a
+                            href={`https://instagram.com/${l.instagram.replace(/^@/, "")}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-400 hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            @{l.instagram.replace(/^@/, "")}
+                          </a>
+                        )}
+                        <span className="text-xs text-[var(--muted)]">
+                          {l.programa_pitcheado
+                            ? l.programa_pitcheado.replace(/_/g, " ")
+                            : "Sin programa"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {l.lead_score && (
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                        l.lead_score === "A" ? "bg-green-500/15 text-green-400 border-green-500/20" :
+                        l.lead_score === "B" ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/20" :
+                        l.lead_score === "C" ? "bg-orange-400/15 text-orange-400 border-orange-400/20" :
+                        "bg-red-500/15 text-red-400 border-red-500/20"
+                      }`}>
+                        {l.lead_score}
+                      </span>
+                    )}
+                    <StatusBadge status={l.estado} />
+                  </div>
                 </div>
-                <StatusBadge status={l.estado} />
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
