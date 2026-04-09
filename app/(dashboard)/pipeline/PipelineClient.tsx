@@ -45,14 +45,14 @@ const COLUMNS: Column[] = [
     title: "Seguimiento",
     headerColor: "bg-yellow-500/20 text-yellow-400",
     borderColor: "border-yellow-500/30",
-    matchEstados: ["seguimiento", "reserva", "adentro_seguimiento"],
+    matchEstados: ["seguimiento", "reserva"],
   },
   {
     key: "cerrado",
     title: "Cerrado",
     headerColor: "bg-green-500/20 text-green-400",
     borderColor: "border-green-500/30",
-    matchEstados: ["cerrado"],
+    matchEstados: ["cerrado", "adentro_seguimiento"],
   },
   {
     key: "perdido",

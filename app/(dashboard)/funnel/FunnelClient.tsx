@@ -70,7 +70,7 @@ export default function FunnelClient({ leads, payments, renewals, team }: Props)
 
     // 4. Cerrados
     const cerrados = filteredLeads.filter(
-      (l) => l.estado === "cerrado"
+      (l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento"
     ).length;
 
     // 5. Pagaron cuota 1

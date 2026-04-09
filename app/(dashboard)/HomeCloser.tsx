@@ -62,6 +62,7 @@ export default function HomeCloser({
           return (
             llamadaDate === today &&
             l.estado !== "cerrado" &&
+            l.estado !== "adentro_seguimiento" &&
             l.estado !== "cancelada" &&
             l.estado !== "broke_cancelado"
           );
@@ -82,7 +83,7 @@ export default function HomeCloser({
   const recentSales = useMemo(
     () =>
       leads
-        .filter((l) => l.estado === "cerrado")
+        .filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento")
         .sort((a, b) =>
           (b.fecha_llamada ?? "").localeCompare(a.fecha_llamada ?? "")
         )

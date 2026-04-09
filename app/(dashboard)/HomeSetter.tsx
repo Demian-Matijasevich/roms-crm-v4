@@ -61,7 +61,7 @@ export default function HomeSetter({
   // Comisiones — 5% of cash from cerrado leads where setter = me
   const comisiones = useMemo(() => {
     const cerrados = leads.filter((l) => {
-      if (l.estado !== "cerrado" || !l.fecha_llamada) return false;
+      if ((l.estado !== "cerrado" && l.estado !== "adentro_seguimiento") || !l.fecha_llamada) return false;
       const d = parseLocalDate(l.fecha_llamada);
       return d >= fiscalStart && d <= fiscalEnd;
     });

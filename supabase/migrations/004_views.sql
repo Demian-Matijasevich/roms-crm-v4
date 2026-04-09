@@ -69,15 +69,15 @@ SELECT
   count(*) AS total_leads,
   count(*) FILTER (WHERE l.estado NOT IN ('pendiente', 'cancelada')) AS presentadas,
   count(*) FILTER (WHERE l.lead_calificado = 'calificado') AS calificadas,
-  count(*) FILTER (WHERE l.estado = 'cerrado') AS cerradas,
+  count(*) FILTER (WHERE l.estado IN ('cerrado', 'adentro_seguimiento')) AS cerradas,
   CASE WHEN count(*) > 0 THEN
     round(count(*) FILTER (WHERE l.estado NOT IN ('pendiente', 'cancelada', 'no_show'))::decimal / count(*) * 100, 1)
   ELSE 0 END AS show_up_rate,
   CASE WHEN count(*) FILTER (WHERE l.estado NOT IN ('pendiente', 'cancelada', 'no_show')) > 0 THEN
-    round(count(*) FILTER (WHERE l.estado = 'cerrado')::decimal / count(*) FILTER (WHERE l.estado NOT IN ('pendiente', 'cancelada', 'no_show')) * 100, 1)
+    round(count(*) FILTER (WHERE l.estado IN ('cerrado', 'adentro_seguimiento'))::decimal / count(*) FILTER (WHERE l.estado NOT IN ('pendiente', 'cancelada', 'no_show')) * 100, 1)
   ELSE 0 END AS cierre_rate,
-  CASE WHEN count(*) FILTER (WHERE l.estado = 'cerrado') > 0 THEN
-    round(avg(l.ticket_total) FILTER (WHERE l.estado = 'cerrado'), 0)
+  CASE WHEN count(*) FILTER (WHERE l.estado IN ('cerrado', 'adentro_seguimiento')) > 0 THEN
+    round(avg(l.ticket_total) FILTER (WHERE l.estado IN ('cerrado', 'adentro_seguimiento')), 0)
   ELSE 0 END AS aov
 FROM leads l
 WHERE l.fecha_llamada IS NOT NULL
@@ -140,14 +140,14 @@ SELECT
   count(*) AS total_agendas,
   count(*) FILTER (WHERE l.estado NOT IN ('pendiente', 'cancelada', 'no_show')) AS presentadas,
   count(*) FILTER (WHERE l.lead_calificado = 'calificado') AS calificadas,
-  count(*) FILTER (WHERE l.estado = 'cerrado') AS cerradas,
+  count(*) FILTER (WHERE l.estado IN ('cerrado', 'adentro_seguimiento')) AS cerradas,
   CASE WHEN count(*) > 0 THEN
     round(count(*) FILTER (WHERE l.estado NOT IN ('pendiente', 'cancelada', 'no_show'))::decimal / count(*) * 100, 1)
   ELSE 0 END AS show_up_pct,
   CASE WHEN count(*) FILTER (WHERE l.estado NOT IN ('pendiente', 'cancelada', 'no_show')) > 0 THEN
-    round(count(*) FILTER (WHERE l.estado = 'cerrado')::decimal / count(*) FILTER (WHERE l.estado NOT IN ('pendiente', 'cancelada', 'no_show')) * 100, 1)
+    round(count(*) FILTER (WHERE l.estado IN ('cerrado', 'adentro_seguimiento'))::decimal / count(*) FILTER (WHERE l.estado NOT IN ('pendiente', 'cancelada', 'no_show')) * 100, 1)
   ELSE 0 END AS cierre_pct,
-  coalesce(round(avg(l.ticket_total) FILTER (WHERE l.estado = 'cerrado'), 0), 0) AS aov
+  coalesce(round(avg(l.ticket_total) FILTER (WHERE l.estado IN ('cerrado', 'adentro_seguimiento')), 0), 0) AS aov
 FROM team_members tm
 JOIN leads l ON l.closer_id = tm.id
 WHERE tm.is_closer = true AND l.fecha_llamada IS NOT NULL
@@ -162,7 +162,7 @@ SELECT
   tm.nombre,
   get_fiscal_month(l.fecha_agendado::date) AS mes_fiscal,
   count(*) AS total_agendas,
-  count(*) FILTER (WHERE l.estado = 'cerrado') AS cerradas
+  count(*) FILTER (WHERE l.estado IN ('cerrado', 'adentro_seguimiento')) AS cerradas
 FROM team_members tm
 JOIN leads l ON l.setter_id = tm.id
 WHERE tm.is_setter = true AND l.fecha_agendado IS NOT NULL

@@ -55,7 +55,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const handleLeadInsert = useCallback((payload: RealtimePostgresChangesPayload<never>) => {
     if (payload.eventType !== "INSERT") return;
     const record = payload.new as Record<string, unknown>;
-    if (record.estado !== "cerrado") return;
+    if (record.estado !== "cerrado" && record.estado !== "adentro_seguimiento") return;
 
     const saleEvent: SaleEvent = {
       id: record.id as string,
@@ -90,7 +90,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     {
       table: "leads",
       event: "INSERT" as const,
-      filter: "estado=eq.cerrado",
+      filter: "estado=in.(cerrado,adentro_seguimiento)",
       callback: handleLeadInsert,
     },
     {

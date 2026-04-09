@@ -48,7 +48,7 @@ function computeWeek(
     return d >= start && d < end;
   });
 
-  const cerrados = weekLeads.filter((l) => l.estado === "cerrado");
+  const cerrados = weekLeads.filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento");
   const ventasCerradasCount = cerrados.length;
   const ventasCerradasCash = cerrados.reduce((s, l) => s + l.ticket_total, 0);
 
@@ -124,7 +124,7 @@ export default function ScorecardClient({
     return closers
       .map((c) => {
         const myLeads = weekLeads.filter((l) => l.closer_id === c.id);
-        const cerrados = myLeads.filter((l) => l.estado === "cerrado");
+        const cerrados = myLeads.filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento");
         const presentados = myLeads.filter(
           (l) =>
             l.estado !== "pendiente" &&

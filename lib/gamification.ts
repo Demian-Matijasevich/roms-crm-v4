@@ -45,7 +45,7 @@ export function getCloserStreaks(leads: Lead[]): Map<string, CloserStreak> {
   const closerDates = new Map<string, { nombre: string; dates: Set<string> }>();
 
   for (const l of leads) {
-    if (l.estado !== "cerrado" || !l.closer_id || !l.fecha_llamada) continue;
+    if ((l.estado !== "cerrado" && l.estado !== "adentro_seguimiento") || !l.closer_id || !l.fecha_llamada) continue;
     const dateStr = l.fecha_llamada.split("T")[0];
 
     if (!closerDates.has(l.closer_id)) {
@@ -146,7 +146,7 @@ export function getCloserBadges(
     return d >= start && d <= end;
   });
 
-  const cerradosFiscal = fiscalLeads.filter((l) => l.estado === "cerrado");
+  const cerradosFiscal = fiscalLeads.filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento");
 
   // ---- Closer del mes ----
   const cashByCloser = new Map<string, number>();
@@ -258,7 +258,7 @@ export function getCloserRankings(
     return d >= start && d <= end;
   });
 
-  const cerrados = fiscalLeads.filter((l) => l.estado === "cerrado");
+  const cerrados = fiscalLeads.filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento");
 
   // Aggregate by closer
   const closerMap = new Map<

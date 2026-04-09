@@ -64,7 +64,7 @@ export async function fetchUtmCampaigns(): Promise<UtmCampaignWithPerformance[]>
 
     const agendas_count = matchingLeads.length;
     const facturacion = matchingLeads
-      .filter((l) => l.estado === "cerrado")
+      .filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento")
       .reduce((sum, l) => sum + (l.ticket_total || 0), 0);
     const cash_collected = matchingLeads.reduce(
       (sum, l) => sum + (cashByLead.get(l.id) || 0),

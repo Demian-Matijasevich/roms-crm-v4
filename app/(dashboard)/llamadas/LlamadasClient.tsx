@@ -42,6 +42,11 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
   const [pagoFilter, setPagoFilter] = useState<string>("todos"); // todos, con_pago, sin_pago, solo_ventas
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showEstadoCuenta, setShowEstadoCuenta] = useState<string | null>(null);
+  const [showRefundForm, setShowRefundForm] = useState<string | null>(null);
+  const [refundMonto, setRefundMonto] = useState("");
+  const [refundMotivo, setRefundMotivo] = useState("");
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundMsg, setRefundMsg] = useState<string | null>(null);
 
   // Inline edit state
   const [editData, setEditData] = useState<Record<string, unknown>>({});
@@ -71,6 +76,46 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
       setSaving(false);
     }
   }, [editData]);
+
+  const handleRefundSubmit = useCallback(async (leadId: string) => {
+    const monto = parseFloat(refundMonto);
+    if (!monto || monto <= 0) {
+      setRefundMsg("Ingresa un monto valido");
+      return;
+    }
+    setRefundLoading(true);
+    setRefundMsg(null);
+    try {
+      const res = await fetch("/api/pagos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lead_id: leadId,
+          numero_cuota: 1,
+          monto_usd: monto,
+          monto_ars: 0,
+          fecha_pago: new Date().toISOString().split("T")[0],
+          estado: "refund",
+          metodo_pago: "transferencia",
+          receptor: refundMotivo || "Refund",
+          es_renovacion: false,
+        }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setRefundMsg("Refund registrado correctamente");
+        setRefundMonto("");
+        setRefundMotivo("");
+        setTimeout(() => window.location.reload(), 800);
+      } else {
+        setRefundMsg(`Error: ${json.error || "desconocido"}`);
+      }
+    } catch {
+      setRefundMsg("Error de red");
+    } finally {
+      setRefundLoading(false);
+    }
+  }, [refundMonto, refundMotivo]);
 
   const monthOptions = useMemo(() => getFiscalMonthOptions(12), []);
 
@@ -134,7 +179,7 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
       if (pagoFilter !== "todos") {
         const leadPayments = paymentsByLead.get(lead.id) || [];
         const hasPago = leadPayments.some(p => p.estado === "pagado" && p.monto_usd > 0);
-        if (pagoFilter === "solo_ventas" && lead.estado !== "cerrado") return false;
+        if (pagoFilter === "solo_ventas" && lead.estado !== "cerrado" && lead.estado !== "adentro_seguimiento") return false;
         if (pagoFilter === "con_pago" && !hasPago) return false;
         if (pagoFilter === "sin_pago" && hasPago) return false;
       }
@@ -600,6 +645,21 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
               >
                 {showEstadoCuenta === lead.id ? "Cerrar Estado de Cuenta" : "Estado de Cuenta"}
               </button>
+              <button
+                onClick={() => {
+                  setShowRefundForm(showRefundForm === lead.id ? null : lead.id);
+                  setRefundMonto("");
+                  setRefundMotivo("");
+                  setRefundMsg(null);
+                }}
+                className={`text-sm font-medium px-4 py-2 rounded-lg transition-colors ${
+                  showRefundForm === lead.id
+                    ? "bg-red-500 text-white"
+                    : "bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25"
+                }`}
+              >
+                {showRefundForm === lead.id ? "Cerrar Refund" : "Refund"}
+              </button>
               <a
                 href="/form/llamada"
                 className="text-sm font-medium border border-[var(--card-border)] text-[var(--muted)] hover:text-[var(--foreground)] hover:border-[var(--muted)] px-4 py-2 rounded-lg transition-colors"
@@ -614,12 +674,62 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
               </a>
             </div>
 
+            {/* Inline Refund Form */}
+            {showRefundForm === lead.id && (
+              <div className="mt-4 pt-4 border-t border-[var(--card-border)] space-y-4">
+                <h4 className="text-sm font-semibold text-red-400">Cargar Refund</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs text-[var(--muted)] mb-1 block">Monto a devolver (USD) *</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)] text-sm">$</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={50}
+                        value={refundMonto}
+                        onChange={(e) => setRefundMonto(e.target.value)}
+                        placeholder="0"
+                        className={`${inputClass} pl-7`}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-[var(--muted)] mb-1 block">Motivo del refund</label>
+                    <textarea
+                      value={refundMotivo}
+                      onChange={(e) => setRefundMotivo(e.target.value)}
+                      rows={2}
+                      placeholder="Razon del refund..."
+                      className={`${inputClass} w-full resize-none`}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => handleRefundSubmit(lead.id)}
+                    disabled={refundLoading}
+                    className="text-sm font-medium bg-red-500 hover:bg-red-600 text-white px-5 py-2 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {refundLoading ? "Procesando..." : "Confirmar Refund"}
+                  </button>
+                  {refundMsg && (
+                    <span className={`text-sm ${refundMsg.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
+                      {refundMsg}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Inline Estado de Cuenta */}
             {showEstadoCuenta === lead.id && (() => {
               const leadPayments = paymentsByLead.get(lead.id) || [];
               const pagados = leadPayments.filter((p) => p.estado === "pagado");
               const pendientes = leadPayments.filter((p) => p.estado === "pendiente");
               const perdidos = leadPayments.filter((p) => p.estado === "perdido");
+              const refunds = leadPayments.filter((p) => p.estado === "refund");
+              const totalRefund = refunds.reduce((sum, p) => sum + p.monto_usd, 0);
               const totalPagado = pagados.reduce((sum, p) => sum + p.monto_usd, 0);
               const totalPendiente = pendientes.reduce((sum, p) => sum + p.monto_usd, 0);
               const totalPerdido = perdidos.reduce((sum, p) => sum + p.monto_usd, 0);
@@ -696,7 +806,8 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                                 <td className={`px-3 py-2 font-medium ${
                                   p.estado === "pagado" ? "text-green-400" :
                                   p.estado === "pendiente" ? "text-yellow-400" :
-                                  p.estado === "perdido" ? "text-red-400" : ""
+                                  p.estado === "perdido" ? "text-red-400" :
+                                  p.estado === "refund" ? "text-orange-400" : ""
                                 }`}>
                                   {p.estado.charAt(0).toUpperCase() + p.estado.slice(1)}
                                 </td>
@@ -722,8 +833,14 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                     </div>
                     {totalPerdido > 0 && (
                       <div className="flex justify-between">
-                        <span className="text-[var(--muted)]">Perdido / Refund</span>
+                        <span className="text-[var(--muted)]">Perdido</span>
                         <span className="font-bold text-red-400">{formatUSD(totalPerdido)}</span>
+                      </div>
+                    )}
+                    {totalRefund > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-[var(--muted)]">Refunds</span>
+                        <span className="font-bold text-orange-400">-{formatUSD(totalRefund)}</span>
                       </div>
                     )}
                     <div className="flex justify-between border-t border-[var(--card-border)] pt-2 mt-2">

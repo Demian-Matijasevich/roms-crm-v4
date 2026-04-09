@@ -42,12 +42,13 @@ export async function POST(req: NextRequest) {
     }
 
     // If cerrado/reserva and has payment data, create payment
-    const isCerrado = estado === "cerrado" || estado === "reserva";
+    const isCerrado = estado === "cerrado" || estado === "reserva" || estado === "adentro_seguimiento";
     if (isCerrado && body.payment) {
       const paymentData = body.payment as {
         monto_usd?: number;
         metodo_pago?: string;
         receptor?: string;
+        comprobante_url?: string;
       };
 
       if (paymentData.monto_usd && paymentData.monto_usd > 0) {
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
           estado: "pagado",
           metodo_pago: (paymentData.metodo_pago as MetodoPago) || null,
           receptor: paymentData.receptor || null,
-          comprobante_url: null,
+          comprobante_url: paymentData.comprobante_url || null,
           cobrador_id: null,
           verificado: false,
           es_renovacion: false,

@@ -74,10 +74,10 @@ export default function ComparativaClient({ monthlyCash, leads }: Props) {
     const bLeads = getMonthLeads(labelB);
 
     const cierreA = aLeads.length > 0
-      ? (aLeads.filter((l) => l.estado === "cerrado").length / aLeads.length) * 100
+      ? (aLeads.filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento").length / aLeads.length) * 100
       : 0;
     const cierreB = bLeads.length > 0
-      ? (bLeads.filter((l) => l.estado === "cerrado").length / bLeads.length) * 100
+      ? (bLeads.filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento").length / bLeads.length) * 100
       : 0;
 
     return { cierreA, cierreB, llamadasA: aLeads.length, llamadasB: bLeads.length };

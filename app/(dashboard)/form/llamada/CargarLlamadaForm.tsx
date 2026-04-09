@@ -40,7 +40,7 @@ const CALIFICACION_OPTIONS = [
   { value: "podria", label: "Podria" },
 ];
 
-const CERRADO_ESTADOS: LeadEstado[] = ["cerrado", "reserva"];
+const CERRADO_ESTADOS: LeadEstado[] = ["cerrado", "reserva", "adentro_seguimiento"];
 
 function isCerrado(estado: string): boolean {
   return CERRADO_ESTADOS.includes(estado as LeadEstado);
@@ -73,6 +73,7 @@ export default function CargarLlamadaForm({ leads, team, session }: Props) {
   const [cashDia1, setCashDia1] = useState("");
   const [metodoPago, setMetodoPago] = useState("");
   const [receptor, setReceptor] = useState("");
+  const [comprobanteFile, setComprobanteFile] = useState<File | null>(null);
 
   // Suppress unused variable warnings
   void team;
@@ -129,10 +130,32 @@ export default function CargarLlamadaForm({ leads, team, session }: Props) {
     if (isCerrado(estado)) {
       body.plan_pago = planPago || undefined;
       body.ticket_total = ticketTotal ? parseFloat(ticketTotal) : 0;
+
+      // Upload comprobante if present
+      let comprobanteUrl: string | undefined;
+      if (comprobanteFile) {
+        const formData = new FormData();
+        formData.append("file", comprobanteFile);
+        formData.append("lead_id", selectedLead.id);
+        try {
+          const uploadRes = await fetch("/api/pagos?upload=1", {
+            method: "POST",
+            body: formData,
+          });
+          const uploadJson = await uploadRes.json();
+          if (uploadJson.ok && uploadJson.url) {
+            comprobanteUrl = uploadJson.url;
+          }
+        } catch {
+          // Continue without comprobante if upload fails
+        }
+      }
+
       body.payment = {
         monto_usd: cashDia1 ? parseFloat(cashDia1) : 0,
         metodo_pago: metodoPago || undefined,
         receptor: receptor || undefined,
+        comprobante_url: comprobanteUrl || undefined,
       };
     }
 
@@ -175,6 +198,7 @@ export default function CargarLlamadaForm({ leads, team, session }: Props) {
     setCashDia1("");
     setMetodoPago("");
     setReceptor("");
+    setComprobanteFile(null);
     setError("");
     setSubmitted(false);
   }
@@ -486,6 +510,22 @@ export default function CargarLlamadaForm({ leads, team, session }: Props) {
                   <option key={r} value={r}>{r}</option>
                 ))}
               </select>
+            </div>
+
+            {/* Comprobante */}
+            <div>
+              <label className={labelClass}>Comprobante de pago (opcional)</label>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                onChange={(e) => setComprobanteFile(e.target.files?.[0] || null)}
+                className={`${inputClass} file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-[var(--purple)]/15 file:text-[var(--purple-light)] hover:file:bg-[var(--purple)]/25`}
+              />
+              {comprobanteFile && (
+                <p className="text-xs text-[var(--muted)] mt-1">
+                  Archivo: {comprobanteFile.name} ({(comprobanteFile.size / 1024).toFixed(0)} KB)
+                </p>
+              )}
             </div>
           </div>
 

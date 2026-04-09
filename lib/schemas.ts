@@ -32,7 +32,7 @@ export const pagoSchema = z.object({
   monto_usd: z.number().min(0).default(0),
   monto_ars: z.number().min(0).default(0),
   fecha_pago: z.string(),
-  estado: z.enum(["pendiente", "pagado", "perdido"]).default("pagado"),
+  estado: z.enum(["pendiente", "pagado", "perdido", "refund"]).default("pagado"),
   metodo_pago: safeString(30),
   receptor: safeString(50),
   es_renovacion: z.boolean().default(false),
