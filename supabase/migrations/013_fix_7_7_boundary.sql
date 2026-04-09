@@ -1,0 +1,2 @@
+-- No 7-7 boundary logic needed for ROMS (standard calendar months)
+-- Kept as empty migration to preserve numbering

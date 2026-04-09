@@ -1,0 +1,2 @@
+-- No airtable indexes needed for ROMS CRM (data comes from Google Sheets)
+-- Kept as empty migration to preserve numbering

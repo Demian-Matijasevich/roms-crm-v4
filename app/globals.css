@@ -1,0 +1,324 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: #0d0d0f;
+  --color-foreground: #e5e5e5;
+  --color-card-bg: #18181b;
+  --color-card-border: #27272a;
+  --color-purple: #3b82f6;
+  --color-purple-light: #60a5fa;
+  --color-purple-dark: #2563eb;
+  --color-green: #22c55e;
+  --color-red: #ef4444;
+  --color-yellow: #eab308;
+  --color-muted: #71717a;
+}
+
+:root {
+  --background: #0d0d0f;
+  --foreground: #e5e5e5;
+  --card-bg: #18181b;
+  --card-border: #27272a;
+  --purple: #3b82f6;
+  --purple-light: #60a5fa;
+  --purple-dark: #2563eb;
+  --green: #22c55e;
+  --red: #ef4444;
+  --yellow: #eab308;
+  --muted: #71717a;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* ===== ANIMATIONS ===== */
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInRight {
+  0% { transform: translateX(100%); opacity: 0; }
+  60% { transform: translateX(-5%); }
+  100% { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes fillBar {
+  from { width: 0; }
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 5px rgba(59, 130, 246, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.6); }
+}
+
+@keyframes spinner {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes pinPop {
+  0% { transform: scale(0.8); opacity: 0; }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.4s ease-out both;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.5s ease-out both;
+}
+
+.animate-fill-bar {
+  animation: fillBar 0.8s ease-out both;
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradientShift 6s ease infinite;
+}
+
+.animate-spinner {
+  animation: spinner 0.8s linear infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-pin-pop {
+  animation: pinPop 0.2s ease-out both;
+}
+
+/* Sidebar active glow */
+.sidebar-item-active {
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.25);
+  background: rgba(59, 130, 246, 0.12) !important;
+}
+
+/* Table row hover */
+tr.hover-row {
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+tr.hover-row:hover {
+  transform: scale(1.002);
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+/* Progress bar animation */
+.progress-bar-animated {
+  animation: fillBar 0.8s ease-out both;
+}
+
+/* ===== MOBILE OPTIMIZATION ===== */
+
+@media (max-width: 360px) {
+  .grid-cols-2 { grid-template-columns: 1fr !important; }
+}
+
+@media (max-width: 768px) {
+  button, select, a { min-height: 44px; }
+  input, textarea { font-size: 16px !important; }
+
+  /* Touch-friendly */
+  * { touch-action: manipulation; }
+
+  /* Bottom nav spacing */
+  main { padding-bottom: 80px !important; }
+}
+
+/* Bottom navigation bar — mobile only */
+.bottom-nav {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 64px;
+    background: var(--card-bg);
+    border-top: 1px solid var(--card-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    z-index: 40;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  .bottom-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    color: var(--muted);
+    transition: color 0.2s, background-color 0.2s;
+    min-height: 44px;
+    min-width: 44px;
+    font-size: 10px;
+    text-decoration: none;
+  }
+
+  .bottom-nav-item.active {
+    color: var(--purple-light);
+    background: rgba(59, 130, 246, 0.1);
+  }
+
+  .bottom-nav-item span.nav-icon {
+    font-size: 20px;
+    line-height: 1;
+  }
+}
+
+/* ===== LOGIN STYLES ===== */
+
+.login-bg {
+  background: linear-gradient(135deg, #0a1628 0%, #0d1b3e 50%, #0a0e1a 100%);
+  min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+.login-bg::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle at 30% 40%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
+              radial-gradient(circle at 70% 60%, rgba(37, 99, 235, 0.06) 0%, transparent 50%);
+  animation: gradientShift 12s ease infinite;
+  background-size: 200% 200%;
+}
+
+.login-brand {
+  background: linear-gradient(135deg, #60a5fa, #3b82f6, #2563eb);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.pin-box {
+  width: 56px;
+  height: 64px;
+  border-radius: 12px;
+  background: rgba(24, 24, 27, 0.8);
+  border: 2px solid var(--card-border);
+  color: white;
+  font-size: 24px;
+  font-weight: 700;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  caret-color: transparent;
+}
+
+.pin-box:focus {
+  border-color: var(--purple);
+  box-shadow: 0 0 16px rgba(59, 130, 246, 0.3);
+}
+
+.pin-box.filled {
+  border-color: var(--purple-light);
+  animation: pinPop 0.2s ease-out;
+}
+
+@media (max-width: 768px) {
+  .pin-box {
+    width: 64px;
+    height: 72px;
+    font-size: 28px;
+  }
+}
+
+/* Print styles for PDF generation */
+@media print {
+  body {
+    background: white !important;
+    color: #111 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Hide sidebar and nav */
+  aside,
+  nav {
+    display: none !important;
+  }
+
+  main {
+    margin-left: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Override dark theme for print via CSS variables */
+  :root {
+    --background: #ffffff;
+    --foreground: #111111;
+    --card-bg: #ffffff;
+    --card-border: #dddddd;
+    --muted: #666666;
+    --purple: #2563eb;
+    --purple-light: #2563eb;
+    --green: #16a34a;
+    --red: #dc2626;
+    --yellow: #ca8a04;
+  }
+
+  * {
+    color: #111 !important;
+    border-color: #ddd !important;
+  }
+
+  table {
+    border-collapse: collapse;
+  }
+
+  th, td {
+    border: 1px solid #ddd !important;
+    padding: 6px 10px !important;
+  }
+
+  /* Estado de Cuenta specific */
+  .estado-cuenta-page {
+    background: white !important;
+    color: #111 !important;
+    padding: 40px !important;
+  }
+}
