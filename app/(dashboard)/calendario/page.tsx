@@ -74,7 +74,7 @@ export default async function CalendarioPage() {
   const leads: CalendarLead[] = (leadsRes.data ?? []).map((l: Record<string, unknown>) => ({
     id: l.id as string,
     nombre: l.nombre as string,
-    fecha_llamada: l.fecha_llamada as string,
+    fecha_llamada: ((l.fecha_llamada as string) || "").split("T")[0],
     estado: l.estado as string,
     instagram: (l.instagram as string) || null,
     telefono: (l.telefono as string) || null,

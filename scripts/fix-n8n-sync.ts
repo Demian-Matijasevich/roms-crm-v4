@@ -99,6 +99,7 @@ for (let i = 0; i < rows.length; i++) {
 
   const ticketTotal = parseFloat(r["Ticket Total"] || r["TicketTotal"] || "0") || 0;
   const cashDia1 = parseFloat(r["Cash Día 1"] || r["Cash Dia 1"] || "0") || 0;
+  const cashTotal = parseFloat(r["Cash Total"] || "0") || 0;
   const pago1 = parseFloat(r["Pago 1"] || "0") || 0;
   const pago2 = parseFloat(r["Pago 2"] || "0") || 0;
   const pago3 = parseFloat(r["Pago 3"] || "0") || 0;
@@ -115,7 +116,7 @@ for (let i = 0; i < rows.length; i++) {
     setter_id: findTeamFuzzy(r["Setter"]),
     closer_id: findTeamFuzzy(r["Closer"]),
     programa_pitcheado: mapPrograma(r["Programa"]),
-    ticket_total: ticketTotal || cashDia1 || pago1,
+    ticket_total: ticketTotal || cashTotal || cashDia1 || pago1,
     plan_pago: (r["Plan de Pago"] || "").toLowerCase().includes("full") ? "paid_in_full" : (r["Plan de Pago"] || "").includes("2") ? "2_cuotas" : (r["Plan de Pago"] || "").includes("3") ? "3_cuotas" : null,
     contexto_setter: r["Contexto Setter"] || null,
     reporte_general: r["Reporte General"] || r["Contexto Closer"] || null,
@@ -142,12 +143,12 @@ for (let i = 0; i < rows.length; i++) {
   } catch(e) { errors++; continue; }
 
   // Then: sync payments (delete + recreate to stay in sync with Sheets)
-  if (leadId && (pago1 > 0 || pago2 > 0 || pago3 > 0 || cashDia1 > 0)) {
+  if (leadId && (pago1 > 0 || pago2 > 0 || pago3 > 0 || cashDia1 > 0 || cashTotal > 0)) {
     try { await this.helpers.httpRequest({ method: "DELETE", url: SB_URL + "/rest/v1/payments?lead_id=eq." + leadId, headers: sbHeaders }); } catch(e) {}
     const ep1 = (r["Estado Pago 1"] || "").toLowerCase();
     const ep2 = (r["Estado Pago 2"] || "").toLowerCase();
     const ep3 = (r["Estado Pago 3"] || "").toLowerCase();
-    const monto1 = pago1 > 0 ? pago1 : cashDia1;
+    const monto1 = pago1 > 0 ? pago1 : (cashDia1 > 0 ? cashDia1 : cashTotal);
     const payments = [];
     if (monto1 > 0) payments.push({ lead_id: leadId, numero_cuota: 1, monto_usd: monto1, estado: ep1.includes("pagado") ? "pagado" : ep1.includes("perdido") ? "perdido" : "pendiente", fecha_pago: r["Fecha Pago 1"] || r["Fecha Llamada"] || null });
     if (pago2 > 0) payments.push({ lead_id: leadId, numero_cuota: 2, monto_usd: pago2, estado: ep2.includes("pagado") ? "pagado" : ep2.includes("perdido") ? "perdido" : "pendiente", fecha_pago: r["Fecha Pago 2"] || null });
