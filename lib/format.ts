@@ -26,7 +26,11 @@ export function formatPctRaw(value: number, decimals: number = 1): string {
 
 export function formatDate(date: string | null): string {
   if (!date) return "—";
-  return new Date(date).toLocaleDateString("es-AR", {
+  // Parse as local date to avoid timezone shift (2026-04-19T00:00:00+00:00 → shows 18 in -3 TZ)
+  const dateStr = date.split("T")[0];
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const local = new Date(y, m - 1, d);
+  return local.toLocaleDateString("es-AR", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -35,6 +39,11 @@ export function formatDate(date: string | null): string {
 
 export function daysUntil(date: string | null): number | null {
   if (!date) return null;
-  const diff = new Date(date).getTime() - Date.now();
+  const dateStr = date.split("T")[0];
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const target = new Date(y, m - 1, d);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = target.getTime() - today.getTime();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
