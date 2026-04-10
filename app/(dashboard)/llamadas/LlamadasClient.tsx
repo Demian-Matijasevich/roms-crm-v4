@@ -439,8 +439,9 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                   Nombre<SortIndicator active={sortKey === "nombre"} dir={sortKey === "nombre" ? sortDir : null} />
                 </th>
                 <th className="px-4 py-3 text-[var(--muted)] font-medium">Instagram</th>
+                <th className="px-4 py-3 text-[var(--muted)] font-medium">F. Agenda</th>
                 <th className={thSortClass} onClick={() => toggleSort("fecha")}>
-                  Fecha<SortIndicator active={sortKey === "fecha"} dir={sortKey === "fecha" ? sortDir : null} />
+                  F. Llamada<SortIndicator active={sortKey === "fecha"} dir={sortKey === "fecha" ? sortDir : null} />
                 </th>
                 <th className="px-4 py-3 text-[var(--muted)] font-medium">Estado</th>
                 <th className="px-4 py-3 text-[var(--muted)] font-medium">Closer</th>
@@ -481,6 +482,9 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                     </td>
                     <td className="px-4 py-3 text-[var(--muted)]">
                       {lead.instagram ? `@${lead.instagram.replace(/^@/, "")}` : "---"}
+                    </td>
+                    <td className="px-4 py-3 text-[var(--muted)]">
+                      {formatDate(lead.fecha_agendado)}
                     </td>
                     <td className="px-4 py-3 text-[var(--muted)]">
                       {formatDate(lead.fecha_llamada)}
