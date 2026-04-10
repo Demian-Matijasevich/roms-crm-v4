@@ -83,6 +83,18 @@ function findTeam(name) {
   return teamMap[name.toLowerCase()] || null;
 }
 
+// Normalize receptor names to canonical form
+function normalizeReceptor(raw) {
+  if (!raw) return null;
+  const s = raw.trim().toLowerCase();
+  if (!s) return null;
+  const map = {
+    juanma: "JUANMA", "juanma wise": "JUANMA", juanbma: "JUANMA",
+    fran: "FRAN", valen: "VALEN", manual: "Manual"
+  };
+  return map[s] || raw.trim();
+}
+
 // Fetch existing leads
 const existing = await sbGet.call(this, "/rest/v1/leads?select=id,sheets_row_index&sheets_row_index=not.is.null");
 const existingMap = {};
@@ -142,19 +154,43 @@ for (let i = 0; i < rows.length; i++) {
     }
   } catch(e) { errors++; continue; }
 
-  // Then: sync payments (delete + recreate to stay in sync with Sheets)
+  // Read "Quién Recibe" column and normalize receptor
+  const quienRecibe = normalizeReceptor(r["Quién Recibe"] || r["Quién recibe"] || r["Quien Recibe"] || r["quien recibe"] || null);
+
+  // Sync payments using DEDUP (never delete existing payments)
   if (leadId && (pago1 > 0 || pago2 > 0 || pago3 > 0 || cashDia1 > 0 || cashTotal > 0)) {
-    try { await this.helpers.httpRequest({ method: "DELETE", url: SB_URL + "/rest/v1/payments?lead_id=eq." + leadId, headers: sbHeaders }); } catch(e) {}
+    // Get existing payments for this lead to avoid duplicates
+    let existingPays = [];
+    try {
+      existingPays = await sbGet.call(this, "/rest/v1/payments?lead_id=eq." + leadId + "&select=id,monto_usd,numero_cuota,fecha_pago,receptor");
+    } catch(e) {}
+
+    // Build dedup set: lead_id|rounded_monto|fecha
+    const existSet = new Set();
+    for (const ep of existingPays) {
+      existSet.add(Math.round(ep.monto_usd) + "|" + (ep.fecha_pago || "nodate"));
+    }
+
+    // Preserve existing receptor if Sheets has none
+    let existingReceptor = null;
+    for (const ep of existingPays) {
+      if (ep.receptor) { existingReceptor = normalizeReceptor(ep.receptor); break; }
+    }
+    const finalReceptor = quienRecibe || existingReceptor || null;
+
     const ep1 = (r["Estado Pago 1"] || "").toLowerCase();
     const ep2 = (r["Estado Pago 2"] || "").toLowerCase();
     const ep3 = (r["Estado Pago 3"] || "").toLowerCase();
     const monto1 = pago1 > 0 ? pago1 : (cashDia1 > 0 ? cashDia1 : cashTotal);
     const payments = [];
-    if (monto1 > 0) payments.push({ lead_id: leadId, numero_cuota: 1, monto_usd: monto1, estado: ep1.includes("pagado") ? "pagado" : ep1.includes("perdido") ? "perdido" : "pendiente", fecha_pago: r["Fecha Pago 1"] || r["Fecha Llamada"] || null });
-    if (pago2 > 0) payments.push({ lead_id: leadId, numero_cuota: 2, monto_usd: pago2, estado: ep2.includes("pagado") ? "pagado" : ep2.includes("perdido") ? "perdido" : "pendiente", fecha_pago: r["Fecha Pago 2"] || null });
-    if (pago3 > 0) payments.push({ lead_id: leadId, numero_cuota: 3, monto_usd: pago3, estado: ep3.includes("pagado") ? "pagado" : ep3.includes("perdido") ? "perdido" : "pendiente", fecha_pago: r["Fecha Pago 3"] || null });
+    if (monto1 > 0) payments.push({ lead_id: leadId, numero_cuota: 1, monto_usd: monto1, estado: ep1.includes("pagado") ? "pagado" : ep1.includes("perdido") ? "perdido" : "pendiente", fecha_pago: r["Fecha Pago 1"] || r["Fecha Llamada"] || null, receptor: finalReceptor });
+    if (pago2 > 0) payments.push({ lead_id: leadId, numero_cuota: 2, monto_usd: pago2, estado: ep2.includes("pagado") ? "pagado" : ep2.includes("perdido") ? "perdido" : "pendiente", fecha_pago: r["Fecha Pago 2"] || null, receptor: finalReceptor });
+    if (pago3 > 0) payments.push({ lead_id: leadId, numero_cuota: 3, monto_usd: pago3, estado: ep3.includes("pagado") ? "pagado" : ep3.includes("perdido") ? "perdido" : "pendiente", fecha_pago: r["Fecha Pago 3"] || null, receptor: finalReceptor });
     for (const p of payments) {
-      try { await sbPost.call(this, "/rest/v1/payments", p); } catch(e) {}
+      // Dedup: skip if same monto+fecha already exists for this lead
+      const dedupKey = Math.round(p.monto_usd) + "|" + (p.fecha_pago || "nodate");
+      if (existSet.has(dedupKey)) continue;
+      try { await sbPost.call(this, "/rest/v1/payments", p); existSet.add(dedupKey); } catch(e) {}
     }
   }
 }

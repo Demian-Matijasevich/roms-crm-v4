@@ -19,7 +19,8 @@ export async function fetchLeads(): Promise<LeadWithTeam[]> {
       setter:team_members!leads_setter_id_fkey(*),
       closer:team_members!leads_closer_id_fkey(*)
     `)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .range(0, 4999);
 
   if (error) {
     console.error("[fetchLeads]", error.message);
