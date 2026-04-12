@@ -166,7 +166,11 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
       const cuotasPagadas = pagados.filter((p) => p.numero_cuota > 1).length;
       const saldoPendiente = ticketTotal - cashCollected;
       const receptor = leadPayments.length > 0 ? leadPayments[0].receptor : null;
-      return { cashCollected, cuotasPagadas, saldoPendiente, receptor };
+      const fechaPago = pagados
+        .map((p) => p.fecha_pago)
+        .filter(Boolean)
+        .sort()[0] || null;
+      return { cashCollected, cuotasPagadas, saldoPendiente, receptor, fechaPago };
     },
     [paymentsByLead]
   );
@@ -443,6 +447,7 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                 <th className={thSortClass} onClick={() => toggleSort("fecha")}>
                   F. Llamada<SortIndicator active={sortKey === "fecha"} dir={sortKey === "fecha" ? sortDir : null} />
                 </th>
+                <th className="px-4 py-3 text-[var(--muted)] font-medium">F. Pago</th>
                 <th className="px-4 py-3 text-[var(--muted)] font-medium">Estado</th>
                 <th className="px-4 py-3 text-[var(--muted)] font-medium">Closer</th>
                 <th className="px-4 py-3 text-[var(--muted)] font-medium">Setter</th>
@@ -463,7 +468,7 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
             <tbody>
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center text-[var(--muted)]">
+                  <td colSpan={13} className="px-4 py-12 text-center text-[var(--muted)]">
                     No se encontraron leads con esos filtros.
                   </td>
                 </tr>
@@ -488,6 +493,9 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                     </td>
                     <td className="px-4 py-3 text-[var(--muted)]">
                       {formatDate(lead.fecha_llamada)}
+                    </td>
+                    <td className="px-4 py-3 text-[var(--muted)]">
+                      {audit.fechaPago ? formatDate(audit.fechaPago) : "---"}
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge
@@ -537,7 +545,7 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
             {filtered.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 border-[var(--purple)]/30 bg-[var(--purple)]/5 font-semibold">
-                  <td className="px-4 py-3" colSpan={6}>
+                  <td className="px-4 py-3" colSpan={7}>
                     TOTALES ({filtered.length} leads)
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-yellow-400">

@@ -158,7 +158,11 @@ for (let i = 0; i < rows.length; i++) {
   const quienRecibe = normalizeReceptor(r["Quién Recibe"] || r["Quién recibe"] || r["Quien Recibe"] || r["quien recibe"] || null);
 
   // Sync payments using DEDUP (never delete existing payments)
-  if (leadId && (pago1 > 0 || pago2 > 0 || pago3 > 0 || cashDia1 > 0 || cashTotal > 0)) {
+  // IMPORTANT: Only create payments for leads that are actual sales
+  const leadEstado = mapEstado(r["Estado"] || "");
+  const isVenta = leadEstado === "cerrado" || leadEstado === "adentro_seguimiento";
+
+  if (leadId && isVenta && (pago1 > 0 || pago2 > 0 || pago3 > 0 || cashDia1 > 0 || cashTotal > 0)) {
     // Get existing payments for this lead to avoid duplicates
     let existingPays = [];
     try {
@@ -183,7 +187,9 @@ for (let i = 0; i < rows.length; i++) {
     const ep3 = (r["Estado Pago 3"] || "").toLowerCase();
     const monto1 = pago1 > 0 ? pago1 : (cashDia1 > 0 ? cashDia1 : cashTotal);
     const payments = [];
-    if (monto1 > 0) payments.push({ lead_id: leadId, numero_cuota: 1, monto_usd: monto1, estado: ep1.includes("pagado") ? "pagado" : ep1.includes("perdido") ? "perdido" : "pendiente", fecha_pago: r["Fecha Pago 1"] || r["Fecha Llamada"] || null, receptor: finalReceptor });
+    // Payment 1: Use "Fecha Pago 1" as primary date. Only fallback to "Fecha Llamada" if lead is cerrado AND has cashDia1 (same-day payment)
+    const fechaPago1 = r["Fecha Pago 1"] || (leadEstado === "cerrado" && cashDia1 > 0 ? r["Fecha Llamada"] : null) || null;
+    if (monto1 > 0) payments.push({ lead_id: leadId, numero_cuota: 1, monto_usd: monto1, estado: ep1.includes("pagado") ? "pagado" : ep1.includes("perdido") ? "perdido" : "pendiente", fecha_pago: fechaPago1, receptor: finalReceptor });
     if (pago2 > 0) payments.push({ lead_id: leadId, numero_cuota: 2, monto_usd: pago2, estado: ep2.includes("pagado") ? "pagado" : ep2.includes("perdido") ? "perdido" : "pendiente", fecha_pago: r["Fecha Pago 2"] || null, receptor: finalReceptor });
     if (pago3 > 0) payments.push({ lead_id: leadId, numero_cuota: 3, monto_usd: pago3, estado: ep3.includes("pagado") ? "pagado" : ep3.includes("perdido") ? "perdido" : "pendiente", fecha_pago: r["Fecha Pago 3"] || null, receptor: finalReceptor });
     for (const p of payments) {
