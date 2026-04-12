@@ -31,6 +31,18 @@ export interface CalendarPayment {
   telefono: string | null;
 }
 
+export interface CalendarPaidPayment {
+  id: string;
+  lead_id: string | null;
+  client_id: string | null;
+  numero_cuota: number;
+  monto_usd: number;
+  fecha_pago: string;
+  nombre: string | null;
+  instagram: string | null;
+  telefono: string | null;
+}
+
 export interface CalendarRenewal {
   id: string;
   nombre: string;
@@ -48,6 +60,7 @@ export interface CalendarRenewal {
 interface Props {
   leads: CalendarLead[];
   payments: CalendarPayment[];
+  paidPayments: CalendarPaidPayment[];
   renewals: CalendarRenewal[];
 }
 
@@ -61,6 +74,7 @@ interface DayData {
   cuotas: CalendarPayment[];
   renovaciones: CalendarRenewal[];
   sales: CalendarLead[];
+  paidToday: CalendarPaidPayment[];
   cashCollected: number;
 }
 
@@ -69,6 +83,7 @@ function getMonthGrid(
   month: number,
   leads: CalendarLead[],
   payments: CalendarPayment[],
+  paidPayments: CalendarPaidPayment[],
   renewals: CalendarRenewal[]
 ): DayData[] {
   const firstDay = new Date(year, month, 1);
@@ -83,13 +98,13 @@ function getMonthGrid(
   // Fill leading days from previous month
   for (let i = startDow - 1; i >= 0; i--) {
     const d = new Date(year, month, -i);
-    days.push(makeDayData(d, false, leads, payments, renewals));
+    days.push(makeDayData(d, false, leads, payments, paidPayments, renewals));
   }
 
   // Current month days
   for (let d = 1; d <= lastDay.getDate(); d++) {
     const date = new Date(year, month, d);
-    days.push(makeDayData(date, true, leads, payments, renewals));
+    days.push(makeDayData(date, true, leads, payments, paidPayments, renewals));
   }
 
   // Fill trailing days
@@ -97,7 +112,7 @@ function getMonthGrid(
   if (remaining < 7) {
     for (let i = 1; i <= remaining; i++) {
       const d = new Date(year, month + 1, i);
-      days.push(makeDayData(d, false, leads, payments, renewals));
+      days.push(makeDayData(d, false, leads, payments, paidPayments, renewals));
     }
   }
 
@@ -109,6 +124,7 @@ function makeDayData(
   isCurrentMonth: boolean,
   leads: CalendarLead[],
   payments: CalendarPayment[],
+  paidPayments: CalendarPaidPayment[],
   renewals: CalendarRenewal[]
 ): DayData {
   const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -124,7 +140,8 @@ function makeDayData(
       l.estado !== "cancelada" &&
       l.estado !== "broke_cancelado"
   );
-  const cashCollected = sales.reduce((s, l) => s + (l.ticket_total || 0), 0);
+  const paidToday = paidPayments.filter((p) => p.fecha_pago === dateStr);
+  const cashCollected = paidToday.reduce((s, p) => s + (p.monto_usd || 0), 0);
 
   return {
     date: dateStr,
@@ -134,6 +151,7 @@ function makeDayData(
     cuotas: payments.filter((p) => p.fecha_vencimiento === dateStr),
     renovaciones: renewals.filter((r) => r.fecha_vencimiento === dateStr),
     sales,
+    paidToday,
     cashCollected,
   };
 }
@@ -182,15 +200,15 @@ function ContactLinks({
   );
 }
 
-export default function CalendarioClient({ leads, payments, renewals }: Props) {
+export default function CalendarioClient({ leads, payments, paidPayments, renewals }: Props) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   const grid = useMemo(
-    () => getMonthGrid(year, month, leads, payments, renewals),
-    [year, month, leads, payments, renewals]
+    () => getMonthGrid(year, month, leads, payments, paidPayments, renewals),
+    [year, month, leads, payments, paidPayments, renewals]
   );
 
   const selectedDayData = useMemo(() => {

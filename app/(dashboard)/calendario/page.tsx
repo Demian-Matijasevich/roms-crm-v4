@@ -21,7 +21,7 @@ export default async function CalendarioPage() {
   const startStr = `${rangeStart.getFullYear()}-${String(rangeStart.getMonth() + 1).padStart(2, "0")}-01`;
   const endStr = `${rangeEnd.getFullYear()}-${String(rangeEnd.getMonth() + 1).padStart(2, "0")}-${String(rangeEnd.getDate()).padStart(2, "0")}`;
 
-  const [leadsRes, paymentsRes, renewalsRes] = await Promise.all([
+  const [leadsRes, paymentsRes, paidPaymentsRes, renewalsRes] = await Promise.all([
     // Leads with fecha_llamada in range — full contact info + closer + setter + ticket
     supabase
       .from("leads")
@@ -35,6 +35,14 @@ export default async function CalendarioPage() {
       .gte("fecha_vencimiento", startStr)
       .lte("fecha_vencimiento", endStr)
       .eq("estado", "pendiente"),
+    // Paid payments with fecha_pago in range — for real cash-collected display
+    supabase
+      .from("payments")
+      .select("id, lead_id, client_id, numero_cuota, monto_usd, fecha_pago, lead:leads!payments_lead_id_fkey(nombre, instagram, telefono), client:clients!payments_client_id_fkey(nombre, telefono)")
+      .gte("fecha_pago", startStr)
+      .lte("fecha_pago", endStr)
+      .eq("estado", "pagado")
+      .range(0, 4999),
     // Renewal queue — clients with telefono
     supabase
       .from("clients")
@@ -103,11 +111,28 @@ export default async function CalendarioPage() {
     };
   });
 
+  const paidPayments = (paidPaymentsRes.data ?? []).map((p: Record<string, unknown>) => {
+    const lead = p.lead as Record<string, unknown> | null;
+    const client = p.client as Record<string, unknown> | null;
+    return {
+      id: p.id as string,
+      lead_id: (p.lead_id as string) || null,
+      client_id: (p.client_id as string) || null,
+      numero_cuota: p.numero_cuota as number,
+      monto_usd: p.monto_usd as number,
+      fecha_pago: ((p.fecha_pago as string) || "").split("T")[0],
+      nombre: (lead?.nombre as string) || (client?.nombre as string) || null,
+      instagram: (lead?.instagram as string) || null,
+      telefono: (lead?.telefono as string) || (client?.telefono as string) || null,
+    };
+  });
+
   return (
     <div className="space-y-6">
       <CalendarioClient
         leads={leads}
         payments={payments}
+        paidPayments={paidPayments}
         renewals={renewals}
       />
     </div>
