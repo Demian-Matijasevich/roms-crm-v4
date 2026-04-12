@@ -71,6 +71,7 @@ export default function CargarLlamadaForm({ leads, team, session }: Props) {
   const [planPago, setPlanPago] = useState<string>("");
   const [ticketTotal, setTicketTotal] = useState("");
   const [cashDia1, setCashDia1] = useState("");
+  const [fechaPagoDia1, setFechaPagoDia1] = useState(new Date().toISOString().split("T")[0]);
   const [metodoPago, setMetodoPago] = useState("");
   const [receptor, setReceptor] = useState("");
   const [comprobanteFile, setComprobanteFile] = useState<File | null>(null);
@@ -153,6 +154,7 @@ export default function CargarLlamadaForm({ leads, team, session }: Props) {
 
       body.payment = {
         monto_usd: cashDia1 ? parseFloat(cashDia1) : 0,
+        fecha_pago: fechaPagoDia1 || undefined,
         metodo_pago: metodoPago || undefined,
         receptor: receptor || undefined,
         comprobante_url: comprobanteUrl || undefined,
@@ -196,6 +198,7 @@ export default function CargarLlamadaForm({ leads, team, session }: Props) {
     setPlanPago("");
     setTicketTotal("");
     setCashDia1("");
+    setFechaPagoDia1(new Date().toISOString().split("T")[0]);
     setMetodoPago("");
     setReceptor("");
     setComprobanteFile(null);
@@ -488,6 +491,17 @@ export default function CargarLlamadaForm({ leads, team, session }: Props) {
                   className={`${inputClass} pl-7`}
                 />
               </div>
+            </div>
+
+            {/* Fecha de pago */}
+            <div>
+              <label className={labelClass}>Fecha de pago</label>
+              <input
+                type="date"
+                value={fechaPagoDia1}
+                onChange={(e) => setFechaPagoDia1(e.target.value)}
+                className={inputClass}
+              />
             </div>
 
             {/* Metodo de pago */}

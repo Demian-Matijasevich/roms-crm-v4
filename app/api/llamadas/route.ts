@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
         metodo_pago?: string;
         receptor?: string;
         comprobante_url?: string;
+        fecha_pago?: string;
       };
 
       if (paymentData.monto_usd && paymentData.monto_usd > 0) {
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
           numero_cuota: 1,
           monto_usd: paymentData.monto_usd,
           monto_ars: 0,
-          fecha_pago: toDateString(getToday()),
+          fecha_pago: paymentData.fecha_pago || toDateString(getToday()),
           fecha_vencimiento: null,
           estado: "pagado",
           metodo_pago: (paymentData.metodo_pago as MetodoPago) || null,
