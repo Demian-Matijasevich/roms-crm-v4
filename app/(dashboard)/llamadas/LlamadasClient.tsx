@@ -185,8 +185,8 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
       const saldoPendiente = monthRange ? 0 : ticketTotal - cashCollected;
       const receptor = leadPayments.length > 0 ? leadPayments[0].receptor : null;
       const fechaPago = inMonthPagados
+        .filter((p) => p.fecha_pago)
         .map((p) => p.fecha_pago!.split("T")[0])
-        .filter(Boolean)
         .sort()[0] || null;
       return { cashCollected, cuotasPagadas, saldoPendiente, receptor, fechaPago };
     },
