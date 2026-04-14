@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { fetchLeads, fetchTeamMembers } from "@/lib/queries/leads";
 import { fetchPayments } from "@/lib/queries/payments";
+import { getUsdRate } from "@/lib/queries/settings";
 import CargarPagoForm from "./CargarPagoForm";
 
 export const dynamic = "force-dynamic";
@@ -10,10 +11,11 @@ export default async function CargarPagoPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const [leads, payments, team] = await Promise.all([
+  const [leads, payments, team, usdRate] = await Promise.all([
     fetchLeads(),
     fetchPayments(),
     fetchTeamMembers(),
+    getUsdRate(),
   ]);
 
   // Only show leads that have been cerrado (have a deal)
@@ -35,6 +37,7 @@ export default async function CargarPagoPage() {
       leads={cerrados}
       paymentsByLead={paymentsByLead}
       team={team}
+      usdRate={usdRate}
       session={session}
     />
   );

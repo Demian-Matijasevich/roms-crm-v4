@@ -10,6 +10,7 @@ interface Props {
   leads: LeadWithTeam[];
   paymentsByLead: Record<string, Payment[]>;
   team: TeamMember[];
+  usdRate: number;
   session: AuthSession;
 }
 
@@ -49,7 +50,7 @@ function getPaymentSummary(payments: Payment[]): { pagadas: number; pendientes: 
   return { pagadas, pendientes, totalPagado };
 }
 
-export default function CargarPagoForm({ leads, paymentsByLead, team, session }: Props) {
+export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, session }: Props) {
   const [step, setStep] = useState<Step>(1);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<LeadWithTeam | null>(null);
@@ -60,8 +61,11 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, session }:
 
   // Form fields
   const [numeroCuota, setNumeroCuota] = useState<number>(2);
-  const [montoUsd, setMontoUsd] = useState("");
-  const [montoArs, setMontoArs] = useState("");
+  const [currency, setCurrency] = useState<"USD" | "ARS">("USD");
+  const [montoInput, setMontoInput] = useState("");
+  // Derived USD/ARS values from input + currency
+  const montoUsd = currency === "USD" ? montoInput : montoInput ? String(Math.round(parseFloat(montoInput) / usdRate)) : "";
+  const montoArs = currency === "ARS" ? montoInput : "";
   const [fechaPago, setFechaPago] = useState(todayISO());
   const [metodoPago, setMetodoPago] = useState("");
   const [receptor, setReceptor] = useState("");
@@ -160,8 +164,8 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, session }:
     setSearch("");
     setSelected(null);
     setNumeroCuota(2);
-    setMontoUsd("");
-    setMontoArs("");
+    setMontoInput("");
+    setCurrency("USD");
     setFechaPago(todayISO());
     setMetodoPago("");
     setReceptor("");
@@ -342,37 +346,55 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, session }:
                 <input type="date" value={fechaPago} onChange={(e) => setFechaPago(e.target.value)} className={inputClass} />
               </div>
 
-              {/* Monto USD */}
+              {/* Moneda toggle + Monto */}
               <div>
-                <label className={labelClass}>Monto USD *</label>
+                <label className={labelClass}>Moneda</label>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => setCurrency("USD")}
+                    className={`py-2 rounded-lg text-sm font-medium border transition-colors ${
+                      currency === "USD"
+                        ? "bg-[var(--purple)]/20 border-[var(--purple)] text-[var(--purple-light)]"
+                        : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--muted)]"
+                    }`}
+                  >
+                    USD
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrency("ARS")}
+                    className={`py-2 rounded-lg text-sm font-medium border transition-colors ${
+                      currency === "ARS"
+                        ? "bg-[var(--purple)]/20 border-[var(--purple)] text-[var(--purple-light)]"
+                        : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--muted)]"
+                    }`}
+                  >
+                    ARS
+                  </button>
+                </div>
+                <label className={labelClass}>Monto {currency} *</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)] text-sm">$</span>
                   <input
                     type="number"
                     min={0}
-                    step={100}
-                    value={montoUsd}
-                    onChange={(e) => setMontoUsd(e.target.value)}
+                    step={currency === "USD" ? 100 : 10000}
+                    value={montoInput}
+                    onChange={(e) => setMontoInput(e.target.value)}
                     placeholder="0"
                     className={`${inputClass} pl-7`}
                   />
                 </div>
-              </div>
-
-              {/* Monto ARS (optional) */}
-              <div>
-                <label className={labelClass}>Monto ARS (opcional)</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)] text-sm">$</span>
-                  <input
-                    type="number"
-                    min={0}
-                    value={montoArs}
-                    onChange={(e) => setMontoArs(e.target.value)}
-                    placeholder="0"
-                    className={`${inputClass} pl-7`}
-                  />
-                </div>
+                {montoInput && parseFloat(montoInput) > 0 && (
+                  <p className="text-xs text-[var(--muted)] mt-1.5">
+                    {currency === "ARS" ? (
+                      <>≈ <span className="text-[var(--purple-light)] font-medium">${Math.round(parseFloat(montoInput) / usdRate).toLocaleString("en-US")} USD</span> (cotización ${usdRate.toLocaleString("es-AR")})</>
+                    ) : (
+                      <>≈ <span className="text-[var(--purple-light)] font-medium">${Math.round(parseFloat(montoInput) * usdRate).toLocaleString("es-AR")} ARS</span> (cotización ${usdRate.toLocaleString("es-AR")})</>
+                    )}
+                  </p>
+                )}
               </div>
 
               {/* Metodo de pago */}
