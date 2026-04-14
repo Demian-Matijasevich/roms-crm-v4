@@ -12,7 +12,7 @@ import {
   Legend,
 } from "recharts";
 import MonthSelector77 from "@/app/components/MonthSelector77";
-import { formatUSD, formatARS } from "@/lib/format";
+import { formatUSD, formatARS, formatMoney, formatDate } from "@/lib/format";
 import {
   getFiscalStart,
   getFiscalMonth,
@@ -21,7 +21,7 @@ import {
 } from "@/lib/date-utils";
 import { RECEPTORES } from "@/lib/constants";
 import type { MonthlyCash, TreasuryRow, Commission } from "@/lib/types";
-import type { GastoRow } from "./page";
+import type { GastoRow, IngresoRow } from "./page";
 
 interface PaymentRow {
   id: string;
@@ -37,6 +37,8 @@ interface Props {
   commissions: Commission[];
   treasury: TreasuryRow[];
   gastos: GastoRow[];
+  ingresos: IngresoRow[];
+  usdRate: number;
   payments: PaymentRow[];
   currentFiscalMonth: string;
 }
@@ -60,9 +62,32 @@ export default function FinanzasClient({
   commissions,
   treasury,
   gastos,
+  ingresos,
+  usdRate: initialUsdRate,
   payments,
   currentFiscalMonth,
 }: Props) {
+  const [usdRate, setUsdRate] = useState(initialUsdRate);
+  const [editingRate, setEditingRate] = useState(false);
+  const [rateInput, setRateInput] = useState(String(initialUsdRate));
+  const [savingRate, setSavingRate] = useState(false);
+
+  async function saveUsdRate() {
+    const val = parseFloat(rateInput);
+    if (!Number.isFinite(val) || val <= 0) return;
+    setSavingRate(true);
+    const res = await fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "usd_ars_rate", value: val }),
+    });
+    const json = await res.json();
+    setSavingRate(false);
+    if (json.ok) {
+      setUsdRate(val);
+      setEditingRate(false);
+    }
+  }
   const [selectedMonth, setSelectedMonth] = useState(
     getFiscalStart().toISOString().split("T")[0]
   );
@@ -96,6 +121,21 @@ export default function FinanzasClient({
     () => commissions.filter((c) => c.mes_fiscal === currentLabel),
     [commissions, currentLabel]
   );
+
+  const monthIngresos = useMemo(
+    () => ingresos.filter((i) => i.fecha_pago && gastoFiscalMonth(i.fecha_pago.split("T")[0]) === currentLabel),
+    [ingresos, currentLabel]
+  );
+
+  const totalIngresosMes = useMemo(() => {
+    let usd = 0;
+    let ars = 0;
+    for (const i of monthIngresos) {
+      usd += i.monto_usd || 0;
+      ars += i.monto_ars || 0;
+    }
+    return { usd, ars };
+  }, [monthIngresos]);
 
   const monthGastos = useMemo(
     () => localGastos.filter((g) => gastoFiscalMonth(g.fecha) === currentLabel),
@@ -284,7 +324,39 @@ export default function FinanzasClient({
             Estado de resultados, gastos y tesoreria &mdash; {currentLabel}
           </p>
         </div>
-        <MonthSelector77 value={selectedMonth} onChange={setSelectedMonth} />
+        <div className="flex items-center gap-3">
+          {/* USD rate */}
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-3 py-2 flex items-center gap-2">
+            <span className="text-xs text-[var(--muted)]">USD:</span>
+            {editingRate ? (
+              <>
+                <input
+                  type="number"
+                  value={rateInput}
+                  onChange={(e) => setRateInput(e.target.value)}
+                  className="w-20 bg-transparent border-b border-[var(--purple)] text-sm text-white focus:outline-none"
+                  autoFocus
+                />
+                <button
+                  onClick={saveUsdRate}
+                  disabled={savingRate}
+                  className="text-xs text-[var(--purple)] hover:underline disabled:opacity-50"
+                >
+                  {savingRate ? "..." : "OK"}
+                </button>
+                <button onClick={() => { setEditingRate(false); setRateInput(String(usdRate)); }} className="text-xs text-[var(--muted)]">✕</button>
+              </>
+            ) : (
+              <>
+                <span className="text-sm text-white font-medium">{formatARS(usdRate)}</span>
+                <button onClick={() => setEditingRate(true)} className="text-xs text-[var(--purple)] hover:underline">
+                  editar
+                </button>
+              </>
+            )}
+          </div>
+          <MonthSelector77 value={selectedMonth} onChange={setSelectedMonth} />
+        </div>
       </div>
 
       {/* ══════════════ P&L ══════════════ */}
@@ -558,6 +630,54 @@ export default function FinanzasClient({
           </div>
         </div>
       )}
+
+      {/* ══════════════ INGRESOS TABLE ══════════════ */}
+      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-[var(--card-border)] flex items-center justify-between">
+          <h2 className="text-base font-semibold text-white">
+            Ingresos del Mes ({monthIngresos.length})
+          </h2>
+          <div className="text-sm text-[var(--muted)]">
+            Total: <span className="text-[var(--green)] font-semibold">{formatUSD(totalIngresosMes.usd)}</span>
+            {totalIngresosMes.ars > 0 && <span className="ml-2 text-white">+ {formatARS(totalIngresosMes.ars)}</span>}
+          </div>
+        </div>
+        {monthIngresos.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--card-border)] text-left">
+                  <th className="text-left py-3 px-4">Fecha</th>
+                  <th className="text-left py-3 px-4">Lead</th>
+                  <th className="text-center py-3 px-4">Cuota</th>
+                  <th className="text-left py-3 px-4">Método</th>
+                  <th className="text-left py-3 px-4">Recibió</th>
+                  <th className="text-right py-3 px-4">Monto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthIngresos.map((i) => (
+                  <tr key={i.id} className="border-t border-[var(--card-border)]/30 hover:bg-white/5 transition-colors">
+                    <td className="py-3 px-4 text-[var(--muted)]">{formatDate(i.fecha_pago)}</td>
+                    <td className="py-3 px-4 text-white font-medium">
+                      {i.lead_nombre || "—"}
+                      {i.es_renovacion && <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-[var(--purple)]/20 text-[var(--purple)]">RENOV</span>}
+                    </td>
+                    <td className="py-3 px-4 text-center text-[var(--muted)]">#{i.numero_cuota}</td>
+                    <td className="py-3 px-4 text-[var(--muted)]">{i.metodo_pago?.replace(/_/g, " ") || "—"}</td>
+                    <td className="py-3 px-4 text-[var(--muted)]">{i.receptor || "—"}</td>
+                    <td className="py-3 px-4 text-right font-medium text-[var(--green)]">
+                      {formatMoney(i.monto_usd, i.monto_ars, usdRate)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="px-6 py-8 text-center text-[var(--muted)] text-sm">Sin ingresos para este periodo</div>
+        )}
+      </div>
 
       {/* ══════════════ GASTOS TABLE ══════════════ */}
       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">

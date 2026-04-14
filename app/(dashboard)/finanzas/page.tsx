@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase-server";
 import { getFiscalMonth, getToday } from "@/lib/date-utils";
+import { getUsdRate } from "@/lib/queries/settings";
 import FinanzasClient from "./FinanzasClient";
 import type { MonthlyCash, TreasuryRow, Commission } from "@/lib/types";
 
@@ -29,7 +30,7 @@ export default async function FinanzasPage() {
   const supabase = createServerClient();
   const currentFiscalMonth = getFiscalMonth(getToday());
 
-  const [monthlyCashRes, commissionsRes, treasuryRes, gastosRes, paymentsRes] =
+  const [monthlyCashRes, commissionsRes, treasuryRes, gastosRes, paymentsRes, ingresosRes, usdRate] =
     await Promise.all([
       supabase.from("v_monthly_cash").select("*"),
       supabase.from("v_commissions").select("*"),
@@ -39,7 +40,32 @@ export default async function FinanzasPage() {
         .from("payments")
         .select("id, monto_usd, receptor, fecha_pago, estado, metodo_pago")
         .eq("estado", "pagado"),
+      supabase
+        .from("payments")
+        .select("id, lead_id, monto_usd, monto_ars, fecha_pago, numero_cuota, metodo_pago, receptor, es_renovacion, lead:leads!payments_lead_id_fkey(nombre)")
+        .eq("estado", "pagado")
+        .not("fecha_pago", "is", null)
+        .order("fecha_pago", { ascending: false })
+        .range(0, 4999),
+      getUsdRate(),
     ]);
+
+  const ingresos = ((ingresosRes.data as unknown[]) ?? []).map((r) => {
+    const p = r as Record<string, unknown>;
+    const lead = p.lead as Record<string, unknown> | null;
+    return {
+      id: p.id as string,
+      lead_id: (p.lead_id as string) || null,
+      lead_nombre: (lead?.nombre as string) || null,
+      monto_usd: (p.monto_usd as number) || 0,
+      monto_ars: (p.monto_ars as number) || 0,
+      fecha_pago: (p.fecha_pago as string) || "",
+      numero_cuota: (p.numero_cuota as number) || 1,
+      metodo_pago: (p.metodo_pago as string) || null,
+      receptor: (p.receptor as string) || null,
+      es_renovacion: (p.es_renovacion as boolean) || false,
+    };
+  });
 
   return (
     <FinanzasClient
@@ -47,6 +73,8 @@ export default async function FinanzasPage() {
       commissions={(commissionsRes.data as Commission[]) ?? []}
       treasury={(treasuryRes.data as TreasuryRow[]) ?? []}
       gastos={(gastosRes.data as GastoRow[]) ?? []}
+      ingresos={ingresos}
+      usdRate={usdRate}
       payments={
         (paymentsRes.data as {
           id: string;
@@ -60,4 +88,17 @@ export default async function FinanzasPage() {
       currentFiscalMonth={currentFiscalMonth}
     />
   );
+}
+
+export interface IngresoRow {
+  id: string;
+  lead_id: string | null;
+  lead_nombre: string | null;
+  monto_usd: number;
+  monto_ars: number;
+  fecha_pago: string;
+  numero_cuota: number;
+  metodo_pago: string | null;
+  receptor: string | null;
+  es_renovacion: boolean;
 }

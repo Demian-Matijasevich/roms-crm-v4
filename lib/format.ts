@@ -16,6 +16,28 @@ export function formatARS(amount: number): string {
   }).format(amount);
 }
 
+/**
+ * Format a payment amount showing native currency (USD or ARS) + conversion in parens.
+ * - If only usd: "$500 USD"
+ * - If only ars: "$600.000 ARS ($480 USD)"  (converted with rate)
+ * - If both: "$600.000 ARS ($500 USD)"
+ */
+export function formatMoney(montoUsd: number | null | undefined, montoArs: number | null | undefined, usdArsRate: number = 1250): string {
+  const usd = montoUsd || 0;
+  const ars = montoArs || 0;
+  if (ars > 0 && usd > 0) {
+    return `${formatARS(ars)} (${formatUSD(usd)})`;
+  }
+  if (ars > 0) {
+    const conv = Math.round(ars / usdArsRate);
+    return `${formatARS(ars)} (${formatUSD(conv)})`;
+  }
+  if (usd > 0) {
+    return formatUSD(usd);
+  }
+  return "—";
+}
+
 export function formatPct(value: number, decimals: number = 1): string {
   return `${(value * 100).toFixed(decimals)}%`;
 }
