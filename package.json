@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "migrate": "tsx scripts/run-migrations.ts"
+    "migrate": "tsx scripts/run-migrations.ts",
+    "repin": "tsx scripts/repin-alias.ts",
+    "push": "git push && npm run repin"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",
