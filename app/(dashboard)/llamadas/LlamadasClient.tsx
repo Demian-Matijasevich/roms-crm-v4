@@ -52,6 +52,7 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
   const [programaFilter, setProgramaFilter] = useState<string>("todos");
   const [calificadoFilter, setCalificadoFilter] = useState<string>("todos");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [showEstadoCuenta, setShowEstadoCuenta] = useState<string | null>(null);
   const [showRefundForm, setShowRefundForm] = useState<string | null>(null);
   const [refundMonto, setRefundMonto] = useState("");
@@ -964,12 +965,13 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                           <th className="px-3 py-2 text-[var(--muted)] font-medium">Fecha Pago</th>
                           <th className="px-3 py-2 text-[var(--muted)] font-medium">Vencimiento</th>
                           <th className="px-3 py-2 text-[var(--muted)] font-medium">Receptor</th>
+                          <th className="px-3 py-2 text-[var(--muted)] font-medium w-20">Acciones</th>
                         </tr>
                       </thead>
                       <tbody>
                         {leadPayments.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="text-center py-4 text-[var(--muted)]">
+                            <td colSpan={7} className="text-center py-4 text-[var(--muted)]">
                               Sin pagos registrados
                             </td>
                           </tr>
@@ -991,6 +993,28 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                                 <td className="px-3 py-2 text-[var(--muted)]">{formatDate(p.fecha_pago)}</td>
                                 <td className="px-3 py-2 text-[var(--muted)]">{formatDate(p.fecha_vencimiento)}</td>
                                 <td className="px-3 py-2 text-[var(--muted)]">{p.receptor ?? "---"}</td>
+                                <td className="px-3 py-2">
+                                  <div className="flex gap-1">
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setEditingPayment(p); }}
+                                      className="text-xs text-[var(--purple)] hover:underline"
+                                    >
+                                      Editar
+                                    </button>
+                                    <span className="text-[var(--muted)]">·</span>
+                                    <button
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        if (!confirm(`¿Borrar pago de ${formatUSD(p.monto_usd)}?`)) return;
+                                        const res = await fetch(`/api/pagos?id=${p.id}`, { method: "DELETE" });
+                                        if ((await res.json()).ok) window.location.reload();
+                                      }}
+                                      className="text-xs text-red-400 hover:underline"
+                                    >
+                                      Borrar
+                                    </button>
+                                  </div>
+                                </td>
                               </tr>
                             ))
                         )}
@@ -1032,6 +1056,90 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
           </div>
         );
       })()}
+
+      {editingPayment && (
+        <PaymentEditModal
+          payment={editingPayment}
+          onClose={() => setEditingPayment(null)}
+          onSaved={() => { setEditingPayment(null); window.location.reload(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PaymentEditModal({ payment, onClose, onSaved }: { payment: Payment; onClose: () => void; onSaved: () => void }) {
+  const [monto, setMonto] = useState(String(payment.monto_usd));
+  const [fechaPago, setFechaPago] = useState(payment.fecha_pago?.split("T")[0] || "");
+  const [estado, setEstado] = useState(payment.estado);
+  const [metodoPago, setMetodoPago] = useState(payment.metodo_pago || "");
+  const [receptor, setReceptor] = useState(payment.receptor || "");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    const res = await fetch("/api/pagos", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: payment.id,
+        monto_usd: parseFloat(monto) || 0,
+        fecha_pago: fechaPago || null,
+        estado,
+        metodo_pago: metodoPago || null,
+        receptor: receptor || null,
+      }),
+    });
+    if ((await res.json()).ok) onSaved();
+    else setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold mb-4">Editar pago cuota {payment.numero_cuota}</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm text-[var(--muted)] block mb-1">Monto USD</label>
+            <input type="number" value={monto} onChange={(e) => setMonto(e.target.value)} className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="text-sm text-[var(--muted)] block mb-1">Fecha de pago</label>
+            <input type="date" value={fechaPago} onChange={(e) => setFechaPago(e.target.value)} className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="text-sm text-[var(--muted)] block mb-1">Estado</label>
+            <select value={estado} onChange={(e) => setEstado(e.target.value as Payment["estado"])} className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm">
+              <option value="pagado">Pagado</option>
+              <option value="pendiente">Pendiente</option>
+              <option value="perdido">Perdido</option>
+              <option value="refund">Refund</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-sm text-[var(--muted)] block mb-1">Método</label>
+            <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm">
+              <option value="">—</option>
+              <option value="mercado_pago">Mercado Pago</option>
+              <option value="transferencia">Transferencia</option>
+              <option value="cash">Cash</option>
+              <option value="binance">Binance</option>
+              <option value="stripe">Stripe</option>
+              <option value="wise">Wise</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-sm text-[var(--muted)] block mb-1">Receptor</label>
+            <input type="text" value={receptor} onChange={(e) => setReceptor(e.target.value)} className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm" placeholder="FRAN, JUANMA, VALEN..." />
+          </div>
+        </div>
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} className="flex-1 border border-[var(--card-border)] py-2 rounded-lg text-sm">Cancelar</button>
+          <button onClick={handleSave} disabled={saving} className="flex-1 bg-[var(--purple)] text-white py-2 rounded-lg text-sm disabled:opacity-50">
+            {saving ? "Guardando..." : "Guardar"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

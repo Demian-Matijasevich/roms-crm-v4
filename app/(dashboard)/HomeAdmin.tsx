@@ -151,6 +151,13 @@ export default function HomeAdmin({
   const [selectedMonth, setSelectedMonth] = useState(
     getFiscalStart().toISOString().split("T")[0]
   );
+  const [viewAs, setViewAs] = useState<string>("todos");
+
+  // Filter payments by receptor if viewAs is set
+  const filteredPayments = useMemo(() => {
+    if (viewAs === "todos") return payments;
+    return payments.filter((p) => (p.receptor || "").toLowerCase() === viewAs.toLowerCase());
+  }, [payments, viewAs]);
 
   const currentLabel = useMemo(() => {
     const d = parseLocalDate(selectedMonth);
@@ -193,7 +200,7 @@ export default function HomeAdmin({
   const dailyCashData = useMemo(() => {
     const start = parseLocalDate(selectedMonth);
     const end = getFiscalEnd(start);
-    const fiscalPayments = payments.filter((p) => {
+    const fiscalPayments = filteredPayments.filter((p) => {
       if (!p.fecha_pago || p.estado !== "pagado") return false;
       const d = parseLocalDate(p.fecha_pago);
       return d >= start && d <= end;
@@ -224,7 +231,7 @@ export default function HomeAdmin({
         dailyColor: isUp ? "var(--green)" : "var(--red)",
       };
     });
-  }, [payments, selectedMonth]);
+  }, [filteredPayments, selectedMonth]);
 
   // Commissions from DB
   const commissionTotals = useMemo(() => {
@@ -248,9 +255,23 @@ export default function HomeAdmin({
           <h1 className="text-2xl font-bold text-white">Dashboard</h1>
           <p className="text-[var(--muted)] text-sm mt-1">
             Resumen del periodo {currentLabel}
+            {viewAs !== "todos" && <span className="ml-2 text-[var(--purple)]">· viendo como {viewAs}</span>}
           </p>
         </div>
-        <MonthSelector77 value={selectedMonth} onChange={setSelectedMonth} />
+        <div className="flex items-center gap-2">
+          <select
+            value={viewAs}
+            onChange={(e) => setViewAs(e.target.value)}
+            className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm text-[var(--foreground)]"
+            title="Filtrar por quién recibió el pago"
+          >
+            <option value="todos">Ver: Todos</option>
+            <option value="FRAN">Ver: Fran</option>
+            <option value="JUANMA">Ver: Juanma</option>
+            <option value="VALEN">Ver: Valen</option>
+          </select>
+          <MonthSelector77 value={selectedMonth} onChange={setSelectedMonth} />
+        </div>
       </div>
 
       {/* KPI Grid */}
