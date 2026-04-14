@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { fetchLeads, fetchLeadsByCloser, fetchTeamMembers } from "@/lib/queries/leads";
+import { getUsdRate } from "@/lib/queries/settings";
 import CargarLlamadaForm from "./CargarLlamadaForm";
 
 export const dynamic = "force-dynamic";
@@ -14,9 +15,10 @@ export default async function CargarLlamadaPage() {
 
   if (!isAdmin && !isCloser) redirect("/");
 
-  const [leads, team] = await Promise.all([
+  const [leads, team, usdRate] = await Promise.all([
     isAdmin ? fetchLeads() : fetchLeadsByCloser(session.team_member_id),
     fetchTeamMembers(),
+    getUsdRate(),
   ]);
 
   // Only show pendientes (leads without a result)
@@ -24,5 +26,5 @@ export default async function CargarLlamadaPage() {
     (l) => l.estado === "pendiente" || l.estado === "reprogramada"
   );
 
-  return <CargarLlamadaForm leads={pendientes} team={team} session={session} />;
+  return <CargarLlamadaForm leads={pendientes} team={team} usdRate={usdRate} session={session} />;
 }

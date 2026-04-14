@@ -5,6 +5,7 @@ import type { AuthSession, TeamMember } from "@/lib/types";
 
 interface Props {
   admins: TeamMember[];
+  usdRate: number;
   session: AuthSession;
 }
 
@@ -34,7 +35,7 @@ function todayISO() {
   return new Date().toISOString().split("T")[0];
 }
 
-export default function CargarGastoForm({ admins, session }: Props) {
+export default function CargarGastoForm({ admins, usdRate, session }: Props) {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -42,8 +43,10 @@ export default function CargarGastoForm({ admins, session }: Props) {
   const [fecha, setFecha] = useState(todayISO());
   const [concepto, setConcepto] = useState("");
   const [categoria, setCategoria] = useState("");
-  const [montoUsd, setMontoUsd] = useState("");
-  const [montoArs, setMontoArs] = useState("");
+  const [currency, setCurrency] = useState<"USD" | "ARS">("USD");
+  const [montoInput, setMontoInput] = useState("");
+  const montoUsd = currency === "USD" ? montoInput : montoInput && parseFloat(montoInput) > 0 ? String(Math.round(parseFloat(montoInput) / usdRate)) : "";
+  const montoArs = currency === "ARS" ? montoInput : "";
   const [billetera, setBilletera] = useState("");
   const [pagadoA, setPagadoA] = useState("");
   const [pagadoPor, setPagadoPor] = useState(session.nombre || "");
@@ -51,8 +54,9 @@ export default function CargarGastoForm({ admins, session }: Props) {
 
   async function handleSubmit() {
     if (!concepto.trim()) { setError("Concepto requerido"); return; }
-    const usd = parseFloat(montoUsd);
-    if (!montoUsd || isNaN(usd) || usd <= 0) { setError("Monto USD inválido"); return; }
+    const raw = parseFloat(montoInput);
+    if (!montoInput || isNaN(raw) || raw <= 0) { setError("Monto inválido"); return; }
+    const usd = currency === "USD" ? raw : Math.round(raw / usdRate);
 
     setLoading(true);
     setError("");
@@ -88,8 +92,8 @@ export default function CargarGastoForm({ admins, session }: Props) {
     setFecha(todayISO());
     setConcepto("");
     setCategoria("");
-    setMontoUsd("");
-    setMontoArs("");
+    setMontoInput("");
+    setCurrency("USD");
     setBilletera("");
     setPagadoA("");
     setPagadoPor(session.nombre || "");
@@ -144,21 +148,46 @@ export default function CargarGastoForm({ admins, session }: Props) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className={labelClass}>Monto USD *</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)] text-sm">$</span>
-              <input type="number" min={0} step={10} className={`${inputClass} pl-7`} value={montoUsd} onChange={(e) => setMontoUsd(e.target.value)} placeholder="0" />
-            </div>
+        <div>
+          <label className={labelClass}>Moneda</label>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <button
+              type="button"
+              onClick={() => setCurrency("USD")}
+              className={`py-2 rounded-lg text-sm font-medium border transition-colors ${
+                currency === "USD"
+                  ? "bg-[var(--purple)]/20 border-[var(--purple)] text-[var(--purple-light)]"
+                  : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--muted)]"
+              }`}
+            >
+              USD
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrency("ARS")}
+              className={`py-2 rounded-lg text-sm font-medium border transition-colors ${
+                currency === "ARS"
+                  ? "bg-[var(--purple)]/20 border-[var(--purple)] text-[var(--purple-light)]"
+                  : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--muted)]"
+              }`}
+            >
+              ARS
+            </button>
           </div>
-          <div>
-            <label className={labelClass}>Monto ARS (opcional)</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)] text-sm">$</span>
-              <input type="number" min={0} className={`${inputClass} pl-7`} value={montoArs} onChange={(e) => setMontoArs(e.target.value)} placeholder="0" />
-            </div>
+          <label className={labelClass}>Monto {currency} *</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)] text-sm">$</span>
+            <input type="number" min={0} step={currency === "USD" ? 10 : 1000} className={`${inputClass} pl-7`} value={montoInput} onChange={(e) => setMontoInput(e.target.value)} placeholder="0" />
           </div>
+          {montoInput && parseFloat(montoInput) > 0 && (
+            <p className="text-xs text-[var(--muted)] mt-1.5">
+              {currency === "ARS" ? (
+                <>≈ <span className="text-[var(--purple-light)] font-medium">${Math.round(parseFloat(montoInput) / usdRate).toLocaleString("en-US")} USD</span> (cotización ${usdRate.toLocaleString("es-AR")})</>
+              ) : (
+                <>≈ <span className="text-[var(--purple-light)] font-medium">${Math.round(parseFloat(montoInput) * usdRate).toLocaleString("es-AR")} ARS</span> (cotización ${usdRate.toLocaleString("es-AR")})</>
+              )}
+            </p>
+          )}
         </div>
 
         <div>

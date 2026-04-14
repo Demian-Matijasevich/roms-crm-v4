@@ -9,6 +9,7 @@ import { formatDate } from "@/lib/format";
 interface Props {
   leads: LeadWithTeam[];
   team: TeamMember[];
+  usdRate: number;
   session: AuthSession;
 }
 
@@ -52,7 +53,7 @@ const labelClass = "text-sm text-[var(--muted)] block mb-1";
 const selectClass =
   "w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2.5 text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--purple)]";
 
-export default function CargarLlamadaForm({ leads, team, session }: Props) {
+export default function CargarLlamadaForm({ leads, team, usdRate, session }: Props) {
   const [step, setStep] = useState<Step>(1);
   const [search, setSearch] = useState("");
   const [selectedLead, setSelectedLead] = useState<LeadWithTeam | null>(null);
@@ -71,6 +72,7 @@ export default function CargarLlamadaForm({ leads, team, session }: Props) {
   const [planPago, setPlanPago] = useState<string>("");
   const [ticketTotal, setTicketTotal] = useState("");
   const [cashDia1, setCashDia1] = useState("");
+  const [cashCurrency, setCashCurrency] = useState<"USD" | "ARS">("USD");
   const [fechaPagoDia1, setFechaPagoDia1] = useState(new Date().toISOString().split("T")[0]);
   const [metodoPago, setMetodoPago] = useState("");
   const [receptor, setReceptor] = useState("");
@@ -152,8 +154,12 @@ export default function CargarLlamadaForm({ leads, team, session }: Props) {
         }
       }
 
+      const cashRaw = cashDia1 ? parseFloat(cashDia1) : 0;
+      const paymentMontoUsd = cashCurrency === "USD" ? cashRaw : Math.round(cashRaw / usdRate);
+      const paymentMontoArs = cashCurrency === "ARS" ? cashRaw : 0;
       body.payment = {
-        monto_usd: cashDia1 ? parseFloat(cashDia1) : 0,
+        monto_usd: paymentMontoUsd,
+        monto_ars: paymentMontoArs,
         fecha_pago: fechaPagoDia1 || undefined,
         metodo_pago: metodoPago || undefined,
         receptor: receptor || undefined,
@@ -478,19 +484,53 @@ export default function CargarLlamadaForm({ leads, team, session }: Props) {
 
             {/* Monto cobrado hoy */}
             <div>
-              <label className={labelClass}>Monto cobrado hoy (USD)</label>
+              <label className={labelClass}>Moneda del cash día 1</label>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => setCashCurrency("USD")}
+                  className={`py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    cashCurrency === "USD"
+                      ? "bg-[var(--purple)]/20 border-[var(--purple)] text-[var(--purple-light)]"
+                      : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--muted)]"
+                  }`}
+                >
+                  USD
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCashCurrency("ARS")}
+                  className={`py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    cashCurrency === "ARS"
+                      ? "bg-[var(--purple)]/20 border-[var(--purple)] text-[var(--purple-light)]"
+                      : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--muted)]"
+                  }`}
+                >
+                  ARS
+                </button>
+              </div>
+              <label className={labelClass}>Monto cobrado hoy ({cashCurrency})</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)] text-sm">$</span>
                 <input
                   type="number"
                   min={0}
-                  step={100}
+                  step={cashCurrency === "USD" ? 100 : 10000}
                   value={cashDia1}
                   onChange={(e) => setCashDia1(e.target.value)}
                   placeholder="0"
                   className={`${inputClass} pl-7`}
                 />
               </div>
+              {cashDia1 && parseFloat(cashDia1) > 0 && (
+                <p className="text-xs text-[var(--muted)] mt-1.5">
+                  {cashCurrency === "ARS" ? (
+                    <>≈ <span className="text-[var(--purple-light)] font-medium">${Math.round(parseFloat(cashDia1) / usdRate).toLocaleString("en-US")} USD</span> (cotización ${usdRate.toLocaleString("es-AR")})</>
+                  ) : (
+                    <>≈ <span className="text-[var(--purple-light)] font-medium">${Math.round(parseFloat(cashDia1) * usdRate).toLocaleString("es-AR")} ARS</span> (cotización ${usdRate.toLocaleString("es-AR")})</>
+                  )}
+                </p>
+              )}
             </div>
 
             {/* Fecha de pago */}
