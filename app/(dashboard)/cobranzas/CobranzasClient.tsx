@@ -5,6 +5,7 @@ import type { AuthSession, AgentTask } from "@/lib/types";
 import type { CobranzasQueueItem, AuditCuotaRow, PaidPaymentRecord } from "@/lib/queries/cobranzas";
 import MonthSelector77 from "@/app/components/MonthSelector77";
 import { getFiscalMonth, parseLocalDate, getFiscalStart, getFiscalEnd, toDateString, getToday as getDateToday } from "@/lib/date-utils";
+import { formatMoney } from "@/lib/format";
 // date-fns utilities available if needed
 
 interface Props {
@@ -100,7 +101,7 @@ export default function CobranzasClient({
   usdRate,
   session,
 }: Props) {
-  void usdRate; // reserved for formatMoney when ARS payments become common
+  const fmt = (usd: number, ars?: number) => formatMoney(usd, ars || 0, usdRate);
   const [mainTab, setMainTab] = useState<MainTab>("cola");
   const [queue, setQueue] = useState(initialQueue);
   const [filterTipo, setFilterTipo] = useState<FilterTipo>("todos");
@@ -445,9 +446,7 @@ export default function CobranzasClient({
             </span>
           </td>
           <td className="px-4 py-3 font-medium text-white">
-            {item.monto_usd > 0
-              ? `$${item.monto_usd.toLocaleString()}`
-              : "-"}
+            {item.monto_usd > 0 ? fmt(item.monto_usd) : "-"}
           </td>
           <td className="px-4 py-3 text-xs text-[var(--muted)]">
             {item.fecha_vencimiento ?? "-"}
@@ -587,7 +586,7 @@ export default function CobranzasClient({
                   <h4 className="text-xs font-semibold text-[var(--muted)] uppercase">Info de pago</h4>
                   <div className="space-y-1 text-sm">
                     <p className="text-white">
-                      {getTipoLabel(item)} - ${item.monto_usd.toLocaleString()}
+                      {getTipoLabel(item)} - {fmt(item.monto_usd)}
                     </p>
                     <p className="text-[var(--muted)]">
                       Vence: {item.fecha_vencimiento ?? "Sin fecha"}
@@ -675,7 +674,7 @@ export default function CobranzasClient({
       </div>
 
       {mainTab === "auditoria" && (
-        <AuditoriaCuotasTab cuotas={auditCuotas} renovaciones={auditRenovaciones} selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
+        <AuditoriaCuotasTab cuotas={auditCuotas} renovaciones={auditRenovaciones} selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} usdRate={usdRate} />
       )}
 
       {mainTab === "cola" && <>
@@ -780,7 +779,7 @@ export default function CobranzasClient({
                             {getDiasLabel(item.dias_vencido)}
                           </span>
                           <span className="text-white font-medium">
-                            ${item.monto_usd.toLocaleString()}
+                            {fmt(item.monto_usd)}
                           </span>
                         </div>
                       </div>
@@ -1084,9 +1083,7 @@ export default function CobranzasClient({
                       </span>
                     </td>
                     <td className="px-4 py-3 font-medium text-white">
-                      {item.monto_usd > 0
-                        ? `$${item.monto_usd.toLocaleString()}`
-                        : "-"}
+                      {item.monto_usd > 0 ? fmt(item.monto_usd) : "-"}
                     </td>
                     <td className="px-4 py-3 text-[var(--muted)]">{item.programa ?? "-"}</td>
                     <td className="px-4 py-3 text-xs text-[var(--muted)]">
@@ -1112,12 +1109,15 @@ function AuditoriaCuotasTab({
   renovaciones,
   selectedMonth,
   onMonthChange,
+  usdRate,
 }: {
   cuotas: AuditCuotaRow[];
   renovaciones: AuditCuotaRow[];
   selectedMonth: string;
   onMonthChange: (value: string) => void;
+  usdRate: number;
 }) {
+  const fmt = (usd: number, ars?: number) => formatMoney(usd, ars || 0, usdRate);
   const [cobradorFilter, setCobradorFilter] = useState<"todos" | "mel">("todos");
 
   // Compute fiscal period (standard calendar month for ROMS)
@@ -1253,7 +1253,7 @@ function AuditoriaCuotasTab({
                 <tr key={c.id} className="border-b border-[var(--card-border)] hover:bg-white/5">
                   <td className="px-4 py-3 font-medium text-white">{c.client_nombre}</td>
                   <td className="px-4 py-3 text-white">{c.numero_cuota}</td>
-                  <td className="px-4 py-3 font-medium text-white">${c.monto_usd.toLocaleString()}</td>
+                  <td className="px-4 py-3 font-medium text-white">{fmt(c.monto_usd)}</td>
                   <td className="px-4 py-3 text-[var(--muted)]">{c.fecha_pago ?? "-"}</td>
                   <td className="px-4 py-3 text-[var(--muted)]">{c.receptor ?? "-"}</td>
                   <td className="px-4 py-3">
@@ -1323,7 +1323,7 @@ function AuditoriaCuotasTab({
               {filteredRenovaciones.map((r) => (
                 <tr key={r.id} className="border-b border-[var(--card-border)] hover:bg-white/5">
                   <td className="px-4 py-3 font-medium text-white">{r.client_nombre}</td>
-                  <td className="px-4 py-3 font-medium text-white">${r.monto_usd.toLocaleString()}</td>
+                  <td className="px-4 py-3 font-medium text-white">{fmt(r.monto_usd)}</td>
                   <td className="px-4 py-3 text-[var(--muted)]">{r.fecha_pago ?? "-"}</td>
                   <td className="px-4 py-3 text-[var(--muted)]">{r.receptor ?? "-"}</td>
                   <td className="px-4 py-3">
