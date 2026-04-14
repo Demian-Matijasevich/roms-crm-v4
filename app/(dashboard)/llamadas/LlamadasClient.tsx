@@ -5,7 +5,7 @@ import type { TeamMember, AuthSession, LeadScore, Payment } from "@/lib/types";
 import type { LeadWithTeam } from "@/lib/queries/leads";
 import { LEAD_ESTADOS_LABELS, PROGRAMS } from "@/lib/constants";
 import { formatUSD, formatDate } from "@/lib/format";
-import { getFiscalMonthOptions, getFiscalEnd, parseLocalDate } from "@/lib/date-utils";
+import { getFiscalMonthOptions, getFiscalEnd, parseLocalDate, toDateString } from "@/lib/date-utils";
 import StatusBadge from "@/app/components/StatusBadge";
 
 interface Props {
@@ -158,6 +158,16 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
     return map;
   }, [payments]);
 
+  // Month filter range (for filtering payments by fecha_pago within the selected month)
+  const monthRange = useMemo(() => {
+    if (monthFilter === "todos") return null;
+    const start = parseLocalDate(monthFilter);
+    const end = getFiscalEnd(start);
+    const startStr = toDateString(start);
+    const endStr = toDateString(end);
+    return { startStr, endStr };
+  }, [monthFilter]);
+
   // Helper: get audit data for a lead
   const getAuditData = useCallback(
     (leadId: string, ticketTotal: number) => {
@@ -167,13 +177,24 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
       const cuotasPagadas = pagados.filter((p) => p.numero_cuota > 1).length;
       const saldoPendiente = ticketTotal - cashCollected;
       const receptor = leadPayments.length > 0 ? leadPayments[0].receptor : null;
-      const fechaPago = pagados
-        .map((p) => p.fecha_pago)
-        .filter(Boolean)
-        .sort()[0] || null;
+      // Fecha pago: prefer a payment within the filtered month; fallback to earliest overall
+      const pagadosConFecha = pagados.filter((p) => p.fecha_pago);
+      let fechaPago: string | null = null;
+      if (monthRange) {
+        const inMonth = pagadosConFecha
+          .filter((p) => {
+            const f = p.fecha_pago!.split("T")[0];
+            return f >= monthRange.startStr && f <= monthRange.endStr;
+          })
+          .map((p) => p.fecha_pago!.split("T")[0])
+          .sort();
+        fechaPago = inMonth[0] || null;
+      } else {
+        fechaPago = pagadosConFecha.map((p) => p.fecha_pago!.split("T")[0]).sort()[0] || null;
+      }
       return { cashCollected, cuotasPagadas, saldoPendiente, receptor, fechaPago };
     },
-    [paymentsByLead]
+    [paymentsByLead, monthRange]
   );
 
   const filtered = useMemo(() => {
@@ -207,12 +228,22 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
         if (calificadoFilter === "no" && lead.lead_calificado === "calificado") return false;
       }
 
-      // Month filter
-      if (monthFilter !== "todos" && lead.fecha_llamada) {
-        const llamadaDate = parseLocalDate(lead.fecha_llamada.split("T")[0]);
+      // Month filter: include lead if fecha_llamada, fecha_agendado, OR any payment fecha_pago falls in the month
+      if (monthFilter !== "todos") {
         const monthStart = parseLocalDate(monthFilter);
         const monthEnd = getFiscalEnd(monthStart);
-        if (llamadaDate < monthStart || llamadaDate > monthEnd) return false;
+        const startStr = toDateString(monthStart);
+        const endStr = toDateString(monthEnd);
+        const inRange = (v: string | null | undefined) => {
+          if (!v) return false;
+          const s = v.split("T")[0];
+          return s >= startStr && s <= endStr;
+        };
+        const leadPays = paymentsByLead.get(lead.id) || [];
+        const hasPagoInMonth = leadPays.some((p) => p.estado === "pagado" && inRange(p.fecha_pago));
+        const llamadaInMonth = inRange(lead.fecha_llamada);
+        const agendaInMonth = inRange(lead.fecha_agendado);
+        if (!llamadaInMonth && !agendaInMonth && !hasPagoInMonth) return false;
       }
 
       // Payment filter
