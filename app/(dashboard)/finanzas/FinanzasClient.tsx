@@ -80,6 +80,7 @@ export default function FinanzasClient({
   });
   const [submitting, setSubmitting] = useState(false);
   const [localGastos, setLocalGastos] = useState<GastoRow[]>(gastos);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const currentLabel = useMemo(() => {
     return getFiscalMonth(parseLocalDate(selectedMonth));
@@ -209,10 +210,12 @@ export default function FinanzasClient({
     e.preventDefault();
     setSubmitting(true);
     try {
+      const isEdit = editingId != null;
       const res = await fetch("/api/gastos", {
-        method: "POST",
+        method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(isEdit ? { id: editingId } : {}),
           ...gastoForm,
           monto_usd: parseFloat(gastoForm.monto_usd) || 0,
           monto_ars: parseFloat(gastoForm.monto_ars) || 0,
@@ -220,8 +223,13 @@ export default function FinanzasClient({
       });
       const data = await res.json();
       if (data.ok && data.gasto) {
-        setLocalGastos((prev) => [data.gasto, ...prev]);
+        if (isEdit) {
+          setLocalGastos((prev) => prev.map((g) => (g.id === editingId ? data.gasto : g)));
+        } else {
+          setLocalGastos((prev) => [data.gasto, ...prev]);
+        }
         setShowGastoForm(false);
+        setEditingId(null);
         setGastoForm({
           fecha: new Date().toISOString().split("T")[0],
           concepto: "",
@@ -238,6 +246,31 @@ export default function FinanzasClient({
       console.error(err);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function startEditGasto(g: GastoRow) {
+    setEditingId(g.id);
+    setGastoForm({
+      fecha: g.fecha || new Date().toISOString().split("T")[0],
+      concepto: g.concepto || "",
+      categoria: g.categoria || "",
+      monto_usd: String(g.monto_usd || ""),
+      monto_ars: String(g.monto_ars || ""),
+      billetera: g.billetera || "",
+      pagado_a: g.pagado_a || "",
+      pagado_por: g.pagado_por || "",
+      estado: g.estado || "pagado",
+    });
+    setShowGastoForm(true);
+  }
+
+  async function deleteGasto(id: string) {
+    if (!confirm("¿Borrar este gasto?")) return;
+    const res = await fetch(`/api/gastos?id=${id}`, { method: "DELETE" });
+    const data = await res.json();
+    if (data.ok) {
+      setLocalGastos((prev) => prev.filter((g) => g.id !== id));
     }
   }
 
@@ -533,10 +566,26 @@ export default function FinanzasClient({
             Gastos del Mes ({monthGastos.length})
           </h2>
           <button
-            onClick={() => setShowGastoForm(!showGastoForm)}
+            onClick={() => {
+              if (showGastoForm) {
+                setEditingId(null);
+                setGastoForm({
+                  fecha: new Date().toISOString().split("T")[0],
+                  concepto: "",
+                  categoria: "",
+                  monto_usd: "",
+                  monto_ars: "",
+                  billetera: "",
+                  pagado_a: "",
+                  pagado_por: "",
+                  estado: "pagado",
+                });
+              }
+              setShowGastoForm(!showGastoForm);
+            }}
             className="px-4 py-2 rounded-lg bg-[var(--purple)] text-white text-sm font-medium hover:bg-[var(--purple-light)] transition-colors"
           >
-            {showGastoForm ? "Cancelar" : "+ Cargar Gasto"}
+            {showGastoForm ? "Cancelar" : editingId ? "Editando..." : "+ Cargar Gasto"}
           </button>
         </div>
 
@@ -650,8 +699,10 @@ export default function FinanzasClient({
                   <th className="text-left py-3 px-4">Categoria</th>
                   <th className="text-left py-3 px-4">Billetera</th>
                   <th className="text-left py-3 px-4">Pagado a</th>
+                  <th className="text-left py-3 px-4">Pagado por</th>
                   <th className="text-left py-3 px-4">Estado</th>
                   <th className="text-right py-3 px-4">Monto</th>
+                  <th className="text-right py-3 px-4 w-24">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -675,6 +726,9 @@ export default function FinanzasClient({
                     <td className="py-3 px-4 text-[var(--muted)]">
                       {g.pagado_a || "\u2014"}
                     </td>
+                    <td className="py-3 px-4 text-[var(--muted)]">
+                      {g.pagado_por || "\u2014"}
+                    </td>
                     <td className="py-3 px-4">
                       <span
                         className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -691,6 +745,24 @@ export default function FinanzasClient({
                       {g.monto_usd > 0 && g.monto_ars > 0 && " / "}
                       {g.monto_ars > 0 && formatARS(g.monto_ars)}
                       {!g.monto_usd && !g.monto_ars && "\u2014"}
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => startEditGasto(g)}
+                          className="text-xs text-[var(--purple)] hover:underline"
+                          title="Editar"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => deleteGasto(g.id)}
+                          className="text-xs text-[var(--red)] hover:underline"
+                          title="Borrar"
+                        >
+                          Borrar
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

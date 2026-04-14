@@ -207,6 +207,23 @@ export default function UtmClient({ campaigns, setters }: Props) {
       label: "Creado",
       render: (row: UtmCampaignWithPerformance) => formatDate(row.created_at),
     },
+    {
+      key: "actions",
+      label: "",
+      render: (row: UtmCampaignWithPerformance) => (
+        <button
+          onClick={async (e) => {
+            e.stopPropagation();
+            if (!confirm(`¿Borrar UTM ${row.source}/${row.medium}?`)) return;
+            const res = await fetch(`/api/utm?id=${row.id}`, { method: "DELETE" });
+            if ((await res.json()).ok) window.location.reload();
+          }}
+          className="text-xs text-[var(--red)] hover:underline"
+        >
+          Borrar
+        </button>
+      ),
+    },
   ];
 
   return (

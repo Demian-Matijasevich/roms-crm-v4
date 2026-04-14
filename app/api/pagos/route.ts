@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSession } from "@/lib/auth";
+import { requireSession, requireAdmin } from "@/lib/auth";
 import { pagoSchema } from "@/lib/schemas";
 import { createPayment, uploadComprobante } from "@/lib/queries/payments";
+import { createServerClient } from "@/lib/supabase-server";
 import type { MetodoPago, PaymentEstado } from "@/lib/types";
 
 export async function POST(req: NextRequest) {
@@ -64,6 +65,48 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, payment });
   } catch (err) {
     console.error("[POST /api/pagos]", err);
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  const authResult = await requireAdmin();
+  if ("error" in authResult) return authResult.error;
+
+  try {
+    const body = await req.json();
+    const { id, ...updates } = body;
+    if (!id) return NextResponse.json({ error: "id requerido" }, { status: 400 });
+
+    const allowed = ["monto_usd", "monto_ars", "fecha_pago", "fecha_vencimiento", "estado", "metodo_pago", "receptor", "numero_cuota"];
+    const patch: Record<string, unknown> = {};
+    for (const k of allowed) if (k in updates) patch[k] = updates[k];
+
+    const supabase = createServerClient();
+    const { data, error } = await supabase.from("payments").update(patch).eq("id", id).select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, payment: data });
+  } catch (err) {
+    console.error("[PATCH /api/pagos]", err);
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  const authResult = await requireAdmin();
+  if ("error" in authResult) return authResult.error;
+
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    if (!id) return NextResponse.json({ error: "id requerido" }, { status: 400 });
+
+    const supabase = createServerClient();
+    const { error } = await supabase.from("payments").delete().eq("id", id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("[DELETE /api/pagos]", err);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
