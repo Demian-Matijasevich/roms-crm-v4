@@ -173,25 +173,21 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
     (leadId: string, ticketTotal: number) => {
       const leadPayments = paymentsByLead.get(leadId) || [];
       const pagados = leadPayments.filter((p) => p.estado === "pagado");
-      const cashCollected = pagados.reduce((sum, p) => sum + p.monto_usd, 0);
-      const cuotasPagadas = pagados.filter((p) => p.numero_cuota > 1).length;
-      const saldoPendiente = ticketTotal - cashCollected;
-      const receptor = leadPayments.length > 0 ? leadPayments[0].receptor : null;
-      // Fecha pago: prefer a payment within the filtered month; fallback to earliest overall
-      const pagadosConFecha = pagados.filter((p) => p.fecha_pago);
-      let fechaPago: string | null = null;
-      if (monthRange) {
-        const inMonth = pagadosConFecha
-          .filter((p) => {
-            const f = p.fecha_pago!.split("T")[0];
-            return f >= monthRange.startStr && f <= monthRange.endStr;
+      // When filtering by month: only sum payments within the filtered month
+      const inMonthPagados = monthRange
+        ? pagados.filter((p) => {
+            const f = p.fecha_pago?.split("T")[0];
+            return f && f >= monthRange.startStr && f <= monthRange.endStr;
           })
-          .map((p) => p.fecha_pago!.split("T")[0])
-          .sort();
-        fechaPago = inMonth[0] || null;
-      } else {
-        fechaPago = pagadosConFecha.map((p) => p.fecha_pago!.split("T")[0]).sort()[0] || null;
-      }
+        : pagados;
+      const cashCollected = inMonthPagados.reduce((sum, p) => sum + p.monto_usd, 0);
+      const cuotasPagadas = inMonthPagados.filter((p) => p.numero_cuota > 1).length;
+      const saldoPendiente = monthRange ? 0 : ticketTotal - cashCollected;
+      const receptor = leadPayments.length > 0 ? leadPayments[0].receptor : null;
+      const fechaPago = inMonthPagados
+        .map((p) => p.fecha_pago!.split("T")[0])
+        .filter(Boolean)
+        .sort()[0] || null;
       return { cashCollected, cuotasPagadas, saldoPendiente, receptor, fechaPago };
     },
     [paymentsByLead, monthRange]
