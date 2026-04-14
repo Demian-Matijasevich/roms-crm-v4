@@ -13,6 +13,7 @@ interface Props {
   paymentsByLead: Record<string, Payment[]>;
   closers: TeamMember[];
   setters: TeamMember[];
+  usdRate: number;
   session: AuthSession;
   isAdmin: boolean;
 }
@@ -85,6 +86,7 @@ export default function PipelineClient({
   paymentsByLead,
   closers,
   setters,
+  usdRate,
   session,
   isAdmin,
 }: Props) {
@@ -260,6 +262,7 @@ export default function PipelineClient({
         <LeadDetailPanel
           lead={selectedLead}
           payments={paymentsByLead[selectedLead.id] || []}
+          usdRate={usdRate}
           onClose={() => setSelectedLeadId(null)}
           onEstadoChange={handleEstadoChange}
         />

@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback } from "react";
 import type { TeamMember, AuthSession, LeadScore, Payment } from "@/lib/types";
 import type { LeadWithTeam } from "@/lib/queries/leads";
 import { LEAD_ESTADOS_LABELS, PROGRAMS } from "@/lib/constants";
-import { formatUSD, formatDate } from "@/lib/format";
+import { formatUSD, formatDate, formatMoney } from "@/lib/format";
 import { getFiscalMonthOptions, getFiscalEnd, parseLocalDate, toDateString } from "@/lib/date-utils";
 import StatusBadge from "@/app/components/StatusBadge";
 
@@ -13,6 +13,7 @@ interface Props {
   closers: TeamMember[];
   setters: TeamMember[];
   payments: Payment[];
+  usdRate: number;
   session: AuthSession;
 }
 
@@ -42,7 +43,7 @@ function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
   return <span className="ml-1 text-[10px] text-[var(--purple-light)]">{dir === "asc" ? "\u2191" : "\u2193"}</span>;
 }
 
-export default function LlamadasClient({ leads, closers, setters, payments, session }: Props) {
+export default function LlamadasClient({ leads, closers, setters, payments, usdRate, session }: Props) {
   const [search, setSearch] = useState("");
   const [estadoFilter, setEstadoFilter] = useState<string>("todos");
   const [closerFilter, setCloserFilter] = useState<string>("todos");
@@ -714,7 +715,7 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                         <div key={p.id} className="flex justify-between items-center">
                           <span className="text-[var(--muted)]">Cuota #{p.numero_cuota}</span>
                           <div className="flex items-center gap-2">
-                            <span className="font-mono">{formatUSD(p.monto_usd)}</span>
+                            <span className="font-mono">{formatMoney(p.monto_usd, p.monto_ars, usdRate)}</span>
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
                               p.estado === "pagado" ? "bg-green-500/15 text-green-400 border-green-500/20" :
                               p.estado === "pendiente" ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/20" :
@@ -1008,7 +1009,7 @@ export default function LlamadasClient({ leads, closers, setters, payments, sess
                             .map((p) => (
                               <tr key={p.id} className="border-b border-[var(--card-border)]/50">
                                 <td className="px-3 py-2">#{p.numero_cuota}</td>
-                                <td className="px-3 py-2 font-mono font-medium">{formatUSD(p.monto_usd)}</td>
+                                <td className="px-3 py-2 font-mono font-medium">{formatMoney(p.monto_usd, p.monto_ars, usdRate)}</td>
                                 <td className={`px-3 py-2 font-medium ${
                                   p.estado === "pagado" ? "text-green-400" :
                                   p.estado === "pendiente" ? "text-yellow-400" :

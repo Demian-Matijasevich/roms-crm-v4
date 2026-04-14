@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase-server";
 import { getFiscalStart, getFiscalEnd, getFiscalMonth, getToday, toDateString } from "@/lib/date-utils";
 import type { ObjectiveData } from "./HomeCloser";
+import { getUsdRate } from "@/lib/queries/settings";
 import HomeAdmin from "./HomeAdmin";
 import HomeCloser from "./HomeCloser";
 import HomeSetter from "./HomeSetter";
@@ -106,7 +107,7 @@ export default async function DashboardPage() {
 
   if (isCloser) {
     const currentFiscalMonth = getFiscalMonth(getToday());
-    const [leadsRes, kpisRes, objRes] = await Promise.all([
+    const [leadsRes, kpisRes, objRes, usdRate] = await Promise.all([
       supabase
         .from("leads")
         .select("*, closer:team_members!leads_closer_id_fkey(*), setter:team_members!leads_setter_id_fkey(*)")
@@ -121,6 +122,7 @@ export default async function DashboardPage() {
         .eq("team_member_id", session.team_member_id)
         .eq("mes_fiscal", currentFiscalMonth)
         .maybeSingle(),
+      getUsdRate(),
     ]);
 
     return (
@@ -129,6 +131,7 @@ export default async function DashboardPage() {
         closerKpis={(kpisRes.data as CloserKPI[]) ?? []}
         currentMemberId={session.team_member_id}
         currentName={session.nombre}
+        usdRate={usdRate}
         objective={(objRes.data as ObjectiveData) ?? null}
       />
     );

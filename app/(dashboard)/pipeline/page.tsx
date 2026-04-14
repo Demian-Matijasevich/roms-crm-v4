@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { fetchLeads, fetchLeadsByCloser, fetchTeamMembers } from "@/lib/queries/leads";
 import { fetchPayments } from "@/lib/queries/payments";
+import { getUsdRate } from "@/lib/queries/settings";
 import PipelineClient from "./PipelineClient";
 
 export const dynamic = "force-dynamic";
@@ -12,10 +13,11 @@ export default async function PipelinePage() {
 
   const isAdmin = session.is_admin;
 
-  const [allLeads, payments, team] = await Promise.all([
+  const [allLeads, payments, team, usdRate] = await Promise.all([
     isAdmin ? fetchLeads() : fetchLeadsByCloser(session.team_member_id),
     fetchPayments(),
     fetchTeamMembers(),
+    getUsdRate(),
   ]);
 
   const closers = team.filter((t) => t.is_closer);
@@ -36,6 +38,7 @@ export default async function PipelinePage() {
       paymentsByLead={paymentsByLead}
       closers={closers}
       setters={setters}
+      usdRate={usdRate}
       session={session}
       isAdmin={isAdmin}
     />

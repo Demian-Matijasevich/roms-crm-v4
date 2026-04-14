@@ -8,6 +8,7 @@ import {
   fetchAuditRenovaciones,
 } from "@/lib/queries/cobranzas";
 import { fetchAgentTasks } from "@/lib/queries/agent-tasks";
+import { getUsdRate } from "@/lib/queries/settings";
 import CobranzasClient from "./CobranzasClient";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export default async function CobranzasPage() {
     redirect("/");
   }
 
-  const [queue, allTasks, allPendingItems, allPaidPayments, auditCuotas, auditRenovaciones] =
+  const [queue, allTasks, allPendingItems, allPaidPayments, auditCuotas, auditRenovaciones, usdRate] =
     await Promise.all([
       fetchCobranzasQueue(),
       fetchAgentTasks(),
@@ -27,6 +28,7 @@ export default async function CobranzasPage() {
       fetchAllPaidPayments(),
       fetchAuditCuotas(),
       fetchAuditRenovaciones(),
+      getUsdRate(),
     ]);
 
   return (
@@ -41,6 +43,7 @@ export default async function CobranzasPage() {
         allTasks={allTasks}
         auditCuotas={auditCuotas}
         auditRenovaciones={auditRenovaciones}
+        usdRate={usdRate}
         session={session}
       />
     </div>

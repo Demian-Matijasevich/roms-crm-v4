@@ -21,6 +21,7 @@ interface Props {
   closerKpis: CloserKPI[];
   currentMemberId: string;
   currentName: string;
+  usdRate: number;
   objective?: ObjectiveData | null;
 }
 
@@ -57,6 +58,7 @@ export default function HomeCloser({
   closerKpis,
   currentMemberId,
   currentName,
+  usdRate,
   objective,
 }: Props) {
   const today = new Date().toISOString().split("T")[0];
@@ -159,16 +161,24 @@ export default function HomeCloser({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">
-          Hola, {currentName}{" "}
-          {myStreak >= 3 ? "\u{1F525}" : ""}
-        </h1>
-        <p className="text-[var(--muted)] text-sm mt-1">
-          {myStreak > 0
-            ? `Racha de ${myStreak} dia${myStreak > 1 ? "s" : ""} cerrando`
-            : "Empeza tu racha hoy!"}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">
+            Hola, {currentName}{" "}
+            {myStreak >= 3 ? "\u{1F525}" : ""}
+          </h1>
+          <p className="text-[var(--muted)] text-sm mt-1">
+            {myStreak > 0
+              ? `Racha de ${myStreak} dia${myStreak > 1 ? "s" : ""} cerrando`
+              : "Empeza tu racha hoy!"}
+          </p>
+        </div>
+        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-right">
+          <p className="text-[10px] text-[var(--muted)] uppercase tracking-wider">Cotización USD</p>
+          <p className="text-sm text-white font-mono font-semibold">
+            ${usdRate.toLocaleString("es-AR")} ARS
+          </p>
+        </div>
       </div>
 
       {/* Daily Stats Bar */}

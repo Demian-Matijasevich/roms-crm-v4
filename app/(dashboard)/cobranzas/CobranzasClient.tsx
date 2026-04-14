@@ -14,6 +14,7 @@ interface Props {
   allTasks: AgentTask[];
   auditCuotas: AuditCuotaRow[];
   auditRenovaciones: AuditCuotaRow[];
+  usdRate: number;
   session: AuthSession;
 }
 
@@ -96,8 +97,10 @@ export default function CobranzasClient({
   allTasks,
   auditCuotas,
   auditRenovaciones,
+  usdRate,
   session,
 }: Props) {
+  void usdRate; // reserved for formatMoney when ARS payments become common
   const [mainTab, setMainTab] = useState<MainTab>("cola");
   const [queue, setQueue] = useState(initialQueue);
   const [filterTipo, setFilterTipo] = useState<FilterTipo>("todos");

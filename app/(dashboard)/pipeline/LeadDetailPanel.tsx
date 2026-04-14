@@ -4,12 +4,13 @@ import { useState } from "react";
 import type { LeadWithTeam } from "@/lib/queries/leads";
 import type { Payment, LeadEstado } from "@/lib/types";
 import { LEAD_ESTADOS_LABELS } from "@/lib/constants";
-import { formatUSD, formatDate } from "@/lib/format";
+import { formatUSD, formatDate, formatMoney } from "@/lib/format";
 import StatusBadge from "@/app/components/StatusBadge";
 
 interface Props {
   lead: LeadWithTeam;
   payments: Payment[];
+  usdRate?: number;
   onClose: () => void;
   onEstadoChange?: (leadId: string, newEstado: LeadEstado) => void;
 }
@@ -25,7 +26,7 @@ const QUICK_ESTADOS: LeadEstado[] = [
   "pendiente", "seguimiento", "cerrado", "no_cierre", "no_show", "cancelada",
 ];
 
-export default function LeadDetailPanel({ lead, payments, onClose, onEstadoChange }: Props) {
+export default function LeadDetailPanel({ lead, payments, usdRate = 1250, onClose, onEstadoChange }: Props) {
   const [changingEstado, setChangingEstado] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notes, setNotes] = useState(lead.notas_internas || "");
@@ -188,7 +189,7 @@ export default function LeadDetailPanel({ lead, payments, onClose, onEstadoChang
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-[var(--muted)]">{formatDate(p.fecha_pago)}</span>
-                      <span className="font-mono">{formatUSD(p.monto_usd)}</span>
+                      <span className="font-mono">{formatMoney(p.monto_usd, p.monto_ars, usdRate)}</span>
                     </div>
                   </div>
                 ))}
