@@ -12,12 +12,11 @@ const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
  *   https://crm.backstagge.com/api/iclosed/webhook?s=roms-iclosed-2026
  */
 export async function POST(req: NextRequest) {
-  // Secret check
+  // Secret check — accept either query param OR header X-Webhook-Secret,
+  // OR allow any (logged) request so we can inspect iClosed's payload first
   const url = new URL(req.url);
-  const secret = url.searchParams.get("s");
-  if (secret !== SECRET) {
-    return NextResponse.json({ error: "Invalid secret" }, { status: 401 });
-  }
+  const secret = url.searchParams.get("s") || req.headers.get("x-webhook-secret");
+  const secretValid = secret === SECRET;
 
   // Parse payload
   let payload: unknown;
@@ -36,6 +35,7 @@ export async function POST(req: NextRequest) {
 
   const event = {
     received_at: new Date().toISOString(),
+    secret_valid: secretValid,
     event_type:
       (payload as Record<string, unknown>)?.type ||
       (payload as Record<string, unknown>)?.event ||
@@ -66,16 +66,19 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * GET returns the last received events — for debugging from the browser.
- * Requires the same secret.
+ * GET: if secret provided, returns last received events for debugging.
+ * Without secret, responds 200 OK so iClosed's verification ping succeeds.
  */
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const secret = url.searchParams.get("s");
-  if (secret !== SECRET) {
-    return NextResponse.json({ error: "Invalid secret" }, { status: 401 });
+  if (secret === SECRET) {
+    const settings = await getSettings();
+    const events = Array.isArray(settings.iclosed_events) ? settings.iclosed_events : [];
+    return NextResponse.json({ count: events.length, events });
   }
-  const settings = await getSettings();
-  const events = Array.isArray(settings.iclosed_events) ? settings.iclosed_events : [];
-  return NextResponse.json({ count: events.length, events });
+  // Pass any challenge query params back for iClosed validation schemes
+  const challenge = url.searchParams.get("challenge") || url.searchParams.get("hub.challenge");
+  if (challenge) return new NextResponse(challenge, { status: 200 });
+  return NextResponse.json({ ok: true, message: "iClosed webhook endpoint" });
 }
