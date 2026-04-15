@@ -13,13 +13,21 @@ export default async function ClosersPage() {
 
   const supabase = createServerClient();
 
-  const [kpisRes, leadsRes, commissionsRes] = await Promise.all([
+  const [kpisRes, leadsRes, commissionsRes, paymentsRes, teamRes] = await Promise.all([
     supabase.from("v_closer_kpis").select("*"),
     supabase
       .from("leads")
       .select("*, closer:team_members!leads_closer_id_fkey(*)")
-      .not("closer_id", "is", null),
+      .not("closer_id", "is", null)
+      .range(0, 4999),
     supabase.from("v_commissions").select("*"),
+    supabase
+      .from("payments")
+      .select("id, lead_id, monto_usd, fecha_pago, estado")
+      .eq("estado", "pagado")
+      .not("fecha_pago", "is", null)
+      .range(0, 4999),
+    supabase.from("team_members").select("id, nombre, is_closer").eq("is_closer", true).eq("activo", true),
   ]);
 
   return (
@@ -27,6 +35,8 @@ export default async function ClosersPage() {
       closerKpis={(kpisRes.data as CloserKPI[]) ?? []}
       leads={(leadsRes.data as Lead[]) ?? []}
       commissions={commissionsRes.data ?? []}
+      payments={(paymentsRes.data as { id: string; lead_id: string | null; monto_usd: number; fecha_pago: string | null; estado: string }[]) ?? []}
+      team={(teamRes.data as { id: string; nombre: string; is_closer: boolean }[]) ?? []}
     />
   );
 }
