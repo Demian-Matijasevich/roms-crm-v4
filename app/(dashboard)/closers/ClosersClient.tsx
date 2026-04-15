@@ -47,6 +47,7 @@ interface ComputedKpi {
   aov: number;
   comision_closer: number;
   cash_cobrado: number;
+  leads_con_cobro: number;
 }
 
 export default function ClosersClient({
@@ -93,6 +94,7 @@ export default function ClosersClient({
         aov: 0,
         comision_closer: 0,
         cash_cobrado: 0,
+        leads_con_cobro: 0,
       };
     }
 
@@ -131,9 +133,10 @@ export default function ClosersClient({
       k.aov = k.cerradas > 0 ? Math.round(k.aov / k.cerradas) : 0;
     }
 
-    // Commissions: sum of payments where lead.closer_id = k.id AND fecha_pago in month
+    // Commissions + leads con cobro: sum of payments where lead.closer_id = k.id AND fecha_pago in month
     const leadCloserMap: Record<string, string> = {};
     for (const l of leads) if (l.closer_id) leadCloserMap[l.id] = l.closer_id;
+    const leadsConCobroSet: Record<string, Set<string>> = {};
     for (const p of payments) {
       if (!p.lead_id || !p.fecha_pago) continue;
       const f = p.fecha_pago.split("T")[0];
@@ -142,6 +145,10 @@ export default function ClosersClient({
       if (!closerId || !byCloser[closerId]) continue;
       byCloser[closerId].cash_cobrado += p.monto_usd;
       byCloser[closerId].comision_closer += p.monto_usd * 0.10;
+      (leadsConCobroSet[closerId] ||= new Set()).add(p.lead_id);
+    }
+    for (const [cid, set] of Object.entries(leadsConCobroSet)) {
+      if (byCloser[cid]) byCloser[cid].leads_con_cobro = set.size;
     }
 
     return Object.values(byCloser).sort((a, b) => b.cash_cobrado - a.cash_cobrado);
@@ -251,6 +258,10 @@ export default function ClosersClient({
               <p>Ticket promedio de las ventas cerradas. Suma de <code>ticket_total</code> de todas las cerradas dividido por la cantidad. Ej: 3 cerradas de $10k = AOV $10k.</p>
             </div>
             <div>
+              <p className="text-white font-medium">Leads con cobro</p>
+              <p>Cantidad de <b>leads distintos</b> que tuvieron al menos 1 pago en el mes. Incluye leads cerrados en meses anteriores cuyas cuotas se cobraron ahora.</p>
+            </div>
+            <div>
               <p className="text-white font-medium">Cash cobrado</p>
               <p>Suma de todos los <code>payments.monto_usd</code> con estado <code>pagado</code> y <code>fecha_pago</code> en el mes, donde el lead tiene este closer asignado.</p>
             </div>
@@ -312,9 +323,13 @@ export default function ClosersClient({
                   <p className="text-sm font-bold text-white">{formatUSD(k.aov)}</p>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-[var(--card-border)]">
+              <div className="grid grid-cols-3 gap-3 mt-3 pt-3 border-t border-[var(--card-border)]">
+                <div title="Cantidad de leads distintos que tuvieron algún pago en el mes (incluye cuotas de meses anteriores)">
+                  <p className="text-xs text-[var(--muted)]">Leads con cobro</p>
+                  <p className="text-sm font-bold text-white">{k.leads_con_cobro}</p>
+                </div>
                 <div title="Suma de pagos pagados con fecha_pago en el mes, para leads de este closer">
-                  <p className="text-xs text-[var(--muted)]">Cash cobrado (mes)</p>
+                  <p className="text-xs text-[var(--muted)]">Cash cobrado</p>
                   <p className="text-sm font-bold text-[var(--green)]">{formatUSD(k.cash_cobrado)}</p>
                 </div>
                 <div title="10% del cash cobrado del mes">
