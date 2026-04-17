@@ -35,6 +35,36 @@ interface Props {
   team: { id: string; nombre: string; is_closer: boolean }[];
 }
 
+/**
+ * Valentino's commission scheme (April 2026 onwards):
+ * - Base: Omnipresencia 7%, Multicuentas 5%, Consultoria 7% (treated as omnipresencia)
+ * - Monthly cash multiplier:
+ *   - ≤ 70k: 1.00x
+ *   - 70k-100k: 1.15x
+ *   - > 100k: 1.30x
+ * - Cap: 10%
+ * Setter: 3% of cash collected for their leads
+ */
+function computeValenCommission(
+  payments: { monto_usd: number; programa: string | null }[],
+  monthlyCashTotal: number
+): { omni: number; multi: number; consultoria: number; total: number; pctEff: { omni: number; multi: number; consultoria: number } } {
+  const mul = monthlyCashTotal <= 70000 ? 1.0 : monthlyCashTotal <= 100000 ? 1.15 : 1.3;
+  const baseOmni = 7, baseMulti = 5, baseConsultoria = 7;
+  const pctOmni = Math.min(baseOmni * mul, 10);
+  const pctMulti = Math.min(baseMulti * mul, 10);
+  const pctConsultoria = Math.min(baseConsultoria * mul, 10);
+
+  let omni = 0, multi = 0, consultoria = 0;
+  for (const p of payments) {
+    const prog = (p.programa || "").toLowerCase();
+    if (prog.includes("multi")) multi += p.monto_usd * (pctMulti / 100);
+    else if (prog.includes("consult")) consultoria += p.monto_usd * (pctConsultoria / 100);
+    else omni += p.monto_usd * (pctOmni / 100);
+  }
+  return { omni, multi, consultoria, total: omni + multi + consultoria, pctEff: { omni: pctOmni, multi: pctMulti, consultoria: pctConsultoria } };
+}
+
 interface ComputedKpi {
   team_member_id: string;
   nombre: string;
@@ -133,10 +163,18 @@ export default function ClosersClient({
       k.aov = k.cerradas > 0 ? Math.round(k.aov / k.cerradas) : 0;
     }
 
-    // Commissions + leads con cobro: sum of payments where lead.closer_id = k.id AND fecha_pago in month
+    // Build lead maps
     const leadCloserMap: Record<string, string> = {};
-    for (const l of leads) if (l.closer_id) leadCloserMap[l.id] = l.closer_id;
+    const leadProgramaMap: Record<string, string | null> = {};
+    for (const l of leads) {
+      if (l.closer_id) leadCloserMap[l.id] = l.closer_id;
+      leadProgramaMap[l.id] = l.programa_pitcheado || null;
+    }
+
+    // Collect payments per closer (for cash + commission calc)
+    const paymentsPerCloser: Record<string, { monto_usd: number; programa: string | null }[]> = {};
     const leadsConCobroSet: Record<string, Set<string>> = {};
+
     for (const p of payments) {
       if (!p.lead_id || !p.fecha_pago) continue;
       const f = p.fecha_pago.split("T")[0];
@@ -144,9 +182,18 @@ export default function ClosersClient({
       const closerId = leadCloserMap[p.lead_id];
       if (!closerId || !byCloser[closerId]) continue;
       byCloser[closerId].cash_cobrado += p.monto_usd;
-      byCloser[closerId].comision_closer += p.monto_usd * 0.10;
       (leadsConCobroSet[closerId] ||= new Set()).add(p.lead_id);
+      (paymentsPerCloser[closerId] ||= []).push({ monto_usd: p.monto_usd, programa: leadProgramaMap[p.lead_id] || null });
     }
+
+    // Compute commissions per closer using new scheme
+    for (const k of Object.values(byCloser)) {
+      const payList = paymentsPerCloser[k.team_member_id] || [];
+      const monthlyCash = k.cash_cobrado;
+      const result = computeValenCommission(payList, monthlyCash);
+      k.comision_closer = result.total;
+    }
+
     for (const [cid, set] of Object.entries(leadsConCobroSet)) {
       if (byCloser[cid]) byCloser[cid].leads_con_cobro = set.size;
     }
@@ -267,7 +314,15 @@ export default function ClosersClient({
             </div>
             <div>
               <p className="text-white font-medium">Comisión closer</p>
-              <p><code>10% del cash cobrado</code> del mes. Se calcula sobre los pagos, NO sobre las ventas cerradas (así si un lead de marzo paga en abril, la comisión es de abril).</p>
+              <p>
+                Base por servicio × multiplicador de volumen mensual (cap 10%):<br/>
+                • <b>Omnipresencia</b>: 7% · <b>Multicuentas</b>: 5% · <b>Consultoría</b>: 7%<br/>
+                • Multiplicador por cash cobrado del mes:<br/>
+                &nbsp;&nbsp;- ≤ $70k → 1.00x (Omni 7% / Multi 5%)<br/>
+                &nbsp;&nbsp;- $70k – $100k → 1.15x (Omni 8.05% / Multi 5.75%)<br/>
+                &nbsp;&nbsp;- &gt; $100k → 1.30x (Omni 9.10% / Multi 6.50%)<br/>
+                Se calcula sobre cada pago según el programa del lead (no sobre el monto agregado).
+              </p>
             </div>
           </div>
           <p className="text-xs text-[var(--muted)] pt-2 border-t border-[var(--card-border)]">
@@ -332,8 +387,8 @@ export default function ClosersClient({
                   <p className="text-xs text-[var(--muted)]">Cash cobrado</p>
                   <p className="text-sm font-bold text-[var(--green)]">{formatUSD(k.cash_cobrado)}</p>
                 </div>
-                <div title="10% del cash cobrado del mes">
-                  <p className="text-xs text-[var(--muted)]">Comisión (10%)</p>
+                <div title="Comisión por servicio × multiplicador de volumen (ver '¿Cómo se calcula?')">
+                  <p className="text-xs text-[var(--muted)]">Comisión</p>
                   <p className="text-sm font-bold text-[var(--purple-light)]">{formatUSD(Math.round(k.comision_closer))}</p>
                 </div>
               </div>
