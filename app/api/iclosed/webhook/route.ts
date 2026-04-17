@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSettings, setSetting } from "@/lib/queries/settings";
 import { createServerClient } from "@/lib/supabase-server";
+import { upsertLeadToSheet } from "@/lib/sheets-write";
 
 const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
 
@@ -74,6 +75,7 @@ async function processEvent(payload: IClosedPayload) {
 
   // Closer from latestCall.user (by email or first name)
   let closer_id: string | null = null;
+  let closer_nombre: string | null = null;
   const callUser = payload.latestCall?.user;
   if (callUser?.email || callUser?.firstName) {
     const { data: team } = await sb.from("team_members").select("id,nombre,email").eq("is_closer", true);
@@ -83,6 +85,14 @@ async function processEvent(payload: IClosedPayload) {
       return false;
     });
     closer_id = match?.id || null;
+    closer_nombre = match?.nombre || null;
+  }
+
+  // Setter nombre for Sheet display
+  let setter_nombre: string | null = null;
+  if (setter_id) {
+    const { data: s } = await sb.from("team_members").select("nombre").eq("id", setter_id).maybeSingle();
+    setter_nombre = s?.nombre || null;
   }
 
   const nombre = [payload.firstName, payload.lastName].filter(Boolean).join(" ").trim();
@@ -114,12 +124,39 @@ async function processEvent(payload: IClosedPayload) {
     data.notas_internas = currentNotes ? `${currentNotes}\n${marker}` : marker;
   }
 
+  let leadId: string | null = null;
+  let action: "created" | "updated" = "updated";
   if (lead) {
     await sb.from("leads").update(data).eq("id", lead.id);
-    return { action: "updated", leadId: lead.id };
+    leadId = lead.id;
+  } else {
+    const { data: ins } = await sb.from("leads").insert(data).select("id").single();
+    leadId = ins?.id || null;
+    action = "created";
   }
-  const { data: ins } = await sb.from("leads").insert(data).select("id").single();
-  return { action: "created", leadId: ins?.id };
+
+  // Sync to Sheet (best-effort, don't fail the webhook)
+  let sheetRow: number | null = null;
+  if (leadId) {
+    const { data: fresh } = await sb
+      .from("leads")
+      .select("id, sheets_row_index, nombre, instagram, email, telefono, fecha_llamada, fecha_agendado, estado, programa_pitcheado, ticket_total, fuente")
+      .eq("id", leadId)
+      .single();
+    if (fresh) {
+      sheetRow = await upsertLeadToSheet({
+        ...fresh,
+        closer_nombre,
+        setter_nombre,
+        receptor: null,
+      });
+      if (sheetRow && !fresh.sheets_row_index) {
+        await sb.from("leads").update({ sheets_row_index: sheetRow }).eq("id", leadId);
+      }
+    }
+  }
+
+  return { action, leadId, sheetRow };
 }
 
 /**
