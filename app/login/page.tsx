@@ -11,6 +11,8 @@ const TEAM = [
   { nombre: "Juan Mart\u00edn", role: "closer", color: "#60a5fa" },
   { nombre: "Fede", role: "closer", color: "#60a5fa" },
   { nombre: "Guille", role: "setter", color: "#22c55e" },
+  { nombre: "Igna", role: "setter", color: "#22c55e" },
+  { nombre: "Mel", role: "cobranzas", color: "#ec4899" },
 ];
 
 function getInitials(name: string) {
@@ -23,6 +25,8 @@ function getRoleLabel(role: string) {
     closer: "Closer",
     setter: "Setter",
     "closer+setter": "Closer + Setter",
+    cobranzas: "Cobranzas",
+    seguimiento: "Seguimiento",
   };
   return map[role] ?? role;
 }
