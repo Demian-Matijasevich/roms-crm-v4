@@ -6,7 +6,7 @@ const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
 // Client list from the PDF "Clientes ROMS- Servicio.pdf"
 const CLIENTS: Array<{ nombre: string; programa: string }> = [
   { nombre: "Matias Zacconi", programa: "omnipresencia" },
-  { nombre: "Lautaro Cardozo", programa: "omnipresencia_multicuentas" },
+  { nombre: "Lautaro Cardozo", programa: "omnipresencia" },
   { nombre: "Lucas Finanzas", programa: "multicuentas" },
   { nombre: "David Abogado", programa: "omnipresencia" },
   { nombre: "Lean Albornoz", programa: "omnipresencia" },
@@ -47,19 +47,27 @@ function norm(s: string) {
   return (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 }
 
+// Known bad short-name matches (business names that'd match random people)
+const NEVER_MATCH = new Set(["mr bet", "luzu tv", "made in china", "aval total", "la milagresa"]);
+
 async function findLeadMatch(sb: ReturnType<typeof createServerClient>, name: string) {
-  const needle = norm(name).split(" ").filter((w) => w.length > 2);
+  const nm = norm(name);
+  if (NEVER_MATCH.has(nm)) return null;
+  const needle = nm.split(" ").filter((w) => w.length > 2);
   if (needle.length === 0) return null;
-  // Fetch all leads and filter client-side (need fuzzy)
+  // Require at least 2 matching tokens OR a single distinctive token (>5 chars) for single-word client names
   const { data: leads } = await sb.from("leads").select("id, nombre, email, estado").range(0, 4999);
   if (!leads) return null;
-  // Score: count of matching words
   const candidates = leads.map((l) => {
     const ln = norm(l.nombre || "");
     const matches = needle.filter((w) => ln.includes(w)).length;
     return { lead: l, matches, ln };
-  }).filter((c) => c.matches === needle.length);
-  // Prefer cerrado/adentro_seguimiento
+  }).filter((c) => {
+    if (c.matches !== needle.length) return false;
+    // Extra safety: if client name has 1 word, require the lead to fully contain it as a token
+    if (needle.length === 1 && needle[0].length < 6) return false;
+    return true;
+  });
   candidates.sort((a, b) => {
     const ap = (a.lead.estado === "cerrado" || a.lead.estado === "adentro_seguimiento") ? 1 : 0;
     const bp = (b.lead.estado === "cerrado" || b.lead.estado === "adentro_seguimiento") ? 1 : 0;
