@@ -65,6 +65,7 @@ function getNav(session: AuthSession): NavSection[] {
       {
         title: "HERRAMIENTAS",
         items: [
+          { href: "/form/dia", label: "Carga Diaria", icon: "\u{1F5D3}\uFE0F" },
           { href: "/form/llamada", label: "Cargar Llamada", icon: "\u{1F4DE}" },
           { href: "/form/pago", label: "Cargar Pago", icon: "\u{1F4B3}" },
           { href: "/form/gasto", label: "Cargar Gasto", icon: "\u{1F4B8}" },
@@ -91,6 +92,14 @@ function getNav(session: AuthSession): NavSection[] {
           { href: "/", label: "Cola de Seguimientos", icon: "\u{1F4CB}" },
           { href: "/clientes", label: "Clientes", icon: "\u{1F465}" },
           { href: "/tracker", label: "Tracker 1a1", icon: "\u{1F3AF}" },
+        ],
+      },
+      {
+        title: "CARGA DE VENTAS",
+        items: [
+          { href: "/form/dia", label: "Carga Diaria", icon: "\u{1F5D3}\uFE0F" },
+          { href: "/form/pago", label: "Cargar Pago", icon: "\u{1F4B3}" },
+          { href: "/cobranzas", label: "Cobranzas", icon: "\u{1F4B0}" },
         ],
       },
     ];
