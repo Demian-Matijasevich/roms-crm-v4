@@ -168,7 +168,7 @@ export default function ClosersClient({
     const leadProgramaMap: Record<string, string | null> = {};
     for (const l of leads) {
       if (l.closer_id) leadCloserMap[l.id] = l.closer_id;
-      leadProgramaMap[l.id] = l.programa_pitcheado || null;
+      leadProgramaMap[l.id] = (l.programa_pitcheado as string | null) || null;
     }
 
     // Collect payments per closer (for cash + commission calc)

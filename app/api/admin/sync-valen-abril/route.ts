@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   const sb = createServerClient();
 
   const { data: valen } = await sb.from("team_members").select("id").eq("nombre", "Valentino").single();
-  const valenId = valen?.id;
+  const valenId: string | null = valen?.id || null;
 
   const results: unknown[] = [];
   for (const s of MISSING_SALES) {
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
         return needle.every((w) => ln.includes(w));
       });
 
-      let leadId = match?.id;
+      let leadId: string | null = match?.id || null;
       if (!leadId) {
         // Create lead
         const { data: ins, error: insErr } = await sb.from("leads").insert({
