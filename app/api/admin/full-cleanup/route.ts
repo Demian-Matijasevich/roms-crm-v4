@@ -32,12 +32,14 @@ export async function POST(req: NextRequest) {
     .is("fecha_pago", null)
     .range(0, 4999);
 
-  const combined = [...(aprilPays || []), ...(nullFechaPays || [])];
+  type PayRow = { id: string; lead_id: string | null; monto_usd: number; fecha_pago: string | null; numero_cuota: number | null; estado: string; created_at?: string };
+  const combined: PayRow[] = [...(aprilPays || []), ...(nullFechaPays || [])] as PayRow[];
 
-  const groups: Record<string, typeof combined> = {};
+  const groups: Record<string, PayRow[]> = {};
   for (const p of combined) {
     const key = `${p.lead_id || "none"}|${Math.round(p.monto_usd)}`;
-    (groups[key] ||= []).push(p);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(p);
   }
 
   const toDelete: string[] = [];
