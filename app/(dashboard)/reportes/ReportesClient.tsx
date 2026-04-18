@@ -121,8 +121,22 @@ export default function ReportesClient({ reports, aggregates, setters }: Props) 
       {/* Header */}
       <div>
         <h1 className="text-xl font-bold text-white">Reportes Diarios</h1>
-        <p className="text-sm text-[var(--muted)]">Actividad de setters — periodo 7-7 actual</p>
+        <p className="text-sm text-[var(--muted)]">Actividad de setters — mes fiscal actual</p>
       </div>
+
+      {/* Empty state */}
+      {reports.length === 0 && (
+        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-8 text-center space-y-3">
+          <div className="text-4xl">📋</div>
+          <h3 className="text-base font-semibold text-white">Sin reportes cargados</h3>
+          <p className="text-sm text-[var(--muted)] max-w-md mx-auto">
+            Los setters no cargaron ningún reporte diario todavía. Pediles que completen su reporte desde <b>Cargar Llamada → Reporte Setter</b> al final de cada día (conversaciones iniciadas, respuestas a historias, calendarios enviados, agendas confirmadas).
+          </p>
+          <a href="/form/reporte-setter" className="inline-block mt-2 px-4 py-2 rounded-lg bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white text-sm font-medium">
+            Cargar reporte ahora
+          </a>
+        </div>
+      )}
 
       {/* KPI Cards -- aggregated for current 7-7 */}
       <div className="grid grid-cols-3 gap-3">
