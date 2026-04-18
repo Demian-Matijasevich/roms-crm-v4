@@ -4,6 +4,7 @@ import { ventaChatSchema } from "@/lib/schemas";
 import { createLead } from "@/lib/queries/leads";
 import { createPayment } from "@/lib/queries/payments";
 import { getToday, toDateString } from "@/lib/date-utils";
+import { syncLeadToSheet } from "@/lib/sheet-sync";
 import type { LeadEstado, LeadFuente, MetodoPago, PlanPago, Programa } from "@/lib/types";
 
 export async function POST(req: NextRequest) {
@@ -100,6 +101,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Lead creado pero error al crear pago" }, { status: 500 });
     }
 
+    if (lead?.id) await syncLeadToSheet(lead.id);
     return NextResponse.json({ ok: true, lead, payment });
   } catch (err) {
     console.error("[POST /api/venta-directa]", err);

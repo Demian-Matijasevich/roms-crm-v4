@@ -3,6 +3,7 @@ import { requireSession, requireAdmin } from "@/lib/auth";
 import { pagoSchema } from "@/lib/schemas";
 import { createPayment, uploadComprobante } from "@/lib/queries/payments";
 import { createServerClient } from "@/lib/supabase-server";
+import { syncLeadToSheet } from "@/lib/sheet-sync";
 import type { MetodoPago, PaymentEstado } from "@/lib/types";
 
 export async function POST(req: NextRequest) {
@@ -62,6 +63,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Error al crear pago" }, { status: 500 });
     }
 
+    // Sync lead to Sheet ROMS
+    if (payment.lead_id) await syncLeadToSheet(payment.lead_id);
+
     return NextResponse.json({ ok: true, payment });
   } catch (err) {
     console.error("[POST /api/pagos]", err);
@@ -85,6 +89,7 @@ export async function PATCH(req: NextRequest) {
     const supabase = createServerClient();
     const { data, error } = await supabase.from("payments").update(patch).eq("id", id).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (data?.lead_id) await syncLeadToSheet(data.lead_id);
     return NextResponse.json({ ok: true, payment: data });
   } catch (err) {
     console.error("[PATCH /api/pagos]", err);

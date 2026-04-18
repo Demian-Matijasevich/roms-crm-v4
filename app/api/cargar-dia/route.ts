@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase-server";
 import { createPayment } from "@/lib/queries/payments";
+import { syncLeadToSheet } from "@/lib/sheet-sync";
 import type { MetodoPago } from "@/lib/types";
 
 // GET /api/cargar-dia?closer_id=X&fecha=YYYY-MM-DD
@@ -114,7 +115,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ ok: true });
+    // Sync to Sheet ROMS (best-effort, don't fail the response)
+    const sheetSync = await syncLeadToSheet(lead_id);
+
+    return NextResponse.json({ ok: true, sheetSync });
   } catch (err) {
     console.error("[POST /api/cargar-dia]", err);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
