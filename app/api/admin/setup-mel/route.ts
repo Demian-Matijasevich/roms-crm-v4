@@ -10,10 +10,10 @@ export async function POST(req: NextRequest) {
   }
   const sb = createServerClient();
 
-  const { data: existing } = await sb.from("team_members").select("id,nombre,pin,is_cobranzas,is_seguimiento").eq("nombre", "Mel").maybeSingle();
+  const { data: existing } = await sb.from("team_members").select("id,nombre,pin,is_cobranzas,is_seguimiento,is_admin").eq("nombre", "Mel").maybeSingle();
   if (existing) {
-    await sb.from("team_members").update({ is_cobranzas: true, is_seguimiento: true, rol: "cobranzas", activo: true }).eq("id", existing.id);
-    return NextResponse.json({ ok: true, action: "updated", id: existing.id, pin: existing.pin });
+    await sb.from("team_members").update({ is_admin: true, is_cobranzas: true, is_seguimiento: true, rol: "admin", activo: true }).eq("id", existing.id);
+    return NextResponse.json({ ok: true, action: "updated_admin", id: existing.id, pin: existing.pin });
   }
 
   // Find free pin
@@ -27,8 +27,8 @@ export async function POST(req: NextRequest) {
     .insert({
       nombre: "Mel",
       etiqueta: "mel",
-      rol: "cobranzas",
-      is_admin: false,
+      rol: "admin",
+      is_admin: true,
       is_closer: false,
       is_setter: false,
       is_cobranzas: true,
