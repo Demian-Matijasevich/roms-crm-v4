@@ -137,6 +137,27 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
     }
   }, [closers, setters]);
 
+  // Update a specific payment's field (used from the main table row for fecha_pago of the first payment)
+  const updatePaymentField = useCallback(async (paymentId: string, field: string, value: string | number | null) => {
+    try {
+      const res = await fetch("/api/pagos", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: paymentId, [field]: value }),
+      });
+      const json = await res.json();
+      if (!json.ok) {
+        alert("Error: " + (json.error || "desconocido"));
+        return;
+      }
+      // Force reload to refresh audit data (payments is computed server-side).
+      // Alternative would be to mutate a local payments state — for now this is simpler.
+      window.location.reload();
+    } catch (err) {
+      alert("Error: " + (err instanceof Error ? err.message : String(err)));
+    }
+  }, []);
+
   // Renders the expanded lead detail inside the table row (inline expand)
   const renderLeadDetail = (lead: LeadWithTeam) => {
     const leadPayments = paymentsByLead.get(lead.id) || [];
@@ -706,11 +727,12 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
       const cuotasPagadas = inMonthPagados.filter((p) => p.numero_cuota > 1).length;
       const saldoPendiente = monthRange ? 0 : ticketTotal - cashCollected;
       const receptor = leadPayments.length > 0 ? leadPayments[0].receptor : null;
-      const fechaPago = inMonthPagados
+      const withFecha = inMonthPagados
         .filter((p) => p.fecha_pago)
-        .map((p) => p.fecha_pago!.split("T")[0])
-        .sort()[0] || null;
-      return { cashCollected, cuotasPagadas, saldoPendiente, receptor, fechaPago };
+        .sort((a, b) => (a.fecha_pago || "").localeCompare(b.fecha_pago || ""));
+      const fechaPago = withFecha[0]?.fecha_pago?.split("T")[0] || null;
+      const fechaPagoPaymentId = withFecha[0]?.id || null;
+      return { cashCollected, cuotasPagadas, saldoPendiente, receptor, fechaPago, fechaPagoPaymentId };
     },
     [paymentsByLead, monthRange]
   );
@@ -1052,8 +1074,14 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
                         onBlur={(e) => { const v = e.target.value || null; if (v !== (lead.fecha_llamada?.split("T")[0] || null)) updateLeadField(lead.id, "fecha_llamada", v ? `${v}T00:00:00` : null); }}
                         className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
                     </td>
-                    <td className="px-4 py-3 text-[var(--muted)]">
-                      {audit.fechaPago ? formatDate(audit.fechaPago) : "---"}
+                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                      {audit.fechaPagoPaymentId ? (
+                        <input type="date" defaultValue={audit.fechaPago || ""}
+                          onBlur={(e) => { const v = e.target.value; if (v && v !== audit.fechaPago) updatePaymentField(audit.fechaPagoPaymentId!, "fecha_pago", v); }}
+                          className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
+                      ) : (
+                        <span className="text-[var(--muted)]">---</span>
+                      )}
                     </td>
                     <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                       <select defaultValue={lead.estado}
