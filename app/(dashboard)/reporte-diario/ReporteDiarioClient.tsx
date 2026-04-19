@@ -18,7 +18,7 @@ export default function ReporteDiarioClient() {
     setLoading(true);
     setReport("");
     setRango(null);
-    const res = await fetch(`/api/reports/daily?fecha=${fecha}&tipo=${tipo}`);
+    const res = await fetch(`/api/reports/daily?fecha=${fecha}&tipo=${tipo}&_ts=${Date.now()}`, { cache: "no-store" });
     const json = await res.json();
     setReport(json.text || json.error || "Sin datos");
     if (json.rango) setRango(json.rango);
