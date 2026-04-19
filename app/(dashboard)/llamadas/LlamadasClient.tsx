@@ -43,7 +43,8 @@ function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
   return <span className="ml-1 text-[10px] text-[var(--purple-light)]">{dir === "asc" ? "\u2191" : "\u2193"}</span>;
 }
 
-export default function LlamadasClient({ leads, closers, setters, payments, usdRate, session }: Props) {
+export default function LlamadasClient({ leads: initialLeads, closers, setters, payments, usdRate, session }: Props) {
+  const [leads, setLocalLeads] = useState<LeadWithTeam[]>(initialLeads);
   const [search, setSearch] = useState("");
   const [estadoFilter, setEstadoFilter] = useState<string>("todos");
   const [closerFilter, setCloserFilter] = useState<string>("todos");
@@ -104,6 +105,37 @@ export default function LlamadasClient({ leads, closers, setters, payments, usdR
       setSaving(false);
     }
   }, [editData]);
+
+  // Inline edit helper (for cells in the main table row — saves immediately on blur/change)
+  const updateLeadField = useCallback(async (leadId: string, field: string, value: string | number | null) => {
+    try {
+      const res = await fetch("/api/llamadas", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: leadId, [field]: value }),
+      });
+      const json = await res.json();
+      if (json.ok && json.lead) {
+        setLocalLeads((prev) => prev.map((l) => {
+          if (l.id !== leadId) return l;
+          const updated = { ...l, [field]: value } as LeadWithTeam;
+          if (field === "closer_id") {
+            const c = closers.find((t) => t.id === value);
+            updated.closer = c || null;
+          }
+          if (field === "setter_id") {
+            const s = setters.find((t) => t.id === value);
+            updated.setter = s || null;
+          }
+          return updated;
+        }));
+      } else {
+        alert("Error: " + (json.error || "desconocido"));
+      }
+    } catch (err) {
+      alert("Error: " + (err instanceof Error ? err.message : String(err)));
+    }
+  }, [closers, setters]);
 
   const handleRefundSubmit = useCallback(async (leadId: string) => {
     const monto = parseFloat(refundMonto);
@@ -511,35 +543,56 @@ export default function LlamadasClient({ leads, closers, setters, payments, usdR
                     onClick={() => setExpandedId(isExpanded ? null : lead.id)}
                     className={`border-b border-[var(--card-border)] hover:bg-[var(--purple)]/5 cursor-pointer transition-colors ${isExpanded ? "bg-[var(--purple)]/5" : ""}`}
                   >
-                    <td className="px-4 py-3 font-medium text-[var(--foreground)]">
-                      {lead.nombre || "Sin nombre"}
+                    <td className="px-2 py-2 font-medium text-[var(--foreground)]" onClick={(e) => e.stopPropagation()}>
+                      <input type="text" defaultValue={lead.nombre || ""}
+                        onBlur={(e) => { if (e.target.value !== (lead.nombre || "")) updateLeadField(lead.id, "nombre", e.target.value); }}
+                        className="w-full bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-sm font-medium text-[var(--foreground)] focus:outline-none" />
                     </td>
-                    <td className="px-4 py-3 text-[var(--muted)]">
-                      {lead.instagram ? `@${lead.instagram.replace(/^@/, "")}` : "---"}
+                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                      <input type="text" defaultValue={lead.instagram || ""}
+                        onBlur={(e) => { if (e.target.value !== (lead.instagram || "")) updateLeadField(lead.id, "instagram", e.target.value || null); }}
+                        className="w-full bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
                     </td>
-                    <td className="px-4 py-3 text-[var(--muted)]">
-                      {formatDate(lead.fecha_agendado)}
+                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                      <input type="date" defaultValue={lead.fecha_agendado?.split("T")[0] || ""}
+                        onBlur={(e) => { const v = e.target.value || null; if (v !== (lead.fecha_agendado?.split("T")[0] || null)) updateLeadField(lead.id, "fecha_agendado", v ? `${v}T00:00:00` : null); }}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
                     </td>
-                    <td className="px-4 py-3 text-[var(--muted)]">
-                      {formatDate(lead.fecha_llamada)}
+                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                      <input type="date" defaultValue={lead.fecha_llamada?.split("T")[0] || ""}
+                        onBlur={(e) => { const v = e.target.value || null; if (v !== (lead.fecha_llamada?.split("T")[0] || null)) updateLeadField(lead.id, "fecha_llamada", v ? `${v}T00:00:00` : null); }}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
                     </td>
                     <td className="px-4 py-3 text-[var(--muted)]">
                       {audit.fechaPago ? formatDate(audit.fechaPago) : "---"}
                     </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge
-                        status={lead.estado}
-                        label={LEAD_ESTADOS_LABELS[lead.estado] || lead.estado}
-                      />
+                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                      <select defaultValue={lead.estado}
+                        onChange={(e) => updateLeadField(lead.id, "estado", e.target.value)}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs focus:outline-none">
+                        {Object.entries(LEAD_ESTADOS_LABELS).map(([k, v]) => (<option key={k} value={k}>{v}</option>))}
+                      </select>
                     </td>
-                    <td className="px-4 py-3 text-[var(--muted)]">
-                      {lead.closer?.nombre || "---"}
+                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                      <select defaultValue={lead.closer_id || ""}
+                        onChange={(e) => updateLeadField(lead.id, "closer_id", e.target.value || null)}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none">
+                        <option value="">—</option>
+                        {closers.map((c) => (<option key={c.id} value={c.id}>{c.nombre}</option>))}
+                      </select>
                     </td>
-                    <td className="px-4 py-3 text-[var(--muted)]">
-                      {lead.setter?.nombre || "---"}
+                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                      <select defaultValue={lead.setter_id || ""}
+                        onChange={(e) => updateLeadField(lead.id, "setter_id", e.target.value || null)}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none">
+                        <option value="">—</option>
+                        {setters.map((s) => (<option key={s.id} value={s.id}>{s.nombre}</option>))}
+                      </select>
                     </td>
-                    <td className="px-4 py-3 text-right font-mono">
-                      {lead.ticket_total > 0 ? formatUSD(lead.ticket_total) : "---"}
+                    <td className="px-2 py-2 text-right font-mono" onClick={(e) => e.stopPropagation()}>
+                      <input type="number" step={100} defaultValue={lead.ticket_total || 0}
+                        onBlur={(e) => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && v !== (lead.ticket_total || 0)) updateLeadField(lead.id, "ticket_total", v); }}
+                        className="w-24 bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-right text-white focus:outline-none" />
                     </td>
                     <td className="px-4 py-3 text-center">
                       <LeadScoreBadge score={lead.lead_score} />

@@ -88,19 +88,32 @@ export async function PATCH(req: NextRequest) {
     if ("error" in result) return result.error;
 
     const body = await req.json();
-    const { id, estado, programa_pitcheado, lead_calificado, ticket_total, notas_internas, reporte_general } = body;
+    const { id, ...rest } = body;
 
     if (!id || typeof id !== "string") {
       return NextResponse.json({ error: "Se requiere id del lead" }, { status: 400 });
     }
 
+    const allowedFields = [
+      "estado", "programa_pitcheado", "lead_calificado", "lead_score",
+      "ticket_total", "notas_internas", "reporte_general",
+      "nombre", "instagram", "email", "telefono",
+      "fecha_agendado", "fecha_llamada",
+      "closer_id", "setter_id", "cobrador_id",
+      "utm_source", "utm_medium", "utm_content",
+      "fuente", "concepto", "plan_pago",
+    ];
+
     const updates: Record<string, unknown> = {};
-    if (estado !== undefined) updates.estado = estado as LeadEstado;
-    if (programa_pitcheado !== undefined) updates.programa_pitcheado = programa_pitcheado as Programa;
-    if (lead_calificado !== undefined) updates.lead_calificado = lead_calificado as LeadCalificacion;
-    if (ticket_total !== undefined) updates.ticket_total = Number(ticket_total);
-    if (notas_internas !== undefined) updates.notas_internas = notas_internas;
-    if (reporte_general !== undefined) updates.reporte_general = reporte_general;
+    for (const k of allowedFields) {
+      if (k in rest) {
+        if (k === "ticket_total") updates[k] = rest[k] !== null ? Number(rest[k]) : null;
+        else if (k === "estado") updates[k] = rest[k] as LeadEstado;
+        else if (k === "programa_pitcheado") updates[k] = rest[k] as Programa;
+        else if (k === "lead_calificado") updates[k] = rest[k] as LeadCalificacion;
+        else updates[k] = rest[k];
+      }
+    }
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No hay campos para actualizar" }, { status: 400 });
