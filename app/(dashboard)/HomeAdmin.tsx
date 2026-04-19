@@ -587,8 +587,8 @@ export default function HomeAdmin({
               <thead>
                 <tr className="text-left text-[var(--muted)] border-b border-[var(--card-border)]">
                   <th className="pb-3 pr-4 font-medium">Nombre</th>
-                  <th className="pb-3 pr-4 font-medium text-right">Closer (10%)</th>
-                  <th className="pb-3 pr-4 font-medium text-right">Setter (5%)</th>
+                  <th className="pb-3 pr-4 font-medium text-right" title="Valen scheme: 7% Omni / 5% Multi / 7% Consultoria con multiplicador mensual (cap 10%)">Closer</th>
+                  <th className="pb-3 pr-4 font-medium text-right" title="3% del cash cobrado de los leads del setter">Setter (3%)</th>
                   <th className="pb-3 font-medium text-right">Total</th>
                 </tr>
               </thead>

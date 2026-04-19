@@ -4,6 +4,7 @@ import { createServerClient } from "@/lib/supabase-server";
 import { getFiscalStart, getFiscalEnd, getFiscalMonth, getToday, toDateString } from "@/lib/date-utils";
 import type { ObjectiveData } from "./HomeCloser";
 import { getUsdRate } from "@/lib/queries/settings";
+import { computeTeamCommissions } from "@/lib/commissions";
 import HomeAdmin from "./HomeAdmin";
 import HomeCloser from "./HomeCloser";
 import HomeSetter from "./HomeSetter";
@@ -23,7 +24,7 @@ export default async function DashboardPage() {
     const fiscalEnd = getFiscalEnd();
     const today = toDateString(getToday());
 
-    const [cashRes, paymentsRes, overdueRes, atRiskRes, commissionsRes, pendingPaymentsRes, pipelineLeadsRes, renewalQueueRes] = await Promise.all([
+    const [cashRes, paymentsRes, overdueRes, atRiskRes, commissionsRes, pendingPaymentsRes, pipelineLeadsRes, renewalQueueRes, leadsForCommRes, teamRes, campaignsRes] = await Promise.all([
       supabase.from("v_monthly_cash").select("*"),
       // Fetch ALL paid payments (not just current fiscal) so the chart works for any selected month
       supabase
@@ -58,6 +59,18 @@ export default async function DashboardPage() {
         .from("v_renewal_queue")
         .select("*")
         .in("semaforo", ["urgente", "proximo"]),
+      // Leads para cálculo de comisiones (closer/setter attribution)
+      supabase
+        .from("leads")
+        .select("id, closer_id, setter_id, utm_medium, programa_pitcheado")
+        .range(0, 9999),
+      supabase
+        .from("team_members")
+        .select("id, nombre, is_closer, is_setter")
+        .eq("activo", true),
+      supabase
+        .from("utm_campaigns")
+        .select("medium, setter_id"),
     ]);
 
     // Revenue prediction calculations
@@ -69,16 +82,18 @@ export default async function DashboardPage() {
     const pipelineTotal = pipelineLeads.reduce((s, l) => s + (l.ticket_total || 0), 0);
     const renewalQueue = (renewalQueueRes.data ?? []) as RenewalQueueRow[];
 
-    // Build commissions from v_commissions for current month
-    const currentCommissions = ((commissionsRes.data ?? []) as Commission[])
-      .filter(c => c.mes_fiscal === currentFiscalLabel && c.comision_total > 0)
-      .map(c => ({
-        id: c.team_member_id,
-        nombre: c.nombre,
-        comision_closer: c.comision_closer,
-        comision_setter: c.comision_setter,
-        comision_total: c.comision_total,
-      }));
+    // Build commissions using Valen scheme (7/5/7 × multiplier, cap 10%) + setter 3%
+    // Fiscal month range = calendar month for ROMS
+    const fiscalMonthStart = toDateString(fiscalStart);
+    const fiscalMonthEnd = toDateString(fiscalEnd);
+    const currentCommissions = computeTeamCommissions({
+      leads: (leadsForCommRes.data ?? []) as Array<{ id: string; closer_id: string | null; setter_id: string | null; utm_medium: string | null; programa_pitcheado: string | null }>,
+      payments: (paymentsRes.data ?? []) as Array<{ lead_id: string | null; monto_usd: number; fecha_pago: string | null; estado: string }>,
+      team: (teamRes.data ?? []) as Array<{ id: string; nombre: string; is_closer: boolean; is_setter: boolean }>,
+      campaigns: (campaignsRes.data ?? []) as Array<{ medium: string | null; setter_id: string | null }>,
+      monthStart: fiscalMonthStart,
+      monthEnd: fiscalMonthEnd,
+    });
 
     return (
       <HomeAdmin

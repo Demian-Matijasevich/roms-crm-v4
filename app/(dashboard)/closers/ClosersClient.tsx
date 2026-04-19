@@ -16,6 +16,7 @@ import {
 import MonthSelector77 from "@/app/components/MonthSelector77";
 import { formatUSD } from "@/lib/format";
 import { getFiscalStart, getFiscalMonth, getFiscalMonthOptions, parseLocalDate } from "@/lib/date-utils";
+import { computeValenCommission } from "@/lib/commissions";
 import type { CloserKPI, Lead } from "@/lib/types";
 
 interface Commission {
@@ -33,36 +34,6 @@ interface Props {
   commissions: Commission[];
   payments: { id: string; lead_id: string | null; monto_usd: number; fecha_pago: string | null; estado: string }[];
   team: { id: string; nombre: string; is_closer: boolean }[];
-}
-
-/**
- * Valentino's commission scheme (April 2026 onwards):
- * - Base: Omnipresencia 7%, Multicuentas 5%, Consultoria 7% (treated as omnipresencia)
- * - Monthly cash multiplier:
- *   - ≤ 70k: 1.00x
- *   - 70k-100k: 1.15x
- *   - > 100k: 1.30x
- * - Cap: 10%
- * Setter: 3% of cash collected for their leads
- */
-function computeValenCommission(
-  payments: { monto_usd: number; programa: string | null }[],
-  monthlyCashTotal: number
-): { omni: number; multi: number; consultoria: number; total: number; pctEff: { omni: number; multi: number; consultoria: number } } {
-  const mul = monthlyCashTotal <= 70000 ? 1.0 : monthlyCashTotal <= 100000 ? 1.15 : 1.3;
-  const baseOmni = 7, baseMulti = 5, baseConsultoria = 7;
-  const pctOmni = Math.min(baseOmni * mul, 10);
-  const pctMulti = Math.min(baseMulti * mul, 10);
-  const pctConsultoria = Math.min(baseConsultoria * mul, 10);
-
-  let omni = 0, multi = 0, consultoria = 0;
-  for (const p of payments) {
-    const prog = (p.programa || "").toLowerCase();
-    if (prog.includes("multi")) multi += p.monto_usd * (pctMulti / 100);
-    else if (prog.includes("consult")) consultoria += p.monto_usd * (pctConsultoria / 100);
-    else omni += p.monto_usd * (pctOmni / 100);
-  }
-  return { omni, multi, consultoria, total: omni + multi + consultoria, pctEff: { omni: pctOmni, multi: pctMulti, consultoria: pctConsultoria } };
 }
 
 interface ComputedKpi {
