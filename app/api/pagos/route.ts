@@ -107,9 +107,18 @@ export async function DELETE(req: NextRequest) {
     if (!id) return NextResponse.json({ error: "id requerido" }, { status: 400 });
 
     const supabase = createServerClient();
+    // Fetch lead_id antes de borrar para resincar el Sheet después
+    const { data: existing } = await supabase.from("payments").select("lead_id").eq("id", id).maybeSingle();
+    const leadId = existing?.lead_id || null;
+
     const { error } = await supabase.from("payments").delete().eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true });
+
+    // Resync lead al Sheet para reflejar el nuevo estado (sin el pago borrado)
+    let sheetSync: { ok: boolean; error?: string } | null = null;
+    if (leadId) sheetSync = await syncLeadToSheet(leadId);
+
+    return NextResponse.json({ ok: true, sheetSync });
   } catch (err) {
     console.error("[DELETE /api/pagos]", err);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
