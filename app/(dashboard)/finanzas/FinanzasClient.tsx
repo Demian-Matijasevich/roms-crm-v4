@@ -106,6 +106,35 @@ export default function FinanzasClient({
   const [submitting, setSubmitting] = useState(false);
   const [localGastos, setLocalGastos] = useState<GastoRow[]>(gastos);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [localIngresos, setLocalIngresos] = useState<IngresoRow[]>(ingresos);
+  const [localPayments, setLocalPayments] = useState<PaymentRow[]>(payments);
+  const [editingReceptorId, setEditingReceptorId] = useState<string | null>(null);
+  const [savingReceptor, setSavingReceptor] = useState(false);
+
+  const RECEPTOR_OPTIONS = ["FRAN", "JUANMA", "VALEN", "MEL"];
+
+  async function saveReceptor(paymentId: string, newReceptor: string) {
+    setSavingReceptor(true);
+    try {
+      const res = await fetch("/api/pagos", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: paymentId, receptor: newReceptor || null }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setLocalIngresos((prev) => prev.map((i) => (i.id === paymentId ? { ...i, receptor: newReceptor || null } : i)));
+        setLocalPayments((prev) => prev.map((p) => (p.id === paymentId ? { ...p, receptor: newReceptor || null } : p)));
+        setEditingReceptorId(null);
+      } else {
+        alert("Error al guardar receptor: " + (json.error || "desconocido"));
+      }
+    } catch (err) {
+      alert("Error: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setSavingReceptor(false);
+    }
+  }
 
   const currentLabel = useMemo(() => {
     return getFiscalMonth(parseLocalDate(selectedMonth));
@@ -123,8 +152,8 @@ export default function FinanzasClient({
   );
 
   const monthIngresos = useMemo(
-    () => ingresos.filter((i) => i.fecha_pago && gastoFiscalMonth(i.fecha_pago.split("T")[0]) === currentLabel),
-    [ingresos, currentLabel]
+    () => localIngresos.filter((i) => i.fecha_pago && gastoFiscalMonth(i.fecha_pago.split("T")[0]) === currentLabel),
+    [localIngresos, currentLabel]
   );
 
   const totalIngresosMes = useMemo(() => {
@@ -188,11 +217,11 @@ export default function FinanzasClient({
   }, [monthGastos]);
 
   const monthPayments = useMemo(() => {
-    return payments.filter((p) => {
+    return localPayments.filter((p) => {
       if (!p.fecha_pago) return false;
       return getFiscalMonth(parseLocalDate(p.fecha_pago)) === currentLabel;
     });
-  }, [payments, currentLabel]);
+  }, [localPayments, currentLabel]);
 
   const ingresosPorReceptor = useMemo(() => {
     const map = new Map<string, { count: number; total: number }>();
@@ -665,7 +694,44 @@ export default function FinanzasClient({
                     </td>
                     <td className="py-3 px-4 text-center text-[var(--muted)]">#{i.numero_cuota}</td>
                     <td className="py-3 px-4 text-[var(--muted)]">{i.metodo_pago?.replace(/_/g, " ") || "—"}</td>
-                    <td className="py-3 px-4 text-[var(--muted)]">{i.receptor || "—"}</td>
+                    <td className="py-3 px-4">
+                      {editingReceptorId === i.id ? (
+                        <div className="flex items-center gap-1">
+                          <select
+                            autoFocus
+                            defaultValue={i.receptor || ""}
+                            disabled={savingReceptor}
+                            onChange={(e) => saveReceptor(i.id, e.target.value)}
+                            className="bg-[var(--background)] border border-[var(--purple)] rounded px-2 py-1 text-xs text-white"
+                          >
+                            <option value="">—</option>
+                            {RECEPTOR_OPTIONS.map((r) => (
+                              <option key={r} value={r}>{r}</option>
+                            ))}
+                            {i.receptor && !RECEPTOR_OPTIONS.includes(i.receptor) && (
+                              <option value={i.receptor}>{i.receptor}</option>
+                            )}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => setEditingReceptorId(null)}
+                            className="text-xs text-[var(--muted)] px-1"
+                            title="Cancelar"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setEditingReceptorId(i.id)}
+                          className="text-[var(--muted)] hover:text-[var(--purple-light)] hover:underline text-left"
+                          title="Click para editar"
+                        >
+                          {i.receptor || "— editar"}
+                        </button>
+                      )}
+                    </td>
                     <td className="py-3 px-4 text-right font-medium text-[var(--green)]">
                       {formatMoney(i.monto_usd, i.monto_ars, usdRate)}
                     </td>
