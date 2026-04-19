@@ -82,7 +82,7 @@ export async function PATCH(req: NextRequest) {
     const { id, ...updates } = body;
     if (!id) return NextResponse.json({ error: "id requerido" }, { status: 400 });
 
-    const allowed = ["monto_usd", "monto_ars", "fecha_pago", "fecha_vencimiento", "estado", "metodo_pago", "receptor", "numero_cuota"];
+    const allowed = ["monto_usd", "monto_ars", "fecha_pago", "fecha_vencimiento", "estado", "metodo_pago", "receptor", "numero_cuota", "es_renovacion"];
     const patch: Record<string, unknown> = {};
     for (const k of allowed) if (k in updates) patch[k] = updates[k];
 

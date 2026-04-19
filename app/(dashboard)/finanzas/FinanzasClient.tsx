@@ -108,9 +108,6 @@ export default function FinanzasClient({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [localIngresos, setLocalIngresos] = useState<IngresoRow[]>(ingresos);
   const [localPayments, setLocalPayments] = useState<PaymentRow[]>(payments);
-  const [editingReceptorId, setEditingReceptorId] = useState<string | null>(null);
-  const [savingReceptor, setSavingReceptor] = useState(false);
-
   const RECEPTOR_OPTIONS = ["FRAN", "JUANMA", "VALEN", "MEL"];
 
   async function deletePayment(paymentId: string, leadName: string | null, monto: number) {
@@ -126,28 +123,33 @@ export default function FinanzasClient({
     }
   }
 
-  async function saveReceptor(paymentId: string, newReceptor: string) {
-    setSavingReceptor(true);
+  // Generic payment field updater
+  async function updatePaymentField(paymentId: string, field: string, value: string | number | boolean | null) {
     try {
       const res = await fetch("/api/pagos", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: paymentId, receptor: newReceptor || null }),
+        body: JSON.stringify({ id: paymentId, [field]: value }),
       });
       const json = await res.json();
       if (json.ok) {
-        setLocalIngresos((prev) => prev.map((i) => (i.id === paymentId ? { ...i, receptor: newReceptor || null } : i)));
-        setLocalPayments((prev) => prev.map((p) => (p.id === paymentId ? { ...p, receptor: newReceptor || null } : p)));
-        setEditingReceptorId(null);
+        setLocalIngresos((prev) => prev.map((i) => (i.id === paymentId ? { ...i, [field]: value } : i)));
+        setLocalPayments((prev) => prev.map((p) => (p.id === paymentId ? { ...p, [field]: value } : p)));
+        return true;
       } else {
-        alert("Error al guardar receptor: " + (json.error || "desconocido"));
+        alert("Error: " + (json.error || "desconocido"));
+        return false;
       }
     } catch (err) {
       alert("Error: " + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setSavingReceptor(false);
+      return false;
     }
   }
+
+  // Ingresos table filters
+  const [ingresoSearch, setIngresoSearch] = useState("");
+  const [ingresoMetodo, setIngresoMetodo] = useState("todos");
+  const [ingresoReceptor, setIngresoReceptor] = useState("todos");
 
   const currentLabel = useMemo(() => {
     return getFiscalMonth(parseLocalDate(selectedMonth));
@@ -164,10 +166,16 @@ export default function FinanzasClient({
     [commissions, currentLabel]
   );
 
-  const monthIngresos = useMemo(
-    () => localIngresos.filter((i) => i.fecha_pago && gastoFiscalMonth(i.fecha_pago.split("T")[0]) === currentLabel),
-    [localIngresos, currentLabel]
-  );
+  const monthIngresos = useMemo(() => {
+    let arr = localIngresos.filter((i) => i.fecha_pago && gastoFiscalMonth(i.fecha_pago.split("T")[0]) === currentLabel);
+    if (ingresoSearch) {
+      const q = ingresoSearch.toLowerCase();
+      arr = arr.filter((i) => (i.lead_nombre || "").toLowerCase().includes(q) || (i.receptor || "").toLowerCase().includes(q));
+    }
+    if (ingresoMetodo !== "todos") arr = arr.filter((i) => (i.metodo_pago || "") === ingresoMetodo);
+    if (ingresoReceptor !== "todos") arr = arr.filter((i) => (i.receptor || "") === ingresoReceptor);
+    return arr;
+  }, [localIngresos, currentLabel, ingresoSearch, ingresoMetodo, ingresoReceptor]);
 
   const totalIngresosMes = useMemo(() => {
     let usd = 0;
@@ -675,7 +683,7 @@ export default function FinanzasClient({
 
       {/* ══════════════ INGRESOS TABLE ══════════════ */}
       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-[var(--card-border)] flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-[var(--card-border)] flex items-center justify-between flex-wrap gap-3">
           <h2 className="text-base font-semibold text-white">
             Ingresos del Mes ({monthIngresos.length})
           </h2>
@@ -684,72 +692,154 @@ export default function FinanzasClient({
             {totalIngresosMes.ars > 0 && <span className="ml-2 text-white">+ {formatARS(totalIngresosMes.ars)}</span>}
           </div>
         </div>
+
+        {/* Filters */}
+        <div className="px-6 py-3 border-b border-[var(--card-border)] flex flex-wrap gap-3 items-center bg-white/5">
+          <input
+            type="text"
+            placeholder="🔍 Buscar lead / receptor..."
+            value={ingresoSearch}
+            onChange={(e) => setIngresoSearch(e.target.value)}
+            className="bg-[var(--background)] border border-[var(--card-border)] rounded px-3 py-1.5 text-xs text-white min-w-[200px]"
+          />
+          <select value={ingresoMetodo} onChange={(e) => setIngresoMetodo(e.target.value)}
+            className="bg-[var(--background)] border border-[var(--card-border)] rounded px-2 py-1.5 text-xs text-white">
+            <option value="todos">Todos los métodos</option>
+            <option value="mercado_pago">Mercado Pago</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="cash">Cash</option>
+            <option value="binance">Binance</option>
+            <option value="stripe">Stripe</option>
+            <option value="wise">Wise</option>
+          </select>
+          <select value={ingresoReceptor} onChange={(e) => setIngresoReceptor(e.target.value)}
+            className="bg-[var(--background)] border border-[var(--card-border)] rounded px-2 py-1.5 text-xs text-white">
+            <option value="todos">Todos los receptores</option>
+            {RECEPTOR_OPTIONS.map((r) => (<option key={r} value={r}>{r}</option>))}
+          </select>
+          {(ingresoSearch || ingresoMetodo !== "todos" || ingresoReceptor !== "todos") && (
+            <button
+              onClick={() => { setIngresoSearch(""); setIngresoMetodo("todos"); setIngresoReceptor("todos"); }}
+              className="text-xs text-[var(--muted)] hover:text-white underline"
+            >
+              Limpiar filtros
+            </button>
+          )}
+        </div>
+
         {monthIngresos.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-[var(--card-border)] text-left">
-                  <th className="text-left py-3 px-4">Fecha</th>
-                  <th className="text-left py-3 px-4">Lead</th>
-                  <th className="text-center py-3 px-4">Cuota</th>
-                  <th className="text-left py-3 px-4">Método</th>
-                  <th className="text-left py-3 px-4">Recibió</th>
-                  <th className="text-right py-3 px-4">Monto</th>
-                  <th className="text-right py-3 px-4 w-16">Acc.</th>
+                <tr className="border-b border-[var(--card-border)] text-left text-xs text-[var(--muted)] uppercase">
+                  <th className="text-left py-3 px-3">Fecha</th>
+                  <th className="text-left py-3 px-3">Lead</th>
+                  <th className="text-center py-3 px-3">Cuota</th>
+                  <th className="text-left py-3 px-3">Método</th>
+                  <th className="text-left py-3 px-3">Recibió</th>
+                  <th className="text-right py-3 px-3">USD</th>
+                  <th className="text-right py-3 px-3">ARS</th>
+                  <th className="text-right py-3 px-3 w-16">Acc.</th>
                 </tr>
               </thead>
               <tbody>
                 {monthIngresos.map((i) => (
                   <tr key={i.id} className="border-t border-[var(--card-border)]/30 hover:bg-white/5 transition-colors">
-                    <td className="py-3 px-4 text-[var(--muted)]">{formatDate(i.fecha_pago)}</td>
-                    <td className="py-3 px-4 text-white font-medium">
+                    {/* Fecha editable */}
+                    <td className="py-2 px-3">
+                      <input
+                        type="date"
+                        defaultValue={i.fecha_pago?.split("T")[0] || ""}
+                        onBlur={(e) => {
+                          const v = e.target.value;
+                          if (v && v !== i.fecha_pago?.split("T")[0]) updatePaymentField(i.id, "fecha_pago", v);
+                        }}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none"
+                      />
+                    </td>
+                    {/* Lead (read-only) */}
+                    <td className="py-2 px-3 text-white font-medium">
                       {i.lead_nombre || "—"}
-                      {i.es_renovacion && <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-[var(--purple)]/20 text-[var(--purple)]">RENOV</span>}
+                      <button
+                        type="button"
+                        onClick={() => updatePaymentField(i.id, "es_renovacion", i.es_renovacion ? null : true)}
+                        className={`ml-2 text-[10px] px-1.5 py-0.5 rounded ${i.es_renovacion ? "bg-[var(--purple)]/20 text-[var(--purple-light)]" : "bg-white/5 text-[var(--muted)] hover:bg-[var(--purple)]/10"}`}
+                        title={i.es_renovacion ? "Quitar renov" : "Marcar como renov"}
+                      >
+                        {i.es_renovacion ? "RENOV" : "+ renov"}
+                      </button>
                     </td>
-                    <td className="py-3 px-4 text-center text-[var(--muted)]">#{i.numero_cuota}</td>
-                    <td className="py-3 px-4 text-[var(--muted)]">{i.metodo_pago?.replace(/_/g, " ") || "—"}</td>
-                    <td className="py-3 px-4">
-                      {editingReceptorId === i.id ? (
-                        <div className="flex items-center gap-1">
-                          <select
-                            autoFocus
-                            defaultValue={i.receptor || ""}
-                            disabled={savingReceptor}
-                            onChange={(e) => saveReceptor(i.id, e.target.value)}
-                            className="bg-[var(--background)] border border-[var(--purple)] rounded px-2 py-1 text-xs text-white"
-                          >
-                            <option value="">—</option>
-                            {RECEPTOR_OPTIONS.map((r) => (
-                              <option key={r} value={r}>{r}</option>
-                            ))}
-                            {i.receptor && !RECEPTOR_OPTIONS.includes(i.receptor) && (
-                              <option value={i.receptor}>{i.receptor}</option>
-                            )}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => setEditingReceptorId(null)}
-                            className="text-xs text-[var(--muted)] px-1"
-                            title="Cancelar"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setEditingReceptorId(i.id)}
-                          className="text-[var(--muted)] hover:text-[var(--purple-light)] hover:underline text-left"
-                          title="Click para editar"
-                        >
-                          {i.receptor || "— editar"}
-                        </button>
-                      )}
+                    {/* Cuota editable */}
+                    <td className="py-2 px-3 text-center">
+                      <input
+                        type="number"
+                        min={1}
+                        defaultValue={i.numero_cuota}
+                        onBlur={(e) => {
+                          const v = parseInt(e.target.value);
+                          if (Number.isFinite(v) && v !== i.numero_cuota) updatePaymentField(i.id, "numero_cuota", v);
+                        }}
+                        className="w-12 bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-center text-[var(--muted)] focus:text-white focus:outline-none"
+                      />
                     </td>
-                    <td className="py-3 px-4 text-right font-medium text-[var(--green)]">
-                      {formatMoney(i.monto_usd, i.monto_ars, usdRate)}
+                    {/* Método editable */}
+                    <td className="py-2 px-3">
+                      <select
+                        defaultValue={i.metodo_pago || ""}
+                        onChange={(e) => updatePaymentField(i.id, "metodo_pago", e.target.value || null)}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none"
+                      >
+                        <option value="">—</option>
+                        <option value="mercado_pago">Mercado Pago</option>
+                        <option value="transferencia">Transferencia</option>
+                        <option value="cash">Cash</option>
+                        <option value="binance">Binance</option>
+                        <option value="stripe">Stripe</option>
+                        <option value="wise">Wise</option>
+                      </select>
                     </td>
-                    <td className="py-3 px-4 text-right">
+                    {/* Receptor editable */}
+                    <td className="py-2 px-3">
+                      <select
+                        defaultValue={i.receptor || ""}
+                        onChange={(e) => updatePaymentField(i.id, "receptor", e.target.value || null)}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none"
+                      >
+                        <option value="">—</option>
+                        {RECEPTOR_OPTIONS.map((r) => (<option key={r} value={r}>{r}</option>))}
+                        {i.receptor && !RECEPTOR_OPTIONS.includes(i.receptor) && (
+                          <option value={i.receptor}>{i.receptor}</option>
+                        )}
+                      </select>
+                    </td>
+                    {/* Monto USD editable */}
+                    <td className="py-2 px-3 text-right">
+                      <input
+                        type="number"
+                        step={0.01}
+                        defaultValue={i.monto_usd || 0}
+                        onBlur={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (Number.isFinite(v) && v !== i.monto_usd) updatePaymentField(i.id, "monto_usd", v);
+                        }}
+                        className="w-24 bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-right font-medium text-[var(--green)] focus:outline-none"
+                      />
+                    </td>
+                    {/* Monto ARS editable */}
+                    <td className="py-2 px-3 text-right">
+                      <input
+                        type="number"
+                        step={0.01}
+                        defaultValue={i.monto_ars || 0}
+                        onBlur={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (Number.isFinite(v) && v !== i.monto_ars) updatePaymentField(i.id, "monto_ars", v);
+                        }}
+                        className="w-24 bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-right text-[var(--muted)] focus:text-white focus:outline-none"
+                      />
+                    </td>
+                    {/* Delete */}
+                    <td className="py-2 px-3 text-right">
                       <button
                         type="button"
                         onClick={() => deletePayment(i.id, i.lead_nombre, i.monto_usd)}
