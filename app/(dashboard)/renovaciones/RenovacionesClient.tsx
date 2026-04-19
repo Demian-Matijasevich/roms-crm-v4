@@ -46,6 +46,51 @@ export default function RenovacionesClient({
   const [filterSemaforo, setFilterSemaforo] = useState<string>("todos");
   const [showRenewalForm, setShowRenewalForm] = useState<string | null>(null);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [localHistory, setLocalHistory] = useState<RenewalHistoryItem[]>(renewalHistory);
+  const [histSearch, setHistSearch] = useState("");
+  const [histEstado, setHistEstado] = useState("todos");
+
+  async function updateRenewal(id: string, field: string, value: string | number | null) {
+    try {
+      const res = await fetch("/api/renewals", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, [field]: value }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setLocalHistory((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+      } else {
+        alert("Error: " + (json.error || "desconocido"));
+      }
+    } catch (err) {
+      alert("Error: " + (err instanceof Error ? err.message : String(err)));
+    }
+  }
+
+  async function deleteRenewal(id: string, nombre: string) {
+    if (!confirm(`Borrar renovación de ${nombre}?`)) return;
+    const res = await fetch(`/api/renewals?id=${id}`, { method: "DELETE" });
+    const json = await res.json();
+    if (json.ok) {
+      setLocalHistory((prev) => prev.filter((r) => r.id !== id));
+    } else {
+      alert("Error: " + (json.error || "desconocido"));
+    }
+  }
+
+  const filteredHistory = useMemo(() => {
+    let arr = localHistory;
+    if (histEstado !== "todos") arr = arr.filter((r) => (r.estado || "") === histEstado);
+    if (histSearch) {
+      const q = histSearch.toLowerCase();
+      arr = arr.filter((r) =>
+        (r.client?.nombre || "").toLowerCase().includes(q) ||
+        (r.tipo_renovacion || "").toLowerCase().includes(q)
+      );
+    }
+    return arr;
+  }, [localHistory, histEstado, histSearch]);
 
   const filteredQueue = useMemo(() => {
     let items = [...renewalQueue];
@@ -331,76 +376,128 @@ export default function RenovacionesClient({
       )}
 
       {activeTab === "historial" && (
-        <div className="bg-[var(--card-bg)] rounded-xl border border-[var(--card-border)] shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-white/5 text-left">
-                <tr>
-                  <th className="px-4 py-3 font-medium text-[var(--muted)]">Fecha</th>
-                  <th className="px-4 py-3 font-medium text-[var(--muted)]">Cliente</th>
-                  <th className="px-4 py-3 font-medium text-[var(--muted)]">Tipo</th>
-                  <th className="px-4 py-3 font-medium text-[var(--muted)]">Anterior</th>
-                  <th className="px-4 py-3 font-medium text-[var(--muted)]">Nuevo</th>
-                  <th className="px-4 py-3 font-medium text-[var(--muted)]">Monto</th>
-                  <th className="px-4 py-3 font-medium text-[var(--muted)]">Plan</th>
-                  <th className="px-4 py-3 font-medium text-[var(--muted)]">Estado</th>
-                  <th className="px-4 py-3 font-medium text-[var(--muted)]">Responsable</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--card-border)]">
-                {renewalHistory.map((r) => (
-                  <tr key={r.id} className="hover:bg-white/5">
-                    <td className="px-4 py-3 text-[var(--muted)]">
-                      {r.fecha_renovacion
-                        ? new Date(r.fecha_renovacion).toLocaleDateString("es-AR")
-                        : "-"}
-                    </td>
-                    <td className="px-4 py-3 font-medium text-white">
-                      {r.client?.nombre ?? "-"}
-                    </td>
-                    <td className="px-4 py-3 text-gray-200">{r.tipo_renovacion ?? "-"}</td>
-                    <td className="px-4 py-3 text-[var(--muted)]">
-                      {r.programa_anterior ?? "-"}
-                    </td>
-                    <td className="px-4 py-3 text-gray-200">{r.programa_nuevo ?? "-"}</td>
-                    <td className="px-4 py-3 font-medium text-white">
-                      ${(r.monto_total ?? 0).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-[var(--muted)]">
-                      {r.plan_pago ?? "-"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          r.estado === "pago"
-                            ? "bg-green-500/20 text-green-400"
-                            : r.estado === "no_renueva"
-                            ? "bg-red-500/20 text-red-400"
-                            : "bg-yellow-500/20 text-yellow-400"
-                        }`}
-                      >
-                        {r.estado ?? "pendiente"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-[var(--muted)]">
-                      {r.responsable?.nombre ?? "-"}
-                    </td>
-                  </tr>
-                ))}
-                {renewalHistory.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={9}
-                      className="px-4 py-12 text-center text-[var(--muted)]"
-                    >
-                      Sin historial de renovaciones
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+        <>
+          <div className="flex flex-wrap gap-3 items-end">
+            <input type="text" placeholder="Buscar cliente / tipo..." value={histSearch}
+              onChange={(e) => setHistSearch(e.target.value)}
+              className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm text-white w-64 placeholder-[var(--muted)]" />
+            <select value={histEstado} onChange={(e) => setHistEstado(e.target.value)}
+              className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm text-white">
+              <option value="todos">Todos los estados</option>
+              <option value="pago">Pago</option>
+              <option value="no_renueva">No renueva</option>
+              <option value="cuota_1_pagada">Cuota 1 pagada</option>
+              <option value="cuota_2_pagada">Cuota 2 pagada</option>
+            </select>
+            <span className="text-xs text-[var(--muted)] ml-auto pb-2">
+              {filteredHistory.length} / {localHistory.length}
+            </span>
           </div>
-        </div>
+
+          <div className="bg-[var(--card-bg)] rounded-xl border border-[var(--card-border)] shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[1100px]">
+                <thead className="bg-white/5 text-left text-[10px] uppercase">
+                  <tr>
+                    <th className="px-2 py-2 font-medium text-[var(--muted)] w-[100px]">Fecha</th>
+                    <th className="px-2 py-2 font-medium text-[var(--muted)]">Cliente</th>
+                    <th className="px-2 py-2 font-medium text-[var(--muted)] w-[110px]">Tipo</th>
+                    <th className="px-2 py-2 font-medium text-[var(--muted)] w-[100px]">Anterior</th>
+                    <th className="px-2 py-2 font-medium text-[var(--muted)] w-[100px]">Nuevo</th>
+                    <th className="px-2 py-2 font-medium text-[var(--muted)] text-right w-[90px]">Monto</th>
+                    <th className="px-2 py-2 font-medium text-[var(--muted)] w-[110px]">Plan</th>
+                    <th className="px-2 py-2 font-medium text-[var(--muted)] w-[120px]">Estado</th>
+                    <th className="px-2 py-2 font-medium text-[var(--muted)] w-[60px] text-right">Acc.</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--card-border)]">
+                  {filteredHistory.length === 0 ? (
+                    <tr><td colSpan={9} className="px-4 py-12 text-center text-[var(--muted)]">Sin historial</td></tr>
+                  ) : filteredHistory.map((r) => (
+                    <tr key={r.id} className="hover:bg-white/5">
+                      <td className="py-1 px-2">
+                        <input type="date" defaultValue={r.fecha_renovacion?.split("T")[0] || ""}
+                          onBlur={(e) => { const v = e.target.value || null; if (v !== (r.fecha_renovacion?.split("T")[0] || null)) updateRenewal(r.id, "fecha_renovacion", v); }}
+                          className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-[11px] text-[var(--muted)] focus:text-white focus:outline-none" />
+                      </td>
+                      <td className="py-1 px-2 font-medium text-white text-xs">{r.client?.nombre ?? "—"}</td>
+                      <td className="py-1 px-2">
+                        <select defaultValue={r.tipo_renovacion || ""}
+                          onChange={(e) => updateRenewal(r.id, "tipo_renovacion", e.target.value || null)}
+                          className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-[11px] text-[var(--muted)] focus:text-white focus:outline-none">
+                          <option value="">—</option>
+                          <option value="resell">resell</option>
+                          <option value="upsell_vip">upsell_vip</option>
+                          <option value="upsell_meli">upsell_meli</option>
+                          <option value="upsell_vip_cuotas">upsell_vip_cuotas</option>
+                          <option value="upsell_meli_cuotas">upsell_meli_cuotas</option>
+                          <option value="resell_cuotas">resell_cuotas</option>
+                        </select>
+                      </td>
+                      <td className="py-1 px-2">
+                        <select defaultValue={r.programa_anterior || ""}
+                          onChange={(e) => updateRenewal(r.id, "programa_anterior", e.target.value || null)}
+                          className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-[11px] text-[var(--muted)] focus:text-white focus:outline-none">
+                          <option value="">—</option>
+                          <option value="roms_7">roms_7</option>
+                          <option value="consultoria">consultoria</option>
+                          <option value="omnipresencia">omnipresencia</option>
+                          <option value="multicuentas">multicuentas</option>
+                        </select>
+                      </td>
+                      <td className="py-1 px-2">
+                        <select defaultValue={r.programa_nuevo || ""}
+                          onChange={(e) => updateRenewal(r.id, "programa_nuevo", e.target.value || null)}
+                          className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-[11px] text-[var(--muted)] focus:text-white focus:outline-none">
+                          <option value="">—</option>
+                          <option value="roms_7">roms_7</option>
+                          <option value="consultoria">consultoria</option>
+                          <option value="omnipresencia">omnipresencia</option>
+                          <option value="multicuentas">multicuentas</option>
+                        </select>
+                      </td>
+                      <td className="py-1 px-2 text-right">
+                        <input type="number" step={100} defaultValue={r.monto_total || 0}
+                          onBlur={(e) => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && v !== (r.monto_total || 0)) updateRenewal(r.id, "monto_total", v); }}
+                          className="w-20 bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-[11px] text-right font-medium text-white focus:outline-none" />
+                      </td>
+                      <td className="py-1 px-2">
+                        <select defaultValue={r.plan_pago || ""}
+                          onChange={(e) => updateRenewal(r.id, "plan_pago", e.target.value || null)}
+                          className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-[11px] text-[var(--muted)] focus:text-white focus:outline-none">
+                          <option value="">—</option>
+                          <option value="paid_in_full">PIF</option>
+                          <option value="2_cuotas">2 cuotas</option>
+                          <option value="3_cuotas">3 cuotas</option>
+                          <option value="personalizado">personalizado</option>
+                        </select>
+                      </td>
+                      <td className="py-1 px-2">
+                        <select defaultValue={r.estado || ""}
+                          onChange={(e) => updateRenewal(r.id, "estado", e.target.value || null)}
+                          className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-[11px] text-[var(--muted)] focus:text-white focus:outline-none">
+                          <option value="">—</option>
+                          <option value="pago">pago</option>
+                          <option value="no_renueva">no_renueva</option>
+                          <option value="cuota_1_pagada">cuota_1_pagada</option>
+                          <option value="cuota_2_pagada">cuota_2_pagada</option>
+                        </select>
+                      </td>
+                      <td className="py-1 px-2 text-right">
+                        <button
+                          onClick={() => deleteRenewal(r.id, r.client?.nombre || "")}
+                          className="text-[11px] text-[var(--red)] hover:underline"
+                        >
+                          Borrar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
