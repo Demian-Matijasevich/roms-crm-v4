@@ -47,7 +47,7 @@ async function processEvent(payload: IClosedPayload, sb: ReturnType<typeof creat
 
   const { data: existing } = await sb
     .from("leads")
-    .select("id, estado, notas_internas")
+    .select("id, estado, notas_internas, fecha_llamada")
     .eq("email", payload.email)
     .limit(1);
   const lead = existing?.[0];
@@ -86,14 +86,18 @@ async function processEvent(payload: IClosedPayload, sb: ReturnType<typeof creat
       ? lead.estado
       : mapStatus(payload.status || "");
 
+  const iclosedStatusUpper = (payload.status || "").toUpperCase();
+  const isBookedOnly = iclosedStatusUpper.includes("BOOKED");
+  const scheduledDateTime = payload.latestCall?.dateTime || null;
+
   const data: Record<string, unknown> = {
     nombre: nombre || null,
     email: payload.email,
     telefono: payload.phoneNumber || null,
     instagram: instagram || null,
     estado: nuevoEstado,
-    fecha_agendado: payload.latestCall?.dateTime || null,
-    fecha_llamada: payload.latestCall?.dateTime || null,
+    fecha_agendado: scheduledDateTime,
+    fecha_llamada: isBookedOnly ? (lead?.fecha_llamada ?? null) : scheduledDateTime,
     setter_id,
     closer_id,
     utm_source: payload.tracking?.utm_source || null,

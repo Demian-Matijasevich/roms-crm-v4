@@ -55,7 +55,7 @@ async function processEvent(payload: IClosedPayload) {
 
   const { data: existing } = await sb
     .from("leads")
-    .select("id, estado, notas_internas")
+    .select("id, estado, notas_internas, fecha_llamada")
     .eq("email", payload.email)
     .limit(1);
   const lead = existing?.[0];
@@ -102,14 +102,20 @@ async function processEvent(payload: IClosedPayload) {
       ? lead.estado
       : mapStatus(payload.status || "");
 
+  // fecha_agendado = cuando se booked la call (iClosed dateTime)
+  // fecha_llamada = solo cuando la call ya ocurrió (status != BOOKED)
+  const iclosedStatusUpper = (payload.status || "").toUpperCase();
+  const isBookedOnly = iclosedStatusUpper.includes("BOOKED");
+  const scheduledDateTime = payload.latestCall?.dateTime || null;
+
   const data: Record<string, unknown> = {
     nombre: nombre || null,
     email: payload.email,
     telefono: payload.phoneNumber || null,
     instagram: instagram || null,
     estado: nuevoEstado,
-    fecha_agendado: payload.latestCall?.dateTime || null,
-    fecha_llamada: payload.latestCall?.dateTime || null,
+    fecha_agendado: scheduledDateTime,
+    fecha_llamada: isBookedOnly ? (lead?.fecha_llamada ?? null) : scheduledDateTime,
     setter_id,
     closer_id,
     utm_source: payload.tracking?.utm_source || null,
