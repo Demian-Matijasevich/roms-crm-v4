@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, Fragment } from "react";
 import type { TeamMember, AuthSession, LeadScore, Payment } from "@/lib/types";
 import type { LeadWithTeam } from "@/lib/queries/leads";
 import { LEAD_ESTADOS_LABELS, PROGRAMS } from "@/lib/constants";
@@ -137,541 +137,28 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
     }
   }, [closers, setters]);
 
-  const handleRefundSubmit = useCallback(async (leadId: string) => {
-    const monto = parseFloat(refundMonto);
-    if (!monto || monto <= 0) {
-      setRefundMsg("Ingresa un monto valido");
-      return;
+  // Renders the expanded lead detail inside the table row (inline expand)
+  const renderLeadDetail = (lead: LeadWithTeam) => {
+    const leadPayments = paymentsByLead.get(lead.id) || [];
+    const audit = getAuditData(lead.id, lead.ticket_total);
+
+    // Initialize edit data when expanding a different lead
+    if (editData._leadId !== lead.id) {
+      setTimeout(() => {
+        setEditData({
+          _leadId: lead.id,
+          estado: lead.estado,
+          programa_pitcheado: lead.programa_pitcheado || "",
+          lead_calificado: lead.lead_calificado || "",
+          ticket_total: lead.ticket_total,
+          notas_internas: lead.notas_internas || "",
+          reporte_general: lead.reporte_general || "",
+        });
+        setSaveMsg(null);
+      }, 0);
     }
-    setRefundLoading(true);
-    setRefundMsg(null);
-    try {
-      const res = await fetch("/api/pagos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lead_id: leadId,
-          numero_cuota: 1,
-          monto_usd: monto,
-          monto_ars: 0,
-          fecha_pago: new Date().toISOString().split("T")[0],
-          estado: "refund",
-          metodo_pago: "transferencia",
-          receptor: refundMotivo || "Refund",
-          es_renovacion: false,
-        }),
-      });
-      const json = await res.json();
-      if (json.ok) {
-        setRefundMsg("Refund registrado correctamente");
-        setRefundMonto("");
-        setRefundMotivo("");
-        setTimeout(() => window.location.reload(), 800);
-      } else {
-        setRefundMsg(`Error: ${json.error || "desconocido"}`);
-      }
-    } catch {
-      setRefundMsg("Error de red");
-    } finally {
-      setRefundLoading(false);
-    }
-  }, [refundMonto, refundMotivo]);
 
-  const monthOptions = useMemo(() => getFiscalMonthOptions(12), []);
-
-  // Group payments by lead_id for O(1) lookups
-  const paymentsByLead = useMemo(() => {
-    const map = new Map<string, Payment[]>();
-    for (const p of payments) {
-      if (!p.lead_id) continue;
-      const arr = map.get(p.lead_id);
-      if (arr) arr.push(p);
-      else map.set(p.lead_id, [p]);
-    }
-    return map;
-  }, [payments]);
-
-  // Month filter range (for filtering payments by fecha_pago within the selected month)
-  const monthRange = useMemo(() => {
-    if (monthFilter === "todos") return null;
-    const start = parseLocalDate(monthFilter);
-    const end = getFiscalEnd(start);
-    const startStr = toDateString(start);
-    const endStr = toDateString(end);
-    return { startStr, endStr };
-  }, [monthFilter]);
-
-  // Helper: get audit data for a lead
-  const getAuditData = useCallback(
-    (leadId: string, ticketTotal: number) => {
-      const leadPayments = paymentsByLead.get(leadId) || [];
-      const pagados = leadPayments.filter((p) => p.estado === "pagado");
-      // When filtering by month: only sum payments within the filtered month
-      const inMonthPagados = monthRange
-        ? pagados.filter((p) => {
-            const f = p.fecha_pago?.split("T")[0];
-            return f && f >= monthRange.startStr && f <= monthRange.endStr;
-          })
-        : pagados;
-      const cashCollected = inMonthPagados.reduce((sum, p) => sum + p.monto_usd, 0);
-      const cuotasPagadas = inMonthPagados.filter((p) => p.numero_cuota > 1).length;
-      const saldoPendiente = monthRange ? 0 : ticketTotal - cashCollected;
-      const receptor = leadPayments.length > 0 ? leadPayments[0].receptor : null;
-      const fechaPago = inMonthPagados
-        .filter((p) => p.fecha_pago)
-        .map((p) => p.fecha_pago!.split("T")[0])
-        .sort()[0] || null;
-      return { cashCollected, cuotasPagadas, saldoPendiente, receptor, fechaPago };
-    },
-    [paymentsByLead, monthRange]
-  );
-
-  const filtered = useMemo(() => {
-    return leads.filter((lead) => {
-      // Search
-      if (search.trim()) {
-        const q = search.toLowerCase();
-        const matchesSearch =
-          lead.nombre?.toLowerCase().includes(q) ||
-          lead.instagram?.toLowerCase().includes(q) ||
-          lead.email?.toLowerCase().includes(q) ||
-          lead.telefono?.toLowerCase().includes(q);
-        if (!matchesSearch) return false;
-      }
-
-      // Estado filter
-      if (estadoFilter !== "todos" && lead.estado !== estadoFilter) return false;
-
-      // Closer filter
-      if (closerFilter !== "todos" && lead.closer_id !== closerFilter) return false;
-
-      // Setter filter
-      if (setterFilter !== "todos" && lead.setter_id !== setterFilter) return false;
-
-      // Programa filter
-      if (programaFilter !== "todos" && lead.programa_pitcheado !== programaFilter) return false;
-
-      // Calificado filter
-      if (calificadoFilter !== "todos") {
-        if (calificadoFilter === "si" && lead.lead_calificado !== "calificado") return false;
-        if (calificadoFilter === "no" && lead.lead_calificado === "calificado") return false;
-      }
-
-      // Month filter: include lead if fecha_llamada, fecha_agendado, OR any payment fecha_pago falls in the month
-      if (monthFilter !== "todos") {
-        const monthStart = parseLocalDate(monthFilter);
-        const monthEnd = getFiscalEnd(monthStart);
-        const startStr = toDateString(monthStart);
-        const endStr = toDateString(monthEnd);
-        const inRange = (v: string | null | undefined) => {
-          if (!v) return false;
-          const s = v.split("T")[0];
-          return s >= startStr && s <= endStr;
-        };
-        const leadPays = paymentsByLead.get(lead.id) || [];
-        const hasPagoInMonth = leadPays.some((p) => p.estado === "pagado" && inRange(p.fecha_pago));
-        const llamadaInMonth = inRange(lead.fecha_llamada);
-        const agendaInMonth = inRange(lead.fecha_agendado);
-        if (!llamadaInMonth && !agendaInMonth && !hasPagoInMonth) return false;
-      }
-
-      // Payment filter
-      if (pagoFilter !== "todos") {
-        const leadPayments = paymentsByLead.get(lead.id) || [];
-        const hasPago = leadPayments.some(p => p.estado === "pagado" && p.monto_usd > 0);
-        if (pagoFilter === "solo_ventas" && lead.estado !== "cerrado" && lead.estado !== "adentro_seguimiento") return false;
-        if (pagoFilter === "con_pago" && !hasPago) return false;
-        if (pagoFilter === "sin_pago" && hasPago) return false;
-      }
-
-      return true;
-    });
-  }, [leads, search, estadoFilter, closerFilter, setterFilter, monthFilter, programaFilter, calificadoFilter, pagoFilter, paymentsByLead]);
-
-  // Sorted data
-  const sorted = useMemo(() => {
-    if (!sortKey || !sortDir) return filtered;
-    const arr = [...filtered];
-    const dir = sortDir === "asc" ? 1 : -1;
-    arr.sort((a, b) => {
-      const auditA = getAuditData(a.id, a.ticket_total);
-      const auditB = getAuditData(b.id, b.ticket_total);
-      switch (sortKey) {
-        case "nombre":
-          return dir * (a.nombre || "").localeCompare(b.nombre || "");
-        case "fecha":
-          return dir * (a.fecha_llamada || "").localeCompare(b.fecha_llamada || "");
-        case "cash":
-          return dir * (auditA.cashCollected - auditB.cashCollected);
-        case "ticket":
-          return dir * (a.ticket_total - b.ticket_total);
-        case "saldo":
-          return dir * (auditA.saldoPendiente - auditB.saldoPendiente);
-        default:
-          return 0;
-      }
-    });
-    return arr;
-  }, [filtered, sortKey, sortDir, getAuditData]);
-
-  // Summary totals
-  const totals = useMemo(() => {
-    let totalTicket = 0;
-    let totalCash = 0;
-    let totalSaldo = 0;
-    for (const lead of filtered) {
-      const audit = getAuditData(lead.id, lead.ticket_total);
-      totalTicket += lead.ticket_total;
-      totalCash += audit.cashCollected;
-      totalSaldo += audit.saldoPendiente;
-    }
-    return { totalTicket, totalCash, totalSaldo };
-  }, [filtered, getAuditData]);
-
-  // CSV export
-  const handleExportCSV = useCallback(() => {
-    const headers = [
-      "Nombre", "Instagram", "Fecha", "Estado", "Closer", "Setter",
-      "Ticket Total", "Score", "Cash Collected", "Cuotas Pagadas",
-      "Saldo Pendiente", "Receptor",
-    ];
-
-    const escapeCSV = (val: string) => {
-      if (val.includes(",") || val.includes('"') || val.includes("\n")) {
-        return `"${val.replace(/"/g, '""')}"`;
-      }
-      return val;
-    };
-
-    const rows = filtered.map((lead) => {
-      const audit = getAuditData(lead.id, lead.ticket_total);
-      return [
-        lead.nombre || "",
-        lead.instagram ? `@${lead.instagram.replace(/^@/, "")}` : "",
-        lead.fecha_llamada || "",
-        LEAD_ESTADOS_LABELS[lead.estado] || lead.estado,
-        lead.closer?.nombre || "",
-        lead.setter?.nombre || "",
-        lead.ticket_total.toString(),
-        lead.lead_score || "",
-        audit.cashCollected.toString(),
-        audit.cuotasPagadas.toString(),
-        audit.saldoPendiente.toString(),
-        audit.receptor || "",
-      ].map(escapeCSV);
-    });
-
-    rows.push([
-      "TOTALES", "", "", "", "", "",
-      totals.totalTicket.toString(), "",
-      totals.totalCash.toString(), "",
-      totals.totalSaldo.toString(), "", "",
-    ]);
-
-    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `llamadas_audit_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [filtered, getAuditData, totals]);
-
-  const estadoOptions = Object.entries(LEAD_ESTADOS_LABELS);
-
-  const inputClass =
-    "bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--purple)]";
-  const selectClass = inputClass;
-
-  // Suppress unused variable warning
-  void session;
-
-  const thSortClass = "px-4 py-3 text-[var(--muted)] font-medium cursor-pointer select-none hover:text-[var(--foreground)] transition-colors";
-
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">Llamadas</h1>
-          <p className="text-sm text-[var(--muted)]">
-            {filtered.length} de {leads.length} leads
-          </p>
-        </div>
-        <button
-          onClick={handleExportCSV}
-          className="text-sm font-medium bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white px-4 py-2 rounded-lg transition-colors"
-        >
-          Exportar CSV
-        </button>
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3">
-        <input
-          type="text"
-          placeholder="Buscar por nombre, IG, email..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className={`${inputClass} w-64`}
-        />
-
-        <select
-          value={estadoFilter}
-          onChange={(e) => setEstadoFilter(e.target.value)}
-          className={selectClass}
-        >
-          <option value="todos">Todos los estados</option>
-          {estadoOptions.map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
-          ))}
-        </select>
-
-        <select
-          value={closerFilter}
-          onChange={(e) => setCloserFilter(e.target.value)}
-          className={selectClass}
-        >
-          <option value="todos">Todos los closers</option>
-          {closers.map((c) => (
-            <option key={c.id} value={c.id}>{c.nombre}</option>
-          ))}
-        </select>
-
-        <select
-          value={setterFilter}
-          onChange={(e) => setSetterFilter(e.target.value)}
-          className={selectClass}
-        >
-          <option value="todos">Todos los setters</option>
-          {setters.map((s) => (
-            <option key={s.id} value={s.id}>{s.nombre}</option>
-          ))}
-        </select>
-
-        <select
-          value={monthFilter}
-          onChange={(e) => setMonthFilter(e.target.value)}
-          className={selectClass}
-        >
-          <option value="todos">Todos los meses</option>
-          {monthOptions.map((m) => (
-            <option key={m.value} value={m.value}>{m.label}</option>
-          ))}
-        </select>
-
-        <select
-          value={programaFilter}
-          onChange={(e) => setProgramaFilter(e.target.value)}
-          className={selectClass}
-        >
-          <option value="todos">Todos los programas</option>
-          {Object.entries(PROGRAMS).map(([key, p]) => (
-            <option key={key} value={key}>{p.label}</option>
-          ))}
-        </select>
-
-        <select
-          value={calificadoFilter}
-          onChange={(e) => setCalificadoFilter(e.target.value)}
-          className={selectClass}
-        >
-          <option value="todos">Calificado: Todos</option>
-          <option value="si">Calificado: Si</option>
-          <option value="no">Calificado: No</option>
-        </select>
-
-        <select
-          value={pagoFilter}
-          onChange={(e) => setPagoFilter(e.target.value)}
-          className={selectClass}
-        >
-          <option value="todos">Todos los pagos</option>
-          <option value="solo_ventas">Solo ventas (cerradas)</option>
-          <option value="con_pago">Con pago registrado</option>
-          <option value="sin_pago">Sin pago</option>
-        </select>
-      </div>
-
-      {/* Table */}
-      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--card-border)] text-left">
-                <th className={thSortClass} onClick={() => toggleSort("nombre")}>
-                  Nombre<SortIndicator active={sortKey === "nombre"} dir={sortKey === "nombre" ? sortDir : null} />
-                </th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium">Instagram</th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium">F. Agenda</th>
-                <th className={thSortClass} onClick={() => toggleSort("fecha")}>
-                  F. Llamada<SortIndicator active={sortKey === "fecha"} dir={sortKey === "fecha" ? sortDir : null} />
-                </th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium">F. Pago</th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium">Estado</th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium">Closer</th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium">Setter</th>
-                <th className={`${thSortClass} text-right`} onClick={() => toggleSort("ticket")}>
-                  Ticket<SortIndicator active={sortKey === "ticket"} dir={sortKey === "ticket" ? sortDir : null} />
-                </th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium text-center">Score</th>
-                <th className={`${thSortClass} text-right`} onClick={() => toggleSort("cash")}>
-                  Cash<SortIndicator active={sortKey === "cash"} dir={sortKey === "cash" ? sortDir : null} />
-                </th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium text-center">Cuotas</th>
-                <th className={`${thSortClass} text-right`} onClick={() => toggleSort("saldo")}>
-                  Saldo<SortIndicator active={sortKey === "saldo"} dir={sortKey === "saldo" ? sortDir : null} />
-                </th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium">Receptor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.length === 0 && (
-                <tr>
-                  <td colSpan={13} className="px-4 py-12 text-center text-[var(--muted)]">
-                    No se encontraron leads con esos filtros.
-                  </td>
-                </tr>
-              )}
-              {sorted.map((lead) => {
-                const audit = getAuditData(lead.id, lead.ticket_total);
-                const isExpanded = expandedId === lead.id;
-                return (
-                  <tr
-                    key={lead.id}
-                    onClick={() => setExpandedId(isExpanded ? null : lead.id)}
-                    className={`border-b border-[var(--card-border)] hover:bg-[var(--purple)]/5 cursor-pointer transition-colors ${isExpanded ? "bg-[var(--purple)]/5" : ""}`}
-                  >
-                    <td className="px-2 py-2 font-medium text-[var(--foreground)]" onClick={(e) => e.stopPropagation()}>
-                      <input type="text" defaultValue={lead.nombre || ""}
-                        onBlur={(e) => { if (e.target.value !== (lead.nombre || "")) updateLeadField(lead.id, "nombre", e.target.value); }}
-                        className="w-full bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-sm font-medium text-[var(--foreground)] focus:outline-none" />
-                    </td>
-                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
-                      <input type="text" defaultValue={lead.instagram || ""}
-                        onBlur={(e) => { if (e.target.value !== (lead.instagram || "")) updateLeadField(lead.id, "instagram", e.target.value || null); }}
-                        className="w-full bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
-                    </td>
-                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
-                      <input type="date" defaultValue={lead.fecha_agendado?.split("T")[0] || ""}
-                        onBlur={(e) => { const v = e.target.value || null; if (v !== (lead.fecha_agendado?.split("T")[0] || null)) updateLeadField(lead.id, "fecha_agendado", v ? `${v}T00:00:00` : null); }}
-                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
-                    </td>
-                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
-                      <input type="date" defaultValue={lead.fecha_llamada?.split("T")[0] || ""}
-                        onBlur={(e) => { const v = e.target.value || null; if (v !== (lead.fecha_llamada?.split("T")[0] || null)) updateLeadField(lead.id, "fecha_llamada", v ? `${v}T00:00:00` : null); }}
-                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
-                    </td>
-                    <td className="px-4 py-3 text-[var(--muted)]">
-                      {audit.fechaPago ? formatDate(audit.fechaPago) : "---"}
-                    </td>
-                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
-                      <select defaultValue={lead.estado}
-                        onChange={(e) => updateLeadField(lead.id, "estado", e.target.value)}
-                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs focus:outline-none">
-                        {Object.entries(LEAD_ESTADOS_LABELS).map(([k, v]) => (<option key={k} value={k}>{v}</option>))}
-                      </select>
-                    </td>
-                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
-                      <select defaultValue={lead.closer_id || ""}
-                        onChange={(e) => updateLeadField(lead.id, "closer_id", e.target.value || null)}
-                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none">
-                        <option value="">—</option>
-                        {closers.map((c) => (<option key={c.id} value={c.id}>{c.nombre}</option>))}
-                      </select>
-                    </td>
-                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
-                      <select defaultValue={lead.setter_id || ""}
-                        onChange={(e) => updateLeadField(lead.id, "setter_id", e.target.value || null)}
-                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none">
-                        <option value="">—</option>
-                        {setters.map((s) => (<option key={s.id} value={s.id}>{s.nombre}</option>))}
-                      </select>
-                    </td>
-                    <td className="px-2 py-2 text-right font-mono" onClick={(e) => e.stopPropagation()}>
-                      <input type="number" step={100} defaultValue={lead.ticket_total || 0}
-                        onBlur={(e) => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && v !== (lead.ticket_total || 0)) updateLeadField(lead.id, "ticket_total", v); }}
-                        className="w-24 bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-right text-white focus:outline-none" />
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <LeadScoreBadge score={lead.lead_score} />
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono">
-                      {audit.cashCollected > 0 ? (
-                        <span className="text-green-400">{formatUSD(audit.cashCollected)}</span>
-                      ) : (
-                        "---"
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center font-mono">
-                      {audit.cuotasPagadas > 0 ? audit.cuotasPagadas : "---"}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono">
-                      {audit.saldoPendiente > 0 ? (
-                        <span className="text-red-400">{formatUSD(audit.saldoPendiente)}</span>
-                      ) : audit.saldoPendiente < 0 ? (
-                        <span className="text-yellow-400">{formatUSD(audit.saldoPendiente)}</span>
-                      ) : (
-                        "---"
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-[var(--muted)] text-xs">
-                      {audit.receptor || "---"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            {/* Footer totals row */}
-            {filtered.length > 0 && (
-              <tfoot>
-                <tr className="border-t-2 border-[var(--purple)]/30 bg-[var(--purple)]/5 font-semibold">
-                  <td className="px-4 py-3" colSpan={7}>
-                    TOTALES ({filtered.length} leads)
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono text-yellow-400">
-                    {formatUSD(totals.totalTicket)}
-                  </td>
-                  <td className="px-4 py-3"></td>
-                  <td className="px-4 py-3 text-right font-mono text-green-400">
-                    {formatUSD(totals.totalCash)}
-                  </td>
-                  <td className="px-4 py-3"></td>
-                  <td className="px-4 py-3 text-right font-mono text-red-400">
-                    {formatUSD(totals.totalSaldo)}
-                  </td>
-                  <td className="px-4 py-3"></td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-      </div>
-
-      {/* Expanded Lead Detail — Grid layout */}
-      {expandedId && (() => {
-        const lead = sorted.find((l) => l.id === expandedId);
-        if (!lead) return null;
-        const leadPayments = paymentsByLead.get(lead.id) || [];
-        const audit = getAuditData(lead.id, lead.ticket_total);
-
-        // Initialize edit data when expanding a different lead
-        if (editData._leadId !== lead.id) {
-          setTimeout(() => {
-            setEditData({
-              _leadId: lead.id,
-              estado: lead.estado,
-              programa_pitcheado: lead.programa_pitcheado || "",
-              lead_calificado: lead.lead_calificado || "",
-              ticket_total: lead.ticket_total,
-              notas_internas: lead.notas_internas || "",
-              reporte_general: lead.reporte_general || "",
-            });
-            setSaveMsg(null);
-          }, 0);
-        }
-        return (
+    return (
           <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6 space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">
@@ -1135,8 +622,532 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
               );
             })()}
           </div>
-        );
-      })()}
+    );
+  };
+
+
+  const handleRefundSubmit = useCallback(async (leadId: string) => {
+    const monto = parseFloat(refundMonto);
+    if (!monto || monto <= 0) {
+      setRefundMsg("Ingresa un monto valido");
+      return;
+    }
+    setRefundLoading(true);
+    setRefundMsg(null);
+    try {
+      const res = await fetch("/api/pagos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lead_id: leadId,
+          numero_cuota: 1,
+          monto_usd: monto,
+          monto_ars: 0,
+          fecha_pago: new Date().toISOString().split("T")[0],
+          estado: "refund",
+          metodo_pago: "transferencia",
+          receptor: refundMotivo || "Refund",
+          es_renovacion: false,
+        }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setRefundMsg("Refund registrado correctamente");
+        setRefundMonto("");
+        setRefundMotivo("");
+        setTimeout(() => window.location.reload(), 800);
+      } else {
+        setRefundMsg(`Error: ${json.error || "desconocido"}`);
+      }
+    } catch {
+      setRefundMsg("Error de red");
+    } finally {
+      setRefundLoading(false);
+    }
+  }, [refundMonto, refundMotivo]);
+
+  const monthOptions = useMemo(() => getFiscalMonthOptions(12), []);
+
+  // Group payments by lead_id for O(1) lookups
+  const paymentsByLead = useMemo(() => {
+    const map = new Map<string, Payment[]>();
+    for (const p of payments) {
+      if (!p.lead_id) continue;
+      const arr = map.get(p.lead_id);
+      if (arr) arr.push(p);
+      else map.set(p.lead_id, [p]);
+    }
+    return map;
+  }, [payments]);
+
+  // Month filter range (for filtering payments by fecha_pago within the selected month)
+  const monthRange = useMemo(() => {
+    if (monthFilter === "todos") return null;
+    const start = parseLocalDate(monthFilter);
+    const end = getFiscalEnd(start);
+    const startStr = toDateString(start);
+    const endStr = toDateString(end);
+    return { startStr, endStr };
+  }, [monthFilter]);
+
+  // Helper: get audit data for a lead
+  const getAuditData = useCallback(
+    (leadId: string, ticketTotal: number) => {
+      const leadPayments = paymentsByLead.get(leadId) || [];
+      const pagados = leadPayments.filter((p) => p.estado === "pagado");
+      // When filtering by month: only sum payments within the filtered month
+      const inMonthPagados = monthRange
+        ? pagados.filter((p) => {
+            const f = p.fecha_pago?.split("T")[0];
+            return f && f >= monthRange.startStr && f <= monthRange.endStr;
+          })
+        : pagados;
+      const cashCollected = inMonthPagados.reduce((sum, p) => sum + p.monto_usd, 0);
+      const cuotasPagadas = inMonthPagados.filter((p) => p.numero_cuota > 1).length;
+      const saldoPendiente = monthRange ? 0 : ticketTotal - cashCollected;
+      const receptor = leadPayments.length > 0 ? leadPayments[0].receptor : null;
+      const fechaPago = inMonthPagados
+        .filter((p) => p.fecha_pago)
+        .map((p) => p.fecha_pago!.split("T")[0])
+        .sort()[0] || null;
+      return { cashCollected, cuotasPagadas, saldoPendiente, receptor, fechaPago };
+    },
+    [paymentsByLead, monthRange]
+  );
+
+  const filtered = useMemo(() => {
+    return leads.filter((lead) => {
+      // Search
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const matchesSearch =
+          lead.nombre?.toLowerCase().includes(q) ||
+          lead.instagram?.toLowerCase().includes(q) ||
+          lead.email?.toLowerCase().includes(q) ||
+          lead.telefono?.toLowerCase().includes(q);
+        if (!matchesSearch) return false;
+      }
+
+      // Estado filter
+      if (estadoFilter !== "todos" && lead.estado !== estadoFilter) return false;
+
+      // Closer filter
+      if (closerFilter !== "todos" && lead.closer_id !== closerFilter) return false;
+
+      // Setter filter
+      if (setterFilter !== "todos" && lead.setter_id !== setterFilter) return false;
+
+      // Programa filter
+      if (programaFilter !== "todos" && lead.programa_pitcheado !== programaFilter) return false;
+
+      // Calificado filter
+      if (calificadoFilter !== "todos") {
+        if (calificadoFilter === "si" && lead.lead_calificado !== "calificado") return false;
+        if (calificadoFilter === "no" && lead.lead_calificado === "calificado") return false;
+      }
+
+      // Month filter: include lead if fecha_llamada, fecha_agendado, OR any payment fecha_pago falls in the month
+      if (monthFilter !== "todos") {
+        const monthStart = parseLocalDate(monthFilter);
+        const monthEnd = getFiscalEnd(monthStart);
+        const startStr = toDateString(monthStart);
+        const endStr = toDateString(monthEnd);
+        const inRange = (v: string | null | undefined) => {
+          if (!v) return false;
+          const s = v.split("T")[0];
+          return s >= startStr && s <= endStr;
+        };
+        const leadPays = paymentsByLead.get(lead.id) || [];
+        const hasPagoInMonth = leadPays.some((p) => p.estado === "pagado" && inRange(p.fecha_pago));
+        const llamadaInMonth = inRange(lead.fecha_llamada);
+        const agendaInMonth = inRange(lead.fecha_agendado);
+        if (!llamadaInMonth && !agendaInMonth && !hasPagoInMonth) return false;
+      }
+
+      // Payment filter
+      if (pagoFilter !== "todos") {
+        const leadPayments = paymentsByLead.get(lead.id) || [];
+        const hasPago = leadPayments.some(p => p.estado === "pagado" && p.monto_usd > 0);
+        if (pagoFilter === "solo_ventas" && lead.estado !== "cerrado" && lead.estado !== "adentro_seguimiento") return false;
+        if (pagoFilter === "con_pago" && !hasPago) return false;
+        if (pagoFilter === "sin_pago" && hasPago) return false;
+      }
+
+      return true;
+    });
+  }, [leads, search, estadoFilter, closerFilter, setterFilter, monthFilter, programaFilter, calificadoFilter, pagoFilter, paymentsByLead]);
+
+  // Sorted data
+  const sorted = useMemo(() => {
+    if (!sortKey || !sortDir) return filtered;
+    const arr = [...filtered];
+    const dir = sortDir === "asc" ? 1 : -1;
+    arr.sort((a, b) => {
+      const auditA = getAuditData(a.id, a.ticket_total);
+      const auditB = getAuditData(b.id, b.ticket_total);
+      switch (sortKey) {
+        case "nombre":
+          return dir * (a.nombre || "").localeCompare(b.nombre || "");
+        case "fecha":
+          return dir * (a.fecha_llamada || "").localeCompare(b.fecha_llamada || "");
+        case "cash":
+          return dir * (auditA.cashCollected - auditB.cashCollected);
+        case "ticket":
+          return dir * (a.ticket_total - b.ticket_total);
+        case "saldo":
+          return dir * (auditA.saldoPendiente - auditB.saldoPendiente);
+        default:
+          return 0;
+      }
+    });
+    return arr;
+  }, [filtered, sortKey, sortDir, getAuditData]);
+
+  // Summary totals
+  const totals = useMemo(() => {
+    let totalTicket = 0;
+    let totalCash = 0;
+    let totalSaldo = 0;
+    for (const lead of filtered) {
+      const audit = getAuditData(lead.id, lead.ticket_total);
+      totalTicket += lead.ticket_total;
+      totalCash += audit.cashCollected;
+      totalSaldo += audit.saldoPendiente;
+    }
+    return { totalTicket, totalCash, totalSaldo };
+  }, [filtered, getAuditData]);
+
+  // CSV export
+  const handleExportCSV = useCallback(() => {
+    const headers = [
+      "Nombre", "Instagram", "Fecha", "Estado", "Closer", "Setter",
+      "Ticket Total", "Score", "Cash Collected", "Cuotas Pagadas",
+      "Saldo Pendiente", "Receptor",
+    ];
+
+    const escapeCSV = (val: string) => {
+      if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+        return `"${val.replace(/"/g, '""')}"`;
+      }
+      return val;
+    };
+
+    const rows = filtered.map((lead) => {
+      const audit = getAuditData(lead.id, lead.ticket_total);
+      return [
+        lead.nombre || "",
+        lead.instagram ? `@${lead.instagram.replace(/^@/, "")}` : "",
+        lead.fecha_llamada || "",
+        LEAD_ESTADOS_LABELS[lead.estado] || lead.estado,
+        lead.closer?.nombre || "",
+        lead.setter?.nombre || "",
+        lead.ticket_total.toString(),
+        lead.lead_score || "",
+        audit.cashCollected.toString(),
+        audit.cuotasPagadas.toString(),
+        audit.saldoPendiente.toString(),
+        audit.receptor || "",
+      ].map(escapeCSV);
+    });
+
+    rows.push([
+      "TOTALES", "", "", "", "", "",
+      totals.totalTicket.toString(), "",
+      totals.totalCash.toString(), "",
+      totals.totalSaldo.toString(), "", "",
+    ]);
+
+    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `llamadas_audit_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filtered, getAuditData, totals]);
+
+  const estadoOptions = Object.entries(LEAD_ESTADOS_LABELS);
+
+  const inputClass =
+    "bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--purple)]";
+  const selectClass = inputClass;
+
+  // Suppress unused variable warning
+  void session;
+
+  const thSortClass = "px-4 py-3 text-[var(--muted)] font-medium cursor-pointer select-none hover:text-[var(--foreground)] transition-colors";
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold">Llamadas</h1>
+          <p className="text-sm text-[var(--muted)]">
+            {filtered.length} de {leads.length} leads
+          </p>
+        </div>
+        <button
+          onClick={handleExportCSV}
+          className="text-sm font-medium bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white px-4 py-2 rounded-lg transition-colors"
+        >
+          Exportar CSV
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3">
+        <input
+          type="text"
+          placeholder="Buscar por nombre, IG, email..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className={`${inputClass} w-64`}
+        />
+
+        <select
+          value={estadoFilter}
+          onChange={(e) => setEstadoFilter(e.target.value)}
+          className={selectClass}
+        >
+          <option value="todos">Todos los estados</option>
+          {estadoOptions.map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
+
+        <select
+          value={closerFilter}
+          onChange={(e) => setCloserFilter(e.target.value)}
+          className={selectClass}
+        >
+          <option value="todos">Todos los closers</option>
+          {closers.map((c) => (
+            <option key={c.id} value={c.id}>{c.nombre}</option>
+          ))}
+        </select>
+
+        <select
+          value={setterFilter}
+          onChange={(e) => setSetterFilter(e.target.value)}
+          className={selectClass}
+        >
+          <option value="todos">Todos los setters</option>
+          {setters.map((s) => (
+            <option key={s.id} value={s.id}>{s.nombre}</option>
+          ))}
+        </select>
+
+        <select
+          value={monthFilter}
+          onChange={(e) => setMonthFilter(e.target.value)}
+          className={selectClass}
+        >
+          <option value="todos">Todos los meses</option>
+          {monthOptions.map((m) => (
+            <option key={m.value} value={m.value}>{m.label}</option>
+          ))}
+        </select>
+
+        <select
+          value={programaFilter}
+          onChange={(e) => setProgramaFilter(e.target.value)}
+          className={selectClass}
+        >
+          <option value="todos">Todos los programas</option>
+          {Object.entries(PROGRAMS).map(([key, p]) => (
+            <option key={key} value={key}>{p.label}</option>
+          ))}
+        </select>
+
+        <select
+          value={calificadoFilter}
+          onChange={(e) => setCalificadoFilter(e.target.value)}
+          className={selectClass}
+        >
+          <option value="todos">Calificado: Todos</option>
+          <option value="si">Calificado: Si</option>
+          <option value="no">Calificado: No</option>
+        </select>
+
+        <select
+          value={pagoFilter}
+          onChange={(e) => setPagoFilter(e.target.value)}
+          className={selectClass}
+        >
+          <option value="todos">Todos los pagos</option>
+          <option value="solo_ventas">Solo ventas (cerradas)</option>
+          <option value="con_pago">Con pago registrado</option>
+          <option value="sin_pago">Sin pago</option>
+        </select>
+      </div>
+
+      {/* Table */}
+      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--card-border)] text-left">
+                <th className={thSortClass} onClick={() => toggleSort("nombre")}>
+                  Nombre<SortIndicator active={sortKey === "nombre"} dir={sortKey === "nombre" ? sortDir : null} />
+                </th>
+                <th className="px-4 py-3 text-[var(--muted)] font-medium">Instagram</th>
+                <th className="px-4 py-3 text-[var(--muted)] font-medium">F. Agenda</th>
+                <th className={thSortClass} onClick={() => toggleSort("fecha")}>
+                  F. Llamada<SortIndicator active={sortKey === "fecha"} dir={sortKey === "fecha" ? sortDir : null} />
+                </th>
+                <th className="px-4 py-3 text-[var(--muted)] font-medium">F. Pago</th>
+                <th className="px-4 py-3 text-[var(--muted)] font-medium">Estado</th>
+                <th className="px-4 py-3 text-[var(--muted)] font-medium">Closer</th>
+                <th className="px-4 py-3 text-[var(--muted)] font-medium">Setter</th>
+                <th className={`${thSortClass} text-right`} onClick={() => toggleSort("ticket")}>
+                  Ticket<SortIndicator active={sortKey === "ticket"} dir={sortKey === "ticket" ? sortDir : null} />
+                </th>
+                <th className="px-4 py-3 text-[var(--muted)] font-medium text-center">Score</th>
+                <th className={`${thSortClass} text-right`} onClick={() => toggleSort("cash")}>
+                  Cash<SortIndicator active={sortKey === "cash"} dir={sortKey === "cash" ? sortDir : null} />
+                </th>
+                <th className="px-4 py-3 text-[var(--muted)] font-medium text-center">Cuotas</th>
+                <th className={`${thSortClass} text-right`} onClick={() => toggleSort("saldo")}>
+                  Saldo<SortIndicator active={sortKey === "saldo"} dir={sortKey === "saldo" ? sortDir : null} />
+                </th>
+                <th className="px-4 py-3 text-[var(--muted)] font-medium">Receptor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.length === 0 && (
+                <tr>
+                  <td colSpan={13} className="px-4 py-12 text-center text-[var(--muted)]">
+                    No se encontraron leads con esos filtros.
+                  </td>
+                </tr>
+              )}
+              {sorted.map((lead) => {
+                const audit = getAuditData(lead.id, lead.ticket_total);
+                const isExpanded = expandedId === lead.id;
+                return (
+                  <Fragment key={lead.id}>
+                  <tr
+                    onClick={() => setExpandedId(isExpanded ? null : lead.id)}
+                    className={`border-b border-[var(--card-border)] hover:bg-[var(--purple)]/5 cursor-pointer transition-colors ${isExpanded ? "bg-[var(--purple)]/5" : ""}`}
+                  >
+                    <td className="px-2 py-2 font-medium text-[var(--foreground)]" onClick={(e) => e.stopPropagation()}>
+                      <input type="text" defaultValue={lead.nombre || ""}
+                        onBlur={(e) => { if (e.target.value !== (lead.nombre || "")) updateLeadField(lead.id, "nombre", e.target.value); }}
+                        className="w-full bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-sm font-medium text-[var(--foreground)] focus:outline-none" />
+                    </td>
+                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                      <input type="text" defaultValue={lead.instagram || ""}
+                        onBlur={(e) => { if (e.target.value !== (lead.instagram || "")) updateLeadField(lead.id, "instagram", e.target.value || null); }}
+                        className="w-full bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
+                    </td>
+                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                      <input type="date" defaultValue={lead.fecha_agendado?.split("T")[0] || ""}
+                        onBlur={(e) => { const v = e.target.value || null; if (v !== (lead.fecha_agendado?.split("T")[0] || null)) updateLeadField(lead.id, "fecha_agendado", v ? `${v}T00:00:00` : null); }}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
+                    </td>
+                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                      <input type="date" defaultValue={lead.fecha_llamada?.split("T")[0] || ""}
+                        onBlur={(e) => { const v = e.target.value || null; if (v !== (lead.fecha_llamada?.split("T")[0] || null)) updateLeadField(lead.id, "fecha_llamada", v ? `${v}T00:00:00` : null); }}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
+                    </td>
+                    <td className="px-4 py-3 text-[var(--muted)]">
+                      {audit.fechaPago ? formatDate(audit.fechaPago) : "---"}
+                    </td>
+                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                      <select defaultValue={lead.estado}
+                        onChange={(e) => updateLeadField(lead.id, "estado", e.target.value)}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs focus:outline-none">
+                        {Object.entries(LEAD_ESTADOS_LABELS).map(([k, v]) => (<option key={k} value={k}>{v}</option>))}
+                      </select>
+                    </td>
+                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                      <select defaultValue={lead.closer_id || ""}
+                        onChange={(e) => updateLeadField(lead.id, "closer_id", e.target.value || null)}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none">
+                        <option value="">—</option>
+                        {closers.map((c) => (<option key={c.id} value={c.id}>{c.nombre}</option>))}
+                      </select>
+                    </td>
+                    <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                      <select defaultValue={lead.setter_id || ""}
+                        onChange={(e) => updateLeadField(lead.id, "setter_id", e.target.value || null)}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none">
+                        <option value="">—</option>
+                        {setters.map((s) => (<option key={s.id} value={s.id}>{s.nombre}</option>))}
+                      </select>
+                    </td>
+                    <td className="px-2 py-2 text-right font-mono" onClick={(e) => e.stopPropagation()}>
+                      <input type="number" step={100} defaultValue={lead.ticket_total || 0}
+                        onBlur={(e) => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && v !== (lead.ticket_total || 0)) updateLeadField(lead.id, "ticket_total", v); }}
+                        className="w-24 bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1 py-1 text-xs text-right text-white focus:outline-none" />
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <LeadScoreBadge score={lead.lead_score} />
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {audit.cashCollected > 0 ? (
+                        <span className="text-green-400">{formatUSD(audit.cashCollected)}</span>
+                      ) : (
+                        "---"
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-center font-mono">
+                      {audit.cuotasPagadas > 0 ? audit.cuotasPagadas : "---"}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {audit.saldoPendiente > 0 ? (
+                        <span className="text-red-400">{formatUSD(audit.saldoPendiente)}</span>
+                      ) : audit.saldoPendiente < 0 ? (
+                        <span className="text-yellow-400">{formatUSD(audit.saldoPendiente)}</span>
+                      ) : (
+                        "---"
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-[var(--muted)] text-xs">
+                      {audit.receptor || "---"}
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr>
+                      <td colSpan={14} className="p-0 border-b-2 border-[var(--purple)]/30">
+                        <div className="bg-[var(--purple)]/5 px-4 py-4">
+                          {renderLeadDetail(lead)}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+            {/* Footer totals row */}
+            {filtered.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-[var(--purple)]/30 bg-[var(--purple)]/5 font-semibold">
+                  <td className="px-4 py-3" colSpan={7}>
+                    TOTALES ({filtered.length} leads)
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-yellow-400">
+                    {formatUSD(totals.totalTicket)}
+                  </td>
+                  <td className="px-4 py-3"></td>
+                  <td className="px-4 py-3 text-right font-mono text-green-400">
+                    {formatUSD(totals.totalCash)}
+                  </td>
+                  <td className="px-4 py-3"></td>
+                  <td className="px-4 py-3 text-right font-mono text-red-400">
+                    {formatUSD(totals.totalSaldo)}
+                  </td>
+                  <td className="px-4 py-3"></td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </div>
+
 
       {editingPayment && (
         <PaymentEditModal
