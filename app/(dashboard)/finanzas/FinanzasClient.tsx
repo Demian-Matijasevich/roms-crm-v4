@@ -151,6 +151,30 @@ export default function FinanzasClient({
   const [ingresoMetodo, setIngresoMetodo] = useState("todos");
   const [ingresoReceptor, setIngresoReceptor] = useState("todos");
 
+  // Gastos table filters
+  const [gastoSearch, setGastoSearch] = useState("");
+  const [gastoCategoria, setGastoCategoria] = useState("todos");
+  const [gastoEstado, setGastoEstado] = useState("todos");
+
+  // Generic gasto field updater
+  async function updateGastoField(gastoId: string, field: string, value: string | number | null) {
+    try {
+      const res = await fetch("/api/gastos", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: gastoId, [field]: value }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setLocalGastos((prev) => prev.map((g) => (g.id === gastoId ? { ...g, [field]: value } : g)));
+      } else {
+        alert("Error: " + (json.error || "desconocido"));
+      }
+    } catch (err) {
+      alert("Error: " + (err instanceof Error ? err.message : String(err)));
+    }
+  }
+
   const currentLabel = useMemo(() => {
     return getFiscalMonth(parseLocalDate(selectedMonth));
   }, [selectedMonth]);
@@ -187,10 +211,28 @@ export default function FinanzasClient({
     return { usd, ars };
   }, [monthIngresos]);
 
-  const monthGastos = useMemo(
-    () => localGastos.filter((g) => gastoFiscalMonth(g.fecha) === currentLabel),
-    [localGastos, currentLabel]
-  );
+  const monthGastos = useMemo(() => {
+    let arr = localGastos.filter((g) => gastoFiscalMonth(g.fecha) === currentLabel);
+    if (gastoSearch) {
+      const q = gastoSearch.toLowerCase();
+      arr = arr.filter((g) =>
+        (g.concepto || "").toLowerCase().includes(q) ||
+        (g.categoria || "").toLowerCase().includes(q) ||
+        (g.pagado_a || "").toLowerCase().includes(q) ||
+        (g.pagado_por || "").toLowerCase().includes(q) ||
+        (g.billetera || "").toLowerCase().includes(q)
+      );
+    }
+    if (gastoCategoria !== "todos") arr = arr.filter((g) => (g.categoria || "") === gastoCategoria);
+    if (gastoEstado !== "todos") arr = arr.filter((g) => (g.estado || "") === gastoEstado);
+    return arr;
+  }, [localGastos, currentLabel, gastoSearch, gastoCategoria, gastoEstado]);
+
+  const gastoCategoriasUnique = useMemo(() => {
+    const set = new Set<string>();
+    for (const g of localGastos) if (g.categoria) set.add(g.categoria);
+    return [...set].sort();
+  }, [localGastos]);
 
   // Ingresos
   const cashVentasNuevas = monthCash?.cash_ventas_nuevas ?? 0;
@@ -337,22 +379,6 @@ export default function FinanzasClient({
     } finally {
       setSubmitting(false);
     }
-  }
-
-  function startEditGasto(g: GastoRow) {
-    setEditingId(g.id);
-    setGastoForm({
-      fecha: g.fecha || new Date().toISOString().split("T")[0],
-      concepto: g.concepto || "",
-      categoria: g.categoria || "",
-      monto_usd: String(g.monto_usd || ""),
-      monto_ars: String(g.monto_ars || ""),
-      billetera: g.billetera || "",
-      pagado_a: g.pagado_a || "",
-      pagado_por: g.pagado_por || "",
-      estado: g.estado || "pagado",
-    });
-    setShowGastoForm(true);
   }
 
   async function deleteGasto(id: string) {
@@ -989,72 +1015,102 @@ export default function FinanzasClient({
           </form>
         )}
 
+        {/* Filters */}
+        <div className="px-6 py-3 border-b border-[var(--card-border)] flex flex-wrap gap-3 items-center bg-white/5">
+          <input type="text" placeholder="🔍 Buscar concepto / categoría / pagado a..." value={gastoSearch}
+            onChange={(e) => setGastoSearch(e.target.value)}
+            className="bg-[var(--background)] border border-[var(--card-border)] rounded px-3 py-1.5 text-xs text-white min-w-[260px]" />
+          <select value={gastoCategoria} onChange={(e) => setGastoCategoria(e.target.value)}
+            className="bg-[var(--background)] border border-[var(--card-border)] rounded px-2 py-1.5 text-xs text-white">
+            <option value="todos">Todas las categorías</option>
+            {gastoCategoriasUnique.map((c) => (<option key={c} value={c}>{c}</option>))}
+          </select>
+          <select value={gastoEstado} onChange={(e) => setGastoEstado(e.target.value)}
+            className="bg-[var(--background)] border border-[var(--card-border)] rounded px-2 py-1.5 text-xs text-white">
+            <option value="todos">Todos los estados</option>
+            <option value="pagado">Pagado</option>
+            <option value="pendiente">Pendiente</option>
+          </select>
+          {(gastoSearch || gastoCategoria !== "todos" || gastoEstado !== "todos") && (
+            <button
+              onClick={() => { setGastoSearch(""); setGastoCategoria("todos"); setGastoEstado("todos"); }}
+              className="text-xs text-[var(--muted)] hover:text-white underline"
+            >
+              Limpiar filtros
+            </button>
+          )}
+        </div>
+
         {monthGastos.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[var(--muted)] text-xs uppercase border-b border-[var(--card-border)]">
-                  <th className="text-left py-3 px-4">Fecha</th>
-                  <th className="text-left py-3 px-4">Concepto</th>
-                  <th className="text-left py-3 px-4">Categoria</th>
-                  <th className="text-left py-3 px-4">Billetera</th>
-                  <th className="text-left py-3 px-4">Pagado a</th>
-                  <th className="text-left py-3 px-4">Pagado por</th>
-                  <th className="text-left py-3 px-4">Estado</th>
-                  <th className="text-right py-3 px-4">Monto</th>
-                  <th className="text-right py-3 px-4 w-24">Acciones</th>
+                  <th className="text-left py-3 px-3">Fecha</th>
+                  <th className="text-left py-3 px-3">Concepto</th>
+                  <th className="text-left py-3 px-3">Categoria</th>
+                  <th className="text-left py-3 px-3">Billetera</th>
+                  <th className="text-left py-3 px-3">Pagado a</th>
+                  <th className="text-left py-3 px-3">Pagado por</th>
+                  <th className="text-left py-3 px-3">Estado</th>
+                  <th className="text-right py-3 px-3">USD</th>
+                  <th className="text-right py-3 px-3">ARS</th>
+                  <th className="text-right py-3 px-3 w-16">Acc.</th>
                 </tr>
               </thead>
               <tbody>
                 {monthGastos.map((g) => (
-                  <tr
-                    key={g.id}
-                    className="border-t border-[var(--card-border)]/30 hover:bg-white/5 transition-colors"
-                  >
-                    <td className="py-3 px-4 text-[var(--muted)]">
-                      {g.fecha || "\u2014"}
+                  <tr key={g.id} className="border-t border-[var(--card-border)]/30 hover:bg-white/5 transition-colors">
+                    <td className="py-2 px-3">
+                      <input type="date" defaultValue={g.fecha || ""}
+                        onBlur={(e) => { if (e.target.value !== g.fecha) updateGastoField(g.id, "fecha", e.target.value); }}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
                     </td>
-                    <td className="py-3 px-4 text-white font-medium">
-                      {g.concepto || "\u2014"}
+                    <td className="py-2 px-3">
+                      <input type="text" defaultValue={g.concepto || ""}
+                        onBlur={(e) => { if (e.target.value !== g.concepto) updateGastoField(g.id, "concepto", e.target.value); }}
+                        className="w-full bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-white font-medium focus:outline-none" />
                     </td>
-                    <td className="py-3 px-4 text-[var(--muted)]">
-                      {g.categoria || "\u2014"}
+                    <td className="py-2 px-3">
+                      <input type="text" defaultValue={g.categoria || ""}
+                        onBlur={(e) => { if (e.target.value !== (g.categoria || "")) updateGastoField(g.id, "categoria", e.target.value || null); }}
+                        className="w-full bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
                     </td>
-                    <td className="py-3 px-4 text-[var(--muted)]">
-                      {g.billetera || "\u2014"}
+                    <td className="py-2 px-3">
+                      <input type="text" defaultValue={g.billetera || ""}
+                        onBlur={(e) => { if (e.target.value !== (g.billetera || "")) updateGastoField(g.id, "billetera", e.target.value || null); }}
+                        className="w-full bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
                     </td>
-                    <td className="py-3 px-4 text-[var(--muted)]">
-                      {g.pagado_a || "\u2014"}
+                    <td className="py-2 px-3">
+                      <input type="text" defaultValue={g.pagado_a || ""}
+                        onBlur={(e) => { if (e.target.value !== (g.pagado_a || "")) updateGastoField(g.id, "pagado_a", e.target.value || null); }}
+                        className="w-full bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
                     </td>
-                    <td className="py-3 px-4 text-[var(--muted)]">
-                      {g.pagado_por || "\u2014"}
+                    <td className="py-2 px-3">
+                      <input type="text" defaultValue={g.pagado_por || ""}
+                        onBlur={(e) => { if (e.target.value !== (g.pagado_por || "")) updateGastoField(g.id, "pagado_por", e.target.value || null); }}
+                        className="w-full bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none" />
                     </td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
-                          g.estado === "pagado"
-                            ? "bg-[var(--green)]/20 text-[var(--green)]"
-                            : "bg-[var(--yellow)]/20 text-[var(--yellow)]"
-                        }`}
-                      >
-                        {g.estado || "pendiente"}
-                      </span>
+                    <td className="py-2 px-3">
+                      <select defaultValue={g.estado || "pagado"}
+                        onChange={(e) => updateGastoField(g.id, "estado", e.target.value)}
+                        className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-[var(--muted)] focus:text-white focus:outline-none">
+                        <option value="pagado">Pagado</option>
+                        <option value="pendiente">Pendiente</option>
+                      </select>
                     </td>
-                    <td className="py-3 px-4 text-right font-medium text-[var(--red)]">
-                      {g.monto_usd > 0 && formatUSD(g.monto_usd)}
-                      {g.monto_usd > 0 && g.monto_ars > 0 && " / "}
-                      {g.monto_ars > 0 && formatARS(g.monto_ars)}
-                      {!g.monto_usd && !g.monto_ars && "\u2014"}
+                    <td className="py-2 px-3 text-right">
+                      <input type="number" step={0.01} defaultValue={g.monto_usd || 0}
+                        onBlur={(e) => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && v !== g.monto_usd) updateGastoField(g.id, "monto_usd", v); }}
+                        className="w-24 bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-right font-medium text-[var(--red)] focus:outline-none" />
                     </td>
-                    <td className="py-3 px-4 text-right">
+                    <td className="py-2 px-3 text-right">
+                      <input type="number" step={0.01} defaultValue={g.monto_ars || 0}
+                        onBlur={(e) => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && v !== g.monto_ars) updateGastoField(g.id, "monto_ars", v); }}
+                        className="w-24 bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-xs text-right text-[var(--muted)] focus:text-white focus:outline-none" />
+                    </td>
+                    <td className="py-2 px-3 text-right">
                       <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => startEditGasto(g)}
-                          className="text-xs text-[var(--purple)] hover:underline"
-                          title="Editar"
-                        >
-                          Editar
-                        </button>
                         <button
                           onClick={() => deleteGasto(g.id)}
                           className="text-xs text-[var(--red)] hover:underline"
