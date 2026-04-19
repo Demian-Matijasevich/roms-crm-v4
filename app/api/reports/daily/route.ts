@@ -97,9 +97,53 @@ export async function GET(req: NextRequest) {
 
   const notTaken = new Set(["pendiente", "cancelada", "no_show", "reprogramada"]);
   const tomadas = llamadas.filter((l) => !notTaken.has(l.estado));
-  const cerradas = llamadas.filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento");
+  const cerradasByCall = llamadas.filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento");
 
   const cashTotal = (payments || []).reduce((s, p) => s + Number(p.monto_usd || 0), 0);
+
+  // Ventas del período = leads únicos con pago en el rango (atribuidos a closer)
+  // Esto refleja "cuántos cerró cada closer" basado en el cobro, no en fecha_llamada.
+  const leadIdsConPago = new Set<string>();
+  for (const p of payments || []) {
+    if (p.lead_id) leadIdsConPago.add(p.lead_id);
+  }
+  // Fetch closer_id + ticket for those leads (a batch query)
+  let leadsPaidInfo: Array<{ id: string; nombre: string; closer_id: string | null; ticket_total: number | null }> = [];
+  if (leadIdsConPago.size > 0) {
+    const { data } = await sb
+      .from("leads")
+      .select("id, nombre, closer_id, ticket_total")
+      .in("id", [...leadIdsConPago]);
+    leadsPaidInfo = data || [];
+  }
+  const ventasByCloser = new Map<string, { count: number; cash: number }>();
+  const leadClosers = new Map<string, string | null>();
+  const leadTickets = new Map<string, number>();
+  for (const l of leadsPaidInfo) {
+    leadClosers.set(l.id, l.closer_id);
+    leadTickets.set(l.id, Number(l.ticket_total || 0));
+  }
+  for (const p of payments || []) {
+    if (!p.lead_id) continue;
+    const cid = leadClosers.get(p.lead_id);
+    const name = cid ? teamById.get(cid) || "¿?" : "sin_closer";
+    const cur = ventasByCloser.get(name) || { count: 0, cash: 0 };
+    cur.cash += Number(p.monto_usd || 0);
+    ventasByCloser.set(name, cur);
+  }
+  // count unique leads per closer
+  const leadsPerCloser = new Map<string, Set<string>>();
+  for (const p of payments || []) {
+    if (!p.lead_id) continue;
+    const cid = leadClosers.get(p.lead_id);
+    const name = cid ? teamById.get(cid) || "¿?" : "sin_closer";
+    if (!leadsPerCloser.has(name)) leadsPerCloser.set(name, new Set());
+    leadsPerCloser.get(name)!.add(p.lead_id);
+  }
+  for (const [name, leadsSet] of leadsPerCloser.entries()) {
+    const cur = ventasByCloser.get(name);
+    if (cur) cur.count = leadsSet.size;
+  }
 
   // Resolver setter: directo (setter_id) o via utm_medium
   function resolveSetter(l: { setter_id: string | null; utm_medium: string | null }): { sid: string | null; via: "direct" | "utm" | null } {
@@ -136,14 +180,14 @@ export async function GET(req: NextRequest) {
     inboundBySource.set(src, (inboundBySource.get(src) || 0) + 1);
   }
 
-  // Cerradas por closer
-  const cerradasByCloser = new Map<string, { count: number; ticket: number }>();
-  for (const l of cerradas) {
+  // Cerradas DE LA CALL (leads cuya fecha_llamada es en el rango y estado = cerrado/adentro)
+  const cerradasCallByCloser = new Map<string, { count: number; ticket: number }>();
+  for (const l of cerradasByCall) {
     const name = l.closer_id ? teamById.get(l.closer_id) || "¿?" : "sin_closer";
-    const cur = cerradasByCloser.get(name) || { count: 0, ticket: 0 };
+    const cur = cerradasCallByCloser.get(name) || { count: 0, ticket: 0 };
     cur.count++;
     cur.ticket += Number(l.ticket_total || 0);
-    cerradasByCloser.set(name, cur);
+    cerradasCallByCloser.set(name, cur);
   }
 
   // Cash por receptor
@@ -180,11 +224,22 @@ export async function GET(req: NextRequest) {
   lines.push(`📞 *Llamadas:* ${llamadas.length}`);
   lines.push(`   ✅ Tomadas: ${tomadas.length}`);
   lines.push(`   ❌ No tomadas: ${llamadas.length - tomadas.length}`);
-  lines.push(`   💰 Cerradas: ${cerradas.length}`);
-  if (cerradasByCloser.size > 0) {
-    const arr = [...cerradasByCloser.entries()].sort((a, b) => b[1].count - a[1].count);
+  lines.push(`   💰 Cerradas en la call: ${cerradasByCall.length}`);
+  if (cerradasCallByCloser.size > 0) {
+    const arr = [...cerradasCallByCloser.entries()].sort((a, b) => b[1].count - a[1].count);
     for (const [name, v] of arr) {
       lines.push(`      • ${name}: ${v.count} (${fmtUSD(v.ticket)})`);
+    }
+  }
+  lines.push("");
+
+  // Ventas = leads con pago en el rango (por closer)
+  const totalVentas = [...ventasByCloser.values()].reduce((s, v) => s + v.count, 0);
+  lines.push(`🎯 *Ventas cobradas:* ${totalVentas} leads`);
+  if (ventasByCloser.size > 0) {
+    const arr = [...ventasByCloser.entries()].sort((a, b) => b[1].cash - a[1].cash);
+    for (const [name, v] of arr) {
+      lines.push(`   • ${name}: ${v.count} leads · ${fmtUSD(v.cash)}`);
     }
   }
   lines.push("");
