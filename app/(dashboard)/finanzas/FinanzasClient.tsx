@@ -113,6 +113,19 @@ export default function FinanzasClient({
 
   const RECEPTOR_OPTIONS = ["FRAN", "JUANMA", "VALEN", "MEL"];
 
+  async function deletePayment(paymentId: string, leadName: string | null, monto: number) {
+    const label = leadName ? `${leadName} - $${monto}` : `pago $${monto}`;
+    if (!confirm(`¿Borrar ${label}? Esta acción no se puede deshacer.`)) return;
+    const res = await fetch(`/api/pagos?id=${paymentId}`, { method: "DELETE" });
+    const json = await res.json();
+    if (json.ok) {
+      setLocalIngresos((prev) => prev.filter((i) => i.id !== paymentId));
+      setLocalPayments((prev) => prev.filter((p) => p.id !== paymentId));
+    } else {
+      alert("Error al borrar: " + (json.error || "desconocido"));
+    }
+  }
+
   async function saveReceptor(paymentId: string, newReceptor: string) {
     setSavingReceptor(true);
     try {
@@ -682,6 +695,7 @@ export default function FinanzasClient({
                   <th className="text-left py-3 px-4">Método</th>
                   <th className="text-left py-3 px-4">Recibió</th>
                   <th className="text-right py-3 px-4">Monto</th>
+                  <th className="text-right py-3 px-4 w-16">Acc.</th>
                 </tr>
               </thead>
               <tbody>
@@ -734,6 +748,16 @@ export default function FinanzasClient({
                     </td>
                     <td className="py-3 px-4 text-right font-medium text-[var(--green)]">
                       {formatMoney(i.monto_usd, i.monto_ars, usdRate)}
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => deletePayment(i.id, i.lead_nombre, i.monto_usd)}
+                        className="text-xs text-[var(--red)] hover:underline"
+                        title="Borrar pago"
+                      >
+                        Borrar
+                      </button>
                     </td>
                   </tr>
                 ))}
