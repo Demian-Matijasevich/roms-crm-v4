@@ -59,6 +59,7 @@ function getNav(session: AuthSession): NavSection[] {
           { href: "/comparativa", label: "Comparativa", icon: "\u{1F4CA}" },
           { href: "/ig-metrics", label: "IG Metrics", icon: "\u{1F4F1}" },
           { href: "/setters", label: "Setters Analytics", icon: "\u{1F4AC}" },
+          { href: "/reporte-diario", label: "Reporte Diario (texto)", icon: "\u{1F4F0}" },
           { href: "/reportes", label: "Reportes Diarios", icon: "\u{1F4DD}" },
           { href: "/reportes/marzo-2026", label: "Reporte Mar 2026", icon: "\u{1F4C4}" },
         ],
