@@ -46,13 +46,6 @@ export async function POST(req: NextRequest) {
 
   const sb = createServerClient();
 
-  // Fetch clients + their linked lead (for Instagram)
-  const { data: clientsRaw, error: cliErr } = await sb
-    .from("clients")
-    .select("id, nombre, programa, fecha_onboarding, lead_id, lead:leads!clients_lead_id_fkey(instagram)")
-    .range(0, 4999);
-  if (cliErr) return NextResponse.json({ error: "clients: " + cliErr.message }, { status: 500 });
-
   // Fetch payments in month
   const { data: paysRaw, error: payErr } = await sb
     .from("payments")
@@ -62,61 +55,61 @@ export async function POST(req: NextRequest) {
     .lte("fecha_pago", monthEnd);
   if (payErr) return NextResponse.json({ error: "payments: " + payErr.message }, { status: 500 });
 
-  // Build lookup client by lead_id for payments that don't have client_id but have lead_id
-  const clientByLeadId = new Map<string, typeof clientsRaw[number]>();
-  const clientById = new Map<string, typeof clientsRaw[number]>();
-  for (const c of clientsRaw || []) {
-    clientById.set(c.id, c);
-    if (c.lead_id) clientByLeadId.set(c.lead_id, c);
-  }
+  // Unique lead ids with payment in month
+  const leadIdsWithPay = [...new Set((paysRaw || []).map((p) => p.lead_id).filter((x): x is string => !!x))];
 
-  // Group payments per client
-  const paysByClient = new Map<string, number>(); // client_id → total $
+  // Fetch leads in that set + leads cerradas/adentro en el mes (para la tab de nuevos)
+  const { data: leadsPaid } = leadIdsWithPay.length > 0
+    ? await sb
+        .from("leads")
+        .select("id, nombre, instagram, programa_pitcheado, fecha_llamada, fecha_agendado, estado")
+        .in("id", leadIdsWithPay)
+    : { data: [] };
+
+  // "Nuevos en el mes" = leads cerrados (o adentro_seguimiento) con fecha_llamada en el mes
+  const { data: leadsNuevosRaw } = await sb
+    .from("leads")
+    .select("id, nombre, instagram, programa_pitcheado, fecha_llamada, fecha_agendado, estado, ticket_total")
+    .gte("fecha_llamada", `${monthStart}T00:00:00`)
+    .lte("fecha_llamada", `${monthEnd}T23:59:59`)
+    .in("estado", ["cerrado", "adentro_seguimiento"]);
+
+  // Group payments per lead
+  const paysByLead = new Map<string, number>();
   for (const p of paysRaw || []) {
-    let cid = p.client_id;
-    if (!cid && p.lead_id) cid = clientByLeadId.get(p.lead_id)?.id || null;
-    if (!cid) continue;
-    paysByClient.set(cid, (paysByClient.get(cid) || 0) + Number(p.monto_usd || 0));
+    if (!p.lead_id) continue;
+    paysByLead.set(p.lead_id, (paysByLead.get(p.lead_id) || 0) + Number(p.monto_usd || 0));
   }
 
-  // ========== TAB 1: ABRIL → Nuevos clientes en el mes ==========
-  const nuevos = (clientsRaw || []).filter((c) => {
-    if (!c.fecha_onboarding) return false;
-    const f = c.fecha_onboarding.split("T")[0];
-    return f >= monthStart && f <= monthEnd;
-  });
-  const rowsNuevos = nuevos.map((c) => {
-    const lead = (c.lead as { instagram?: string } | null) || null;
-    const paidInMonth = paysByClient.get(c.id) || 0;
+  // ========== TAB 1: ABRIL → Nuevos cerrados en el mes ==========
+  const rowsNuevos = (leadsNuevosRaw || []).map((l) => {
+    const paidInMonth = paysByLead.get(l.id) || 0;
+    const fInicio = (l.fecha_llamada || l.fecha_agendado || "").split("T")[0];
     return [
-      c.fecha_onboarding?.split("T")[0] || "",
-      c.nombre || "",
-      "", // RUBRO/NICHO — no lo tenemos
-      lead?.instagram || "",
-      programaLabel(c.programa),
-      paidInMonth > 0 ? paidInMonth : "",
-      "", "", "", "", "", "", "", "", // Editor/Filmaker — manual
+      fInicio,
+      l.nombre || "",
+      "", // RUBRO/NICHO — manual
+      l.instagram || "",
+      programaLabel(l.programa_pitcheado),
+      paidInMonth > 0 ? paidInMonth : (l.ticket_total || ""),
+      "", "", "", "", "", "", "", "",
     ];
-  });
+  }).sort((a, b) => (a[0] as string).localeCompare(b[0] as string));
 
-  // ========== TAB 2: HISTORICO → Todos los clientes con pago en el mes ==========
-  const clientsWithPayment = [...paysByClient.keys()]
-    .map((id) => clientById.get(id))
-    .filter((c): c is NonNullable<typeof c> => !!c);
-  const rowsPagos = clientsWithPayment.map((c) => {
-    const lead = (c.lead as { instagram?: string } | null) || null;
-    const paidInMonth = paysByClient.get(c.id) || 0;
+  // ========== TAB 2: HISTORICO → Todos los leads con pago en el mes ==========
+  const rowsPagos = (leadsPaid || []).map((l) => {
+    const paidInMonth = paysByLead.get(l.id) || 0;
+    const fInicio = (l.fecha_llamada || l.fecha_agendado || "").split("T")[0];
     return [
-      c.fecha_onboarding?.split("T")[0] || "",
-      c.nombre || "",
+      fInicio,
+      l.nombre || "",
       "",
-      lead?.instagram || "",
-      programaLabel(c.programa),
+      l.instagram || "",
+      programaLabel(l.programa_pitcheado),
       paidInMonth,
       "", "", "", "", "", "", "", "",
     ];
-  })
-  .sort((a, b) => (b[5] as number) - (a[5] as number));
+  }).sort((a, b) => (b[5] as number) - (a[5] as number));
 
   if (dryRun) {
     return NextResponse.json({
