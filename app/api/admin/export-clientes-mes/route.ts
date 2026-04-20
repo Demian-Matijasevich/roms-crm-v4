@@ -115,6 +115,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       mes,
       rango: { desde: monthStart, hasta: monthEnd },
+      _debug: {
+        payments_raw: (paysRaw || []).length,
+        unique_lead_ids_with_pay: leadIdsWithPay.length,
+        leads_paid_found: (leadsPaid || []).length,
+        leads_nuevos_raw: (leadsNuevosRaw || []).length,
+      },
       tab_nuevos: { count: rowsNuevos.length, preview: rowsNuevos.slice(0, 10) },
       tab_pagos: { count: rowsPagos.length, preview: rowsPagos.slice(0, 10) },
     });
