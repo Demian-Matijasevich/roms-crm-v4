@@ -137,33 +137,126 @@ export async function POST(req: NextRequest) {
   });
   const sheets = google.sheets({ version: "v4", auth });
 
+  // Build month label from YYYY-MM → "ABRIL" / "MAYO" etc.
+  const monthNames = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO","JULIO","AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"];
+  const mesNumero = parseInt(mes.split("-")[1]);
+  const mesLabel = monthNames[mesNumero - 1] || mes;
+  const TAB_NUEVOS = `CIERRES ${mesLabel}`;
+  const TAB_PAGOS = `TODOS LOS PAGOS ${mesLabel}`;
+
+  // Get metadata to find existing sheets
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const existingTabs = new Map((meta.data.sheets || []).map((s) => [s.properties?.title || "", s.properties?.sheetId ?? 0]));
+
+  // Create tabs if they don't exist
+  const addSheetRequests: Array<{ addSheet: { properties: { title: string } } }> = [];
+  if (!existingTabs.has(TAB_NUEVOS)) addSheetRequests.push({ addSheet: { properties: { title: TAB_NUEVOS } } });
+  if (!existingTabs.has(TAB_PAGOS)) addSheetRequests.push({ addSheet: { properties: { title: TAB_PAGOS } } });
+  if (addSheetRequests.length > 0) {
+    const resp = await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: addSheetRequests },
+    });
+    for (const reply of resp.data.replies || []) {
+      const props = reply.addSheet?.properties;
+      if (props?.title && props.sheetId != null) existingTabs.set(props.title, props.sheetId);
+    }
+  }
+
   async function writeTab(tabName: string, rows: (string | number)[][]) {
-    // Clear existing data (rows 2 onwards)
+    // Clear existing
     await sheets.spreadsheets.values.clear({
       spreadsheetId,
-      range: `'${tabName}'!A2:Z1000`,
+      range: `'${tabName}'!A1:Z1000`,
     });
-    // Write headers (row 1)
+    // Write headers + data in one update
+    const values = rows.length > 0 ? [HEADERS, ...rows] : [HEADERS];
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: `'${tabName}'!A1`,
       valueInputOption: "RAW",
-      requestBody: { values: [HEADERS] },
+      requestBody: { values },
     });
-    // Write data (row 2+)
-    if (rows.length > 0) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `'${tabName}'!A2`,
-        valueInputOption: "RAW",
-        requestBody: { values: rows },
-      });
+  }
+
+  async function formatTab(tabName: string, numRows: number) {
+    const sheetId = existingTabs.get(tabName);
+    if (sheetId == null) return;
+
+    const requests: object[] = [
+      // Header row: bold white text, purple background
+      {
+        repeatCell: {
+          range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.545, green: 0.361, blue: 0.965 }, // #8b5cf6
+              textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 }, fontSize: 11 },
+              horizontalAlignment: "CENTER",
+              verticalAlignment: "MIDDLE",
+              padding: { top: 8, bottom: 8, left: 8, right: 8 },
+            },
+          },
+          fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,padding)",
+        },
+      },
+      // Freeze header
+      {
+        updateSheetProperties: {
+          properties: { sheetId, gridProperties: { frozenRowCount: 1 } },
+          fields: "gridProperties.frozenRowCount",
+        },
+      },
+      // Data rows: vertical middle, alternating not applied by us (Google does banding)
+      {
+        repeatCell: {
+          range: { sheetId, startRowIndex: 1, endRowIndex: numRows + 1 },
+          cell: { userEnteredFormat: { verticalAlignment: "MIDDLE", textFormat: { fontSize: 10 } } },
+          fields: "userEnteredFormat(verticalAlignment,textFormat.fontSize)",
+        },
+      },
+      // Currency format on col F (index 5) and G-N (6-13)
+      {
+        repeatCell: {
+          range: { sheetId, startRowIndex: 1, endRowIndex: numRows + 1, startColumnIndex: 5, endColumnIndex: 14 },
+          cell: { userEnteredFormat: { numberFormat: { type: "CURRENCY", pattern: "\"$\"#,##0" } } },
+          fields: "userEnteredFormat.numberFormat",
+        },
+      },
+      // Auto-resize columns A-N
+      {
+        autoResizeDimensions: {
+          dimensions: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 14 },
+        },
+      },
+      // Banding (alternating row colors) — light purple tint
+      {
+        addBanding: {
+          bandedRange: {
+            range: { sheetId, startRowIndex: 0, endRowIndex: numRows + 1, startColumnIndex: 0, endColumnIndex: 14 },
+            rowProperties: {
+              headerColor: { red: 0.545, green: 0.361, blue: 0.965 },
+              firstBandColor: { red: 1, green: 1, blue: 1 },
+              secondBandColor: { red: 0.96, green: 0.94, blue: 1 }, // very light purple
+            },
+          },
+        },
+      },
+    ];
+
+    try {
+      await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } });
+    } catch (e) {
+      // Banding may fail if one already exists — ignore silently
+      console.warn("Format warning:", e instanceof Error ? e.message : String(e));
     }
   }
 
   try {
-    await writeTab("ABRIL", rowsNuevos);
-    await writeTab("HISTORICO", rowsPagos);
+    await writeTab(TAB_NUEVOS, rowsNuevos);
+    await writeTab(TAB_PAGOS, rowsPagos);
+    await formatTab(TAB_NUEVOS, rowsNuevos.length);
+    await formatTab(TAB_PAGOS, rowsPagos.length);
   } catch (e) {
     return NextResponse.json({ error: "Sheets write error: " + (e instanceof Error ? e.message : String(e)) }, { status: 500 });
   }
@@ -172,7 +265,7 @@ export async function POST(req: NextRequest) {
     ok: true,
     mes,
     rango: { desde: monthStart, hasta: monthEnd },
-    tab_nuevos: { tab: "ABRIL", count: rowsNuevos.length },
-    tab_pagos: { tab: "HISTORICO", count: rowsPagos.length },
+    tab_nuevos: { tab: TAB_NUEVOS, count: rowsNuevos.length },
+    tab_pagos: { tab: TAB_PAGOS, count: rowsPagos.length },
   });
 }
