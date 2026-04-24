@@ -28,12 +28,30 @@ export default async function LeadsSinSetterPage() {
     if (c.setter_id && c.medium) mediumToSetter.set(String(c.medium).toLowerCase(), c.setter_id);
   }
 
-  // Filter leads without setter (direct or via utm_medium)
-  const sinSetter = (leadsRes.data || []).filter((l) => {
-    if (l.setter_id) return false;
-    if (l.utm_medium && mediumToSetter.has(l.utm_medium.toLowerCase())) return false;
-    return true;
-  });
+  // Detect duplicates in the full leads set by email / instagram / nombre
+  const allLeads = leadsRes.data || [];
+  const emailCount = new Map<string, number>();
+  const igCount = new Map<string, number>();
+  const nameCount = new Map<string, number>();
+  for (const l of allLeads) {
+    if (l.email) emailCount.set(l.email.toLowerCase().trim(), (emailCount.get(l.email.toLowerCase().trim()) || 0) + 1);
+    if (l.instagram) igCount.set(l.instagram.toLowerCase().replace(/^@/, "").trim(), (igCount.get(l.instagram.toLowerCase().replace(/^@/, "").trim()) || 0) + 1);
+    if (l.nombre) nameCount.set(l.nombre.toLowerCase().trim(), (nameCount.get(l.nombre.toLowerCase().trim()) || 0) + 1);
+  }
+
+  // Filter leads without setter + flag duplicates
+  const sinSetter = allLeads
+    .filter((l) => {
+      if (l.setter_id) return false;
+      if (l.utm_medium && mediumToSetter.has(l.utm_medium.toLowerCase())) return false;
+      return true;
+    })
+    .map((l) => {
+      const dupEmail = l.email && (emailCount.get(l.email.toLowerCase().trim()) || 0) > 1;
+      const dupIg = l.instagram && (igCount.get(l.instagram.toLowerCase().replace(/^@/, "").trim()) || 0) > 1;
+      const dupName = l.nombre && (nameCount.get(l.nombre.toLowerCase().trim()) || 0) > 1;
+      return { ...l, is_duplicado: Boolean(dupEmail || dupIg || dupName), dup_reason: dupEmail ? "email" : dupIg ? "instagram" : dupName ? "nombre" : null };
+    });
 
   return (
     <LeadsSinSetterClient

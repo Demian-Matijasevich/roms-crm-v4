@@ -17,6 +17,8 @@ interface Lead {
   estado: string;
   sheets_row_index: number | null;
   fuente: string | null;
+  is_duplicado?: boolean;
+  dup_reason?: string | null;
 }
 
 interface Props {
@@ -54,6 +56,7 @@ export default function LeadsSinSetterClient({ leads, setters, currentUser }: Pr
   const [search, setSearch] = useState("");
   // pending assignments per lead (not yet saved)
   const [pending, setPending] = useState<Record<string, string>>({});
+  const [onlyDuplicados, setOnlyDuplicados] = useState(false);
 
   const filtered = useMemo(() => {
     return localLeads.filter((l) => {
@@ -61,6 +64,7 @@ export default function LeadsSinSetterClient({ leads, setters, currentUser }: Pr
       if (f && f < filterFrom) return false;
       if (f && f > filterTo) return false;
       if (filterEstado !== "todos" && l.estado !== filterEstado) return false;
+      if (onlyDuplicados && !l.is_duplicado) return false;
       if (search) {
         const q = search.toLowerCase();
         if (!l.nombre.toLowerCase().includes(q) && !(l.instagram || "").toLowerCase().includes(q) && !(l.email || "").toLowerCase().includes(q)) return false;
@@ -71,7 +75,9 @@ export default function LeadsSinSetterClient({ leads, setters, currentUser }: Pr
       const fb = (b.fecha_agendado || b.fecha_llamada || "");
       return fb.localeCompare(fa);
     });
-  }, [localLeads, filterFrom, filterTo, filterEstado, search]);
+  }, [localLeads, filterFrom, filterTo, filterEstado, search, onlyDuplicados]);
+
+  const totalDuplicados = useMemo(() => localLeads.filter((l) => l.is_duplicado).length, [localLeads]);
 
   const byEstado = useMemo(() => {
     const map: Record<string, number> = {};
@@ -192,6 +198,11 @@ export default function LeadsSinSetterClient({ leads, setters, currentUser }: Pr
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar..."
             className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm text-white" />
         </div>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={onlyDuplicados} onChange={(e) => setOnlyDuplicados(e.target.checked)}
+            className="accent-[var(--yellow)]" />
+          <span className="text-xs text-white">⚠️ Solo duplicados <span className="text-[var(--muted)]">({totalDuplicados})</span></span>
+        </label>
         <button onClick={copyList}
           className="bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white px-4 py-2 rounded-lg text-sm font-medium">
           📋 Copiar lista
@@ -296,7 +307,17 @@ export default function LeadsSinSetterClient({ leads, setters, currentUser }: Pr
                       </td>
                       <td className="py-3 px-3 text-[var(--muted)]">{fechaAg || "—"}</td>
                       <td className="py-3 px-3 text-[var(--muted)]">{fechaLl || "—"}</td>
-                      <td className="py-3 px-3 text-white font-medium">{l.nombre}</td>
+                      <td className="py-3 px-3 text-white font-medium">
+                        {l.nombre}
+                        {l.is_duplicado && (
+                          <span
+                            className="ml-2 text-[9px] px-1.5 py-0.5 rounded bg-[var(--yellow)]/20 text-[var(--yellow)] font-bold"
+                            title={`Duplicado por ${l.dup_reason}`}
+                          >
+                            ⚠️ DUP
+                          </span>
+                        )}
+                      </td>
                       <td className="py-3 px-3 text-[var(--muted)]">{l.instagram || "—"}</td>
                       <td className="py-3 px-3 text-[var(--muted)] max-w-[180px] truncate" title={l.email || ""}>{l.email || "—"}</td>
                       <td className="py-3 px-3 text-[var(--muted)] text-xs">{l.fuente || l.utm_source || "—"}</td>
