@@ -26,11 +26,11 @@ export default async function CalendarioPage() {
   const myId = session.team_member_id;
 
   // Build the leads query with optional role filter
+  // Uso fecha_agendado como principal (ahí cae tanto pending como tomada). fecha_llamada solo se llena cuando la call ocurre.
   let leadsQuery = supabase
     .from("leads")
-    .select("id, nombre, fecha_llamada, estado, instagram, telefono, programa_pitcheado, link_llamada, ticket_total, closer_id, setter_id, closer:team_members!leads_closer_id_fkey(nombre), setter:team_members!leads_setter_id_fkey(nombre)")
-    .gte("fecha_llamada", startStr)
-    .lte("fecha_llamada", endStr);
+    .select("id, nombre, fecha_agendado, fecha_llamada, estado, instagram, telefono, programa_pitcheado, link_llamada, ticket_total, closer_id, setter_id, closer:team_members!leads_closer_id_fkey(nombre), setter:team_members!leads_setter_id_fkey(nombre)")
+    .or(`and(fecha_agendado.gte.${startStr}T00:00:00,fecha_agendado.lte.${endStr}T23:59:59),and(fecha_llamada.gte.${startStr}T00:00:00,fecha_llamada.lte.${endStr}T23:59:59)`);
   if (!isAdmin) {
     leadsQuery = leadsQuery.or(`closer_id.eq.${myId},setter_id.eq.${myId}`);
   }
@@ -97,11 +97,11 @@ export default async function CalendarioPage() {
     })
     .filter((r: CalendarRenewal) => r.fecha_vencimiento >= startStr && r.fecha_vencimiento <= endStr);
 
-  // Map leads to CalendarLead
+  // Map leads to CalendarLead — fallback a fecha_agendado si fecha_llamada es null
   const leads: CalendarLead[] = (leadsRes.data ?? []).map((l: Record<string, unknown>) => ({
     id: l.id as string,
     nombre: l.nombre as string,
-    fecha_llamada: ((l.fecha_llamada as string) || "").split("T")[0],
+    fecha_llamada: ((l.fecha_llamada as string) || (l.fecha_agendado as string) || "").split("T")[0],
     estado: l.estado as string,
     instagram: (l.instagram as string) || null,
     telefono: (l.telefono as string) || null,

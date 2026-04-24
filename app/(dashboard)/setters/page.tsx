@@ -9,7 +9,9 @@ export const dynamic = "force-dynamic";
 export default async function SettersPage() {
   const session = await getSession();
   if (!session) redirect("/login");
-  if (!session.is_admin) redirect("/");
+  // Setters + admins pueden acceder; closers redirigen a home
+  const canAccess = session.is_admin || session.roles.includes("setter");
+  if (!canAccess) redirect("/");
 
   const sb = createServerClient();
   const [leadsRes, paymentsRes, teamRes, campsRes] = await Promise.all([
