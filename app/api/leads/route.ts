@@ -70,3 +70,25 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  const auth = await requireSession();
+  if ("error" in auth) return auth.error;
+  if (!auth.session.is_admin) return NextResponse.json({ error: "Solo admins" }, { status: 403 });
+
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    if (!id) return NextResponse.json({ error: "id requerido" }, { status: 400 });
+
+    const sb = createServerClient();
+    // Delete associated payments first
+    await sb.from("payments").delete().eq("lead_id", id);
+    const { error } = await sb.from("leads").delete().eq("id", id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("[DELETE /api/leads]", err);
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
+  }
+}

@@ -23,9 +23,39 @@ export default async function LeadsPage() {
 
   const team = (teamRes.data || []) as Array<{ id: string; nombre: string; is_setter: boolean; is_closer: boolean }>;
 
+  // Detect duplicates by email, instagram, or nombre (normalizado)
+  const allLeads = (leadsRes.data || []) as LeadRow[];
+  const normEmail = (s: string | null) => (s || "").toLowerCase().trim();
+  const normIg = (s: string | null) => (s || "").toLowerCase().replace(/^@/, "").trim();
+  const normName = (s: string | null) => (s || "").toLowerCase().trim();
+
+  const emailCount = new Map<string, number>();
+  const igCount = new Map<string, number>();
+  const nameCount = new Map<string, number>();
+  for (const l of allLeads) {
+    const e = normEmail(l.email); if (e) emailCount.set(e, (emailCount.get(e) || 0) + 1);
+    const i = normIg(l.instagram); if (i) igCount.set(i, (igCount.get(i) || 0) + 1);
+    const n = normName(l.nombre); if (n) nameCount.set(n, (nameCount.get(n) || 0) + 1);
+  }
+
+  const leadsWithDup: LeadRow[] = allLeads.map((l) => {
+    const e = normEmail(l.email);
+    const i = normIg(l.instagram);
+    const n = normName(l.nombre);
+    const dupEmail = e && (emailCount.get(e) || 0) > 1;
+    const dupIg = i && (igCount.get(i) || 0) > 1;
+    const dupName = n && (nameCount.get(n) || 0) > 1;
+    return {
+      ...l,
+      is_duplicado: Boolean(dupEmail || dupIg || dupName),
+      dup_reason: dupEmail ? "email" : dupIg ? "instagram" : dupName ? "nombre" : null,
+      dup_key: dupEmail ? `email:${e}` : dupIg ? `ig:${i}` : dupName ? `name:${n}` : null,
+    };
+  });
+
   return (
     <LeadsClient
-      leads={(leadsRes.data || []) as LeadRow[]}
+      leads={leadsWithDup}
       setters={team.filter((t) => t.is_setter).map(({ id, nombre }) => ({ id, nombre }))}
       closers={team.filter((t) => t.is_closer).map(({ id, nombre }) => ({ id, nombre }))}
     />
@@ -51,4 +81,7 @@ export interface LeadRow {
   programa_pitcheado: string | null;
   ticket_total: number | null;
   lead_calificado: string | null;
+  is_duplicado?: boolean;
+  dup_reason?: string | null;
+  dup_key?: string | null;
 }
