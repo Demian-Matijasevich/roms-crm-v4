@@ -21,29 +21,39 @@ export default async function CalendarioPage() {
   const startStr = `${rangeStart.getFullYear()}-${String(rangeStart.getMonth() + 1).padStart(2, "0")}-01`;
   const endStr = `${rangeEnd.getFullYear()}-${String(rangeEnd.getMonth() + 1).padStart(2, "0")}-${String(rangeEnd.getDate()).padStart(2, "0")}`;
 
+  // Role-based filtering: non-admins only see their own leads (by closer_id or setter_id)
+  const isAdmin = session.is_admin;
+  const myId = session.team_member_id;
+
+  // Build the leads query with optional role filter
+  let leadsQuery = supabase
+    .from("leads")
+    .select("id, nombre, fecha_llamada, estado, instagram, telefono, programa_pitcheado, link_llamada, ticket_total, closer_id, setter_id, closer:team_members!leads_closer_id_fkey(nombre), setter:team_members!leads_setter_id_fkey(nombre)")
+    .gte("fecha_llamada", startStr)
+    .lte("fecha_llamada", endStr);
+  if (!isAdmin) {
+    leadsQuery = leadsQuery.or(`closer_id.eq.${myId},setter_id.eq.${myId}`);
+  }
+
+  let pendingQuery = supabase
+    .from("payments")
+    .select("id, client_id, lead_id, numero_cuota, monto_usd, fecha_vencimiento, estado, lead:leads!payments_lead_id_fkey(nombre, instagram, telefono, closer_id, setter_id), client:clients!payments_client_id_fkey(nombre, telefono)")
+    .gte("fecha_vencimiento", startStr)
+    .lte("fecha_vencimiento", endStr)
+    .eq("estado", "pendiente");
+
+  let paidQuery = supabase
+    .from("payments")
+    .select("id, lead_id, client_id, numero_cuota, monto_usd, fecha_pago, lead:leads!payments_lead_id_fkey(nombre, instagram, telefono, closer_id, setter_id), client:clients!payments_client_id_fkey(nombre, telefono)")
+    .gte("fecha_pago", startStr)
+    .lte("fecha_pago", endStr)
+    .eq("estado", "pagado")
+    .range(0, 4999);
+
   const [leadsRes, paymentsRes, paidPaymentsRes, renewalsRes] = await Promise.all([
-    // Leads with fecha_llamada in range — full contact info + closer + setter + ticket
-    supabase
-      .from("leads")
-      .select("id, nombre, fecha_llamada, estado, instagram, telefono, programa_pitcheado, link_llamada, ticket_total, closer:team_members!leads_closer_id_fkey(nombre), setter:team_members!leads_setter_id_fkey(nombre)")
-      .gte("fecha_llamada", startStr)
-      .lte("fecha_llamada", endStr),
-    // Payments with fecha_vencimiento in range and estado=pendiente — join lead for contact info
-    supabase
-      .from("payments")
-      .select("id, client_id, lead_id, numero_cuota, monto_usd, fecha_vencimiento, estado, lead:leads!payments_lead_id_fkey(nombre, instagram, telefono), client:clients!payments_client_id_fkey(nombre, telefono)")
-      .gte("fecha_vencimiento", startStr)
-      .lte("fecha_vencimiento", endStr)
-      .eq("estado", "pendiente"),
-    // Paid payments with fecha_pago in range — for real cash-collected display
-    supabase
-      .from("payments")
-      .select("id, lead_id, client_id, numero_cuota, monto_usd, fecha_pago, lead:leads!payments_lead_id_fkey(nombre, instagram, telefono), client:clients!payments_client_id_fkey(nombre, telefono)")
-      .gte("fecha_pago", startStr)
-      .lte("fecha_pago", endStr)
-      .eq("estado", "pagado")
-      .range(0, 4999),
-    // Renewal queue — clients with telefono
+    leadsQuery,
+    pendingQuery,
+    paidQuery,
     supabase
       .from("clients")
       .select("id, nombre, programa, fecha_onboarding, total_dias_programa, estado_contacto, health_score, telefono")
@@ -51,10 +61,19 @@ export default async function CalendarioPage() {
       .not("fecha_onboarding", "is", null),
   ]);
 
+  // Filter payments client-side by lead's closer/setter (server-side OR on joined tables is tricky)
+  const filterPayment = (p: { lead?: { closer_id?: string | null; setter_id?: string | null } | null }) => {
+    if (isAdmin) return true;
+    const lead = p.lead;
+    if (!lead) return false;
+    return lead.closer_id === myId || lead.setter_id === myId;
+  };
+
   // Process renewals from clients data (replicate v_renewal_queue logic)
   const today = getToday();
   const todayStr = toDateString(today);
-  const renewals: CalendarRenewal[] = (renewalsRes.data ?? [])
+  // Renewals solo para admin — closers/setters no las ven
+  const renewals: CalendarRenewal[] = !isAdmin ? [] : (renewalsRes.data ?? [])
     .map((c: Record<string, unknown>) => {
       const onb = new Date(c.fecha_onboarding as string);
       const venc = new Date(onb.getTime() + (c.total_dias_programa as number) * 86400000);
@@ -93,8 +112,8 @@ export default async function CalendarioPage() {
     ticket_total: (l.ticket_total as number) || 0,
   }));
 
-  // Map payments to CalendarPayment
-  const payments: CalendarPayment[] = (paymentsRes.data ?? []).map((p: Record<string, unknown>) => {
+  // Map payments to CalendarPayment (with role filter)
+  const payments: CalendarPayment[] = (paymentsRes.data ?? []).filter(filterPayment as (p: unknown) => boolean).map((p: Record<string, unknown>) => {
     const lead = p.lead as Record<string, unknown> | null;
     const client = p.client as Record<string, unknown> | null;
     return {
@@ -111,7 +130,7 @@ export default async function CalendarioPage() {
     };
   });
 
-  const paidPayments = (paidPaymentsRes.data ?? []).map((p: Record<string, unknown>) => {
+  const paidPayments = (paidPaymentsRes.data ?? []).filter(filterPayment as (p: unknown) => boolean).map((p: Record<string, unknown>) => {
     const lead = p.lead as Record<string, unknown> | null;
     const client = p.client as Record<string, unknown> | null;
     return {
