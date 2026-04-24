@@ -1,18 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth";
+import { requireSession } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase-server";
 import { syncLeadToSheet } from "@/lib/sheet-sync";
 
 export const dynamic = "force-dynamic";
 
-/**
- * PATCH /api/leads
- * Body: { id: string, setter_id?: string | null, closer_id?: string | null, cobrador_id?: string | null }
- * Admin-only.
- */
+const ADMIN_ONLY_FIELDS = new Set([
+  "closer_id", "cobrador_id", "nombre", "email", "telefono",
+  "fecha_agendado", "fecha_llamada", "ticket_total", "programa_pitcheado",
+  "concepto", "plan_pago", "utm_source", "utm_medium", "utm_content",
+  "fuente", "lead_calificado", "lead_score",
+]);
+// Setters/closers can only update setter_id/estado/notes on leads without setter (claim workflow)
+const SETTER_ALLOWED_FIELDS = new Set(["setter_id", "estado", "notas_internas", "contexto_setter", "reporte_general"]);
+
 export async function PATCH(req: NextRequest) {
-  const auth = await requireAdmin();
+  const auth = await requireSession();
   if ("error" in auth) return auth.error;
+  const session = auth.session;
 
   try {
     const body = await req.json();
@@ -33,11 +38,30 @@ export async function PATCH(req: NextRequest) {
 
     if (Object.keys(patch).length === 0) return NextResponse.json({ error: "nada para actualizar" }, { status: 400 });
 
+    // Non-admin: restrict fields, and for setter_id only allow claiming as self on unassigned leads
+    if (!session.is_admin) {
+      for (const k of Object.keys(patch)) {
+        if (ADMIN_ONLY_FIELDS.has(k) || !SETTER_ALLOWED_FIELDS.has(k)) {
+          return NextResponse.json({ error: `campo '${k}' requiere admin` }, { status: 403 });
+        }
+      }
+      if ("setter_id" in patch) {
+        // Allow only: self-assigning AND the lead currently has no setter
+        if (patch.setter_id !== session.team_member_id) {
+          return NextResponse.json({ error: "solo podés asignar a vos mismo" }, { status: 403 });
+        }
+        const sb = createServerClient();
+        const { data: existing } = await sb.from("leads").select("setter_id").eq("id", id).maybeSingle();
+        if (existing && existing.setter_id && existing.setter_id !== session.team_member_id) {
+          return NextResponse.json({ error: "este lead ya tiene setter asignado" }, { status: 403 });
+        }
+      }
+    }
+
     const sb = createServerClient();
     const { data, error } = await sb.from("leads").update(patch).eq("id", id).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Resync al Sheet si se cambia algo que afecta la fila
     if (data?.id) await syncLeadToSheet(data.id);
 
     return NextResponse.json({ ok: true, lead: data });

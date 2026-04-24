@@ -8,7 +8,9 @@ export const dynamic = "force-dynamic";
 export default async function LeadsSinSetterPage() {
   const session = await getSession();
   if (!session) redirect("/login");
-  if (!session.is_admin) redirect("/");
+  // Acceso: admin, setter, o cualquiera autenticado (para reclamar leads propios)
+  const canAccess = session.is_admin || session.roles.includes("setter") || session.roles.includes("closer");
+  if (!canAccess) redirect("/");
 
   const sb = createServerClient();
 
@@ -37,6 +39,7 @@ export default async function LeadsSinSetterPage() {
     <LeadsSinSetterClient
       leads={sinSetter}
       setters={(setters.data || []) as Array<{ id: string; nombre: string }>}
+      currentUser={{ id: session.team_member_id, nombre: session.nombre, isAdmin: session.is_admin, isSetter: session.roles.includes("setter") }}
     />
   );
 }

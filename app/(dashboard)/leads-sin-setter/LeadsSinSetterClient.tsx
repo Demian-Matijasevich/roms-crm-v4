@@ -22,6 +22,7 @@ interface Lead {
 interface Props {
   leads: Lead[];
   setters: Array<{ id: string; nombre: string }>;
+  currentUser: { id: string; nombre: string; isAdmin: boolean; isSetter: boolean };
 }
 
 const ESTADO_COLORS: Record<string, string> = {
@@ -42,7 +43,7 @@ function daysAgoISO(n: number) {
   return d.toISOString().split("T")[0];
 }
 
-export default function LeadsSinSetterClient({ leads, setters }: Props) {
+export default function LeadsSinSetterClient({ leads, setters, currentUser }: Props) {
   const [localLeads, setLocalLeads] = useState<Lead[]>(leads);
   const [filterFrom, setFilterFrom] = useState<string>(daysAgoISO(30));
   const [filterTo, setFilterTo] = useState<string>(todayISO());
@@ -51,6 +52,8 @@ export default function LeadsSinSetterClient({ leads, setters }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkSetter, setBulkSetter] = useState<string>("");
   const [search, setSearch] = useState("");
+  // pending assignments per lead (not yet saved)
+  const [pending, setPending] = useState<Record<string, string>>({});
 
   const filtered = useMemo(() => {
     return localLeads.filter((l) => {
@@ -91,6 +94,11 @@ export default function LeadsSinSetterClient({ leads, setters }: Props) {
         setSelected((prev) => {
           const n = new Set(prev);
           n.delete(leadId);
+          return n;
+        });
+        setPending((p) => {
+          const n = { ...p };
+          delete n[leadId];
           return n;
         });
       } else {
@@ -192,19 +200,32 @@ export default function LeadsSinSetterClient({ leads, setters }: Props) {
 
       {/* Bulk assign */}
       {selected.size > 0 && (
-        <div className="bg-[var(--purple)]/10 border border-[var(--purple)]/40 rounded-xl p-4 flex items-center gap-3">
+        <div className="bg-[var(--purple)]/10 border border-[var(--purple)]/40 rounded-xl p-4 flex items-center gap-3 flex-wrap">
           <span className="text-sm text-white font-medium">{selected.size} seleccionados</span>
-          <select value={bulkSetter} onChange={(e) => setBulkSetter(e.target.value)}
-            className="bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm text-white">
-            <option value="">Elegí setter...</option>
-            {setters.map((s) => (
-              <option key={s.id} value={s.id}>{s.nombre}</option>
-            ))}
-          </select>
-          <button onClick={bulkAssign} disabled={!bulkSetter}
-            className="bg-[var(--green)] hover:bg-[var(--green)]/80 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium">
-            Asignar
-          </button>
+          {currentUser.isSetter && !currentUser.isAdmin ? (
+            <button
+              onClick={async () => {
+                if (!confirm(`Reclamar ${selected.size} leads como tuyos?`)) return;
+                for (const id of [...selected]) await assignSetter(id, currentUser.id);
+              }}
+              className="bg-[var(--green)] hover:bg-[var(--green)]/80 text-white px-4 py-2 rounded-lg text-sm font-medium">
+              👤 Reclamar todos como míos
+            </button>
+          ) : (
+            <>
+              <select value={bulkSetter} onChange={(e) => setBulkSetter(e.target.value)}
+                className="bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm text-white">
+                <option value="">Elegí setter...</option>
+                {setters.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nombre}</option>
+                ))}
+              </select>
+              <button onClick={bulkAssign} disabled={!bulkSetter}
+                className="bg-[var(--green)] hover:bg-[var(--green)]/80 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                Asignar
+              </button>
+            </>
+          )}
           <button onClick={() => setSelected(new Set())}
             className="text-[var(--muted)] hover:text-white text-sm px-2 py-2">
             Cancelar
@@ -277,17 +298,37 @@ export default function LeadsSinSetterClient({ leads, setters }: Props) {
                       <td className="py-3 px-3 text-[var(--muted)] text-xs">{l.fuente || l.utm_source || "—"}</td>
                       <td className="py-3 px-3 text-[var(--muted)]">{l.sheets_row_index || "—"}</td>
                       <td className="py-3 px-3">
-                        <select
-                          disabled={savingId === l.id}
-                          defaultValue=""
-                          onChange={(e) => assignSetter(l.id, e.target.value)}
-                          className="bg-[var(--background)] border border-[var(--card-border)] rounded px-2 py-1 text-xs text-white"
-                        >
-                          <option value="">— setter —</option>
-                          {setters.map((s) => (
-                            <option key={s.id} value={s.id}>{s.nombre}</option>
-                          ))}
-                        </select>
+                        <div className="flex items-center gap-2">
+                          {currentUser.isSetter && !currentUser.isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => setPending((p) => ({ ...p, [l.id]: currentUser.id }))}
+                              className={`text-[11px] px-2 py-1 rounded ${pending[l.id] === currentUser.id ? "bg-[var(--purple)] text-white" : "bg-white/5 text-[var(--muted)] hover:bg-[var(--purple)]/20"}`}
+                              title="Marcar como mío"
+                            >
+                              👤 Mío
+                            </button>
+                          )}
+                          <select
+                            disabled={savingId === l.id}
+                            value={pending[l.id] || ""}
+                            onChange={(e) => setPending((p) => ({ ...p, [l.id]: e.target.value }))}
+                            className="bg-[var(--background)] border border-[var(--card-border)] rounded px-2 py-1 text-xs text-white"
+                          >
+                            <option value="">— setter —</option>
+                            {setters.map((s) => (
+                              <option key={s.id} value={s.id}>{s.nombre}</option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={!pending[l.id] || savingId === l.id}
+                            onClick={() => assignSetter(l.id, pending[l.id])}
+                            className="text-[11px] px-2 py-1 rounded bg-[var(--green)] text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            {savingId === l.id ? "..." : "Guardar"}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
