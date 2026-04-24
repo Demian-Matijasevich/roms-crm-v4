@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 export default async function ClosersPage() {
   const session = await getSession();
   if (!session) redirect("/login");
-  if (!session.is_admin) redirect("/");
+  const canAccess = session.is_admin || session.roles.includes("closer");
+  if (!canAccess) redirect("/");
 
   const supabase = createServerClient();
 

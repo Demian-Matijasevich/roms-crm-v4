@@ -115,8 +115,17 @@ function getNav(session: AuthSession): NavSection[] {
         title: "MI PANEL",
         items: [
           { href: "/", label: "Mi Dashboard", icon: "\u{1F4CA}" },
+          { href: "/calendario", label: "Calendario", icon: "\u{1F4C5}" },
           { href: "/pipeline", label: "Mi Pipeline", icon: "\u{1F4DE}" },
           { href: "/leaderboard", label: "Leaderboard", icon: "\u{1F947}" },
+        ],
+      },
+      {
+        title: "ANALYTICS",
+        items: [
+          { href: "/closers", label: "Closers Analytics", icon: "\u{1F3C6}" },
+          { href: "/setters", label: "Setters Analytics", icon: "\u{1F4AC}" },
+          { href: "/leads-sin-setter", label: "Leads sin setter", icon: "\u{1F50D}" },
         ],
       },
       {
@@ -136,8 +145,15 @@ function getNav(session: AuthSession): NavSection[] {
         title: "MI PANEL",
         items: [
           { href: "/", label: "Mi Dashboard", icon: "\u{1F4CA}" },
+          { href: "/calendario", label: "Calendario", icon: "\u{1F4C5}" },
           { href: "/pipeline", label: "Mi Pipeline", icon: "\u{1F4DE}" },
           { href: "/leaderboard", label: "Leaderboard", icon: "\u{1F947}" },
+        ],
+      },
+      {
+        title: "ANALYTICS",
+        items: [
+          { href: "/closers", label: "Closers Analytics", icon: "\u{1F3C6}" },
         ],
       },
       {
@@ -155,7 +171,15 @@ function getNav(session: AuthSession): NavSection[] {
       title: "MI PANEL",
       items: [
         { href: "/", label: "Mi Dashboard", icon: "\u{1F4CA}" },
+        { href: "/calendario", label: "Calendario", icon: "\u{1F4C5}" },
         { href: "/leaderboard", label: "Leaderboard", icon: "\u{1F947}" },
+      ],
+    },
+    {
+      title: "ANALYTICS",
+      items: [
+        { href: "/setters", label: "Setters Analytics", icon: "\u{1F4AC}" },
+        { href: "/leads-sin-setter", label: "Leads sin setter", icon: "\u{1F50D}" },
       ],
     },
     {
