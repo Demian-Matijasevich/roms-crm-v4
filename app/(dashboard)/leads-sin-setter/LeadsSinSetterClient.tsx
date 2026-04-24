@@ -264,39 +264,42 @@ export default function LeadsSinSetterClient({ leads, setters, currentUser }: Pr
                       onChange={toggleAll}
                       className="accent-[var(--purple)]" />
                   </th>
-                  <th className="py-3 px-3">Fecha</th>
+                  <th className="py-3 px-3">Fecha Agenda</th>
+                  <th className="py-3 px-3">Fecha Llamada</th>
                   <th className="py-3 px-3">Nombre</th>
                   <th className="py-3 px-3">@IG</th>
                   <th className="py-3 px-3">Email</th>
-                  <th className="py-3 px-3">Estado</th>
                   <th className="py-3 px-3">Fuente</th>
-                  <th className="py-3 px-3">Sheet Row</th>
                   <th className="py-3 px-3">Asignar a</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((l) => {
-                  const fecha = (l.fecha_agendado || l.fecha_llamada || "").split("T")[0];
-                  const estadoCls = ESTADO_COLORS[l.estado] || "bg-white/10 text-[var(--muted)]";
+                  const fechaAg = (l.fecha_agendado || "").split("T")[0];
+                  const fechaLl = (l.fecha_llamada || "").split("T")[0];
                   return (
-                    <tr key={l.id} className="border-t border-[var(--card-border)]/30 hover:bg-white/5">
+                    <tr
+                      key={l.id}
+                      onClick={(e) => {
+                        // Don't toggle when clicking on interactive elements (button, select, input)
+                        const target = e.target as HTMLElement;
+                        if (target.closest("button, select, input, a")) return;
+                        toggleOne(l.id);
+                      }}
+                      className={`border-t border-[var(--card-border)]/30 hover:bg-white/5 cursor-pointer transition-colors ${selected.has(l.id) ? "bg-[var(--purple)]/10" : ""}`}
+                    >
                       <td className="py-3 px-3">
                         <input type="checkbox"
                           checked={selected.has(l.id)}
                           onChange={() => toggleOne(l.id)}
                           className="accent-[var(--purple)]" />
                       </td>
-                      <td className="py-3 px-3 text-[var(--muted)]">{fecha || "—"}</td>
+                      <td className="py-3 px-3 text-[var(--muted)]">{fechaAg || "—"}</td>
+                      <td className="py-3 px-3 text-[var(--muted)]">{fechaLl || "—"}</td>
                       <td className="py-3 px-3 text-white font-medium">{l.nombre}</td>
                       <td className="py-3 px-3 text-[var(--muted)]">{l.instagram || "—"}</td>
                       <td className="py-3 px-3 text-[var(--muted)] max-w-[180px] truncate" title={l.email || ""}>{l.email || "—"}</td>
-                      <td className="py-3 px-3">
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${estadoCls}`}>
-                          {l.estado}
-                        </span>
-                      </td>
                       <td className="py-3 px-3 text-[var(--muted)] text-xs">{l.fuente || l.utm_source || "—"}</td>
-                      <td className="py-3 px-3 text-[var(--muted)]">{l.sheets_row_index || "—"}</td>
                       <td className="py-3 px-3">
                         <div className="flex items-center gap-2">
                           {currentUser.isSetter && !currentUser.isAdmin && (
