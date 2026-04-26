@@ -35,7 +35,11 @@ function parseFecha(v: unknown): string | null {
 }
 function parseMonto(v: unknown): number {
   if (v == null) return 0;
-  const s = String(v).replace(/[$\s,]/g, "").replace(/\./g, ""); // remove $, spaces, commas, dots (used as thousand sep)
+  // Spanish format: $1.234,56 → $ removed, . is thousand sep, , is decimal
+  // Strategy: remove $, spaces. Drop dots (thousand sep). Replace last comma with dot for decimal.
+  let s = String(v).replace(/[$\s]/g, "");
+  s = s.replace(/\./g, "");
+  s = s.replace(",", ".");
   const n = parseFloat(s);
   return Number.isFinite(n) ? n : 0;
 }
