@@ -11,22 +11,28 @@ export async function POST(req: NextRequest) {
 
   const minutesBack = parseInt(url.searchParams.get("minutes") || "240");
   const dry = url.searchParams.get("dry") === "1";
+  const fromTS = url.searchParams.get("from"); // ISO timestamp
+  const toTS = url.searchParams.get("to"); // ISO timestamp
 
   const sb = createServerClient();
-  const sinceISO = new Date(Date.now() - minutesBack * 60 * 1000).toISOString();
+  const sinceISO = fromTS || new Date(Date.now() - minutesBack * 60 * 1000).toISOString();
 
-  // Find recent payments (the ones inserted by import-valen-mes)
-  const { data: recentPays } = await sb
+  // Find payments in window
+  let payQuery = sb
     .from("payments")
     .select("id, lead_id, monto_usd, created_at")
     .gte("created_at", sinceISO)
     .eq("estado", "pagado");
+  if (toTS) payQuery = payQuery.lte("created_at", toTS);
+  const { data: recentPays } = await payQuery;
 
-  // Find recent leads (newly created by import)
-  const { data: recentLeads } = await sb
+  // Find recent leads (newly created by import) — within same window
+  let leadsQuery = sb
     .from("leads")
     .select("id, nombre, created_at")
     .gte("created_at", sinceISO);
+  if (toTS) leadsQuery = leadsQuery.lte("created_at", toTS);
+  const { data: recentLeads } = await leadsQuery;
 
   if (dry) {
     return NextResponse.json({
