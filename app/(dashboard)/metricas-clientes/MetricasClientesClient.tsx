@@ -96,6 +96,80 @@ export default function MetricasClientesClient({ clients: initialClients, renewa
 
   const deudorTotal = filtered.reduce((s, c) => s + (c.deudor_usd || 0), 0);
 
+  // ─── Calidad de datos ───
+  const calidad = useMemo(() => {
+    const t = filtered.length || 1;
+    const conPrograma = filtered.filter((c) => c.programa).length;
+    const conOnb = filtered.filter((c) => c.fecha_onboarding).length;
+    const evaluados = filtered.filter((c) => c.exito || c.pesadilla || c.estado === "inactivo").length;
+    const contactados = filtered.filter((c) => c.estado_contacto !== "por_contactar").length;
+    return {
+      conPrograma, conPrograma_pct: conPrograma / t,
+      conOnb, conOnb_pct: conOnb / t,
+      evaluados, evaluados_pct: evaluados / t,
+      contactados, contactados_pct: contactados / t,
+    };
+  }, [filtered]);
+
+  // ─── Atención requerida ───
+  const atencion = useMemo(() => {
+    const vencidosSinContacto: ClientLite[] = [];
+    const venceEsta: ClientLite[] = [];
+    const venceMes: ClientLite[] = [];
+    const sinEvaluarActivos: ClientLite[] = [];
+    for (const c of filtered) {
+      if (c.estado === "inactivo") continue;
+      if (!c.fecha_onboarding) continue;
+      const d = daysUntilEnd(c);
+      if (d === null) continue;
+      if (d < 0 && c.estado_contacto === "por_contactar") vencidosSinContacto.push(c);
+      else if (d >= 0 && d <= 7) venceEsta.push(c);
+      else if (d > 7 && d <= 30) venceMes.push(c);
+      if (c.estado === "activo" && !c.exito && !c.pesadilla) sinEvaluarActivos.push(c);
+    }
+    return { vencidosSinContacto, venceEsta, venceMes, sinEvaluarActivos };
+  }, [filtered]);
+
+  // ─── Distribución de estado_contacto ───
+  const estadoContactoDist = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const c of filtered) map.set(c.estado_contacto, (map.get(c.estado_contacto) || 0) + 1);
+    return [...map.entries()].sort((a, b) => b[1] - a[1]);
+  }, [filtered]);
+
+  // ─── Top deudores ───
+  const topDeudores = useMemo(() => {
+    return filtered
+      .filter((c) => (c.deudor_usd || 0) > 0)
+      .sort((a, b) => (b.deudor_usd || 0) - (a.deudor_usd || 0))
+      .slice(0, 5);
+  }, [filtered]);
+
+  // ─── LTV proxy y avg días activos ───
+  const ltvAvg = useMemo(() => {
+    if (filtered.length === 0) return 0;
+    const totalRev = renewals
+      .filter((r) => filtered.some((c) => c.id === r.client_id))
+      .reduce((s, r) => s + (r.monto_total || 0), 0);
+    return totalRev / filtered.length;
+  }, [filtered, renewals]);
+
+  const diasPromedioActivos = useMemo(() => {
+    const activosConOnb = filtered.filter((c) => c.estado === "activo" && c.fecha_onboarding);
+    if (activosConOnb.length === 0) return 0;
+    const total = activosConOnb.reduce((s, c) => {
+      const d = (Date.now() - new Date(c.fecha_onboarding!).getTime()) / 86400000;
+      return s + d;
+    }, 0);
+    return Math.round(total / activosConOnb.length);
+  }, [filtered]);
+
+  // ─── Renovaciones del mes actual ───
+  const renovsMes = useMemo(() => {
+    const ym = new Date().toISOString().substring(0, 7);
+    return renewals.filter((r) => r.fecha_renovacion?.startsWith(ym));
+  }, [renewals]);
+
   // ─── Cohort by month ───
   const cohortRetention = useMemo(() => {
     const buckets = new Map<string, { total: number; activos: number; renovaron: number; exito: number }>();
@@ -245,6 +319,113 @@ Sin evaluar = no tiene ni éxito ni pesadilla y aún sigue activo. Esos son los 
         <KPI label="Deuda total" value={formatUSD(deudorTotal)} color="red"
           sub={`${filtered.filter((c) => (c.deudor_usd || 0) > 0).length} con deuda`}
           help="Suma del campo deudor_usd de los clientes filtrados. Se carga manualmente por cliente en /clientes/[id] o /mel-update." />
+      </div>
+
+      {/* KPIs avanzados */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KPI label="LTV promedio" value={formatUSD(ltvAvg)} color="green"
+          sub="Revenue de renovs / cliente"
+          help={`Suma de monto_total de TODAS las renewal_history de los clientes filtrados, dividido por la cantidad de clientes filtrados.
+
+Hoy está bajo porque los 12 renewals que cargué del XLSX vienen con monto=0 (el sheet no traía importe). Para que tenga valor real: cargar el monto USD de cada renovación en /renovaciones.`} />
+        <KPI label="Días promedio activos" value={`${diasPromedioActivos}d`} color="white"
+          sub="De los activos con onb cargado"
+          help="Promedio de días que llevan adentro los clientes con estado=activo (Date.now - fecha_onboarding). Sirve para ver si el ciclo de vida promedio es saludable: ROMS7/Consult son 90d, Omni/Multi son 120d." />
+        <KPI label="Renovs del mes" value={renovsMes.length.toString()} color="purple"
+          sub={renovsMes.length > 0 ? formatUSD(renovsMes.reduce((s, r) => s + (r.monto_total || 0), 0)) : "—"}
+          help={`Renovaciones cuya fecha_renovacion cae en ${new Date().toISOString().substring(0, 7)}. Subindicador = revenue del mes.`} />
+        <KPI label="Sin evaluar" value={atencion.sinEvaluarActivos.length.toString()} color="red"
+          sub="Activos sin éxito/pesadilla"
+          help="Clientes con estado=activo que no tienen ni el flag ✅ Éxito ni ⚠️ Pesadilla marcado. Estos son los que falta que Mel evalúe desde /mel-update para que la 'Tasa de éxito' sea representativa." />
+      </div>
+
+      {/* Calidad de datos */}
+      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-white mb-4 flex items-center">
+          🩺 Calidad de datos
+          <InfoTip text={`Indica qué % de los clientes filtrados tienen los campos clave cargados.
+Si estos % están bajos, las métricas de arriba no son confiables — hay que completar los datos faltantes.`} />
+        </h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <QualityBar label="Con programa" pct={calidad.conPrograma_pct} count={calidad.conPrograma} total={filtered.length} />
+          <QualityBar label="Con onboarding" pct={calidad.conOnb_pct} count={calidad.conOnb} total={filtered.length} />
+          <QualityBar label="Con contacto" pct={calidad.contactados_pct} count={calidad.contactados} total={filtered.length} />
+          <QualityBar label="Evaluados" pct={calidad.evaluados_pct} count={calidad.evaluados} total={filtered.length} />
+        </div>
+      </div>
+
+      {/* Atención requerida */}
+      <div className="bg-[var(--card-bg)] border border-[var(--red)]/30 rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-white mb-4 flex items-center">
+          🔥 Atención requerida
+          <InfoTip text="Acciones priorizadas para mejorar las métricas. Los números son links — cliqueá para ir al form de Mel filtrado por ese caso." />
+        </h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <AlertCard label="Vencidos sin contactar" count={atencion.vencidosSinContacto.length} color="red"
+            href="/mel-update?filter=vencidos" desc="Programa terminó y nadie habló con ellos" />
+          <AlertCard label="Vencen esta semana" count={atencion.venceEsta.length} color="yellow"
+            href="/mel-update?filter=vencen_pronto" desc="≤ 7 días para que termine" />
+          <AlertCard label="Vencen este mes" count={atencion.venceMes.length} color="purple"
+            href="/mel-update?filter=vencen_pronto" desc="8-30 días para que termine" />
+          <AlertCard label="Sin evaluar" count={atencion.sinEvaluarActivos.length} color="orange"
+            href="/mel-update?filter=sin_evaluar" desc="Activos sin ✅/⚠️" />
+        </div>
+      </div>
+
+      {/* Distribución estado_contacto + Top deudores */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center">
+            📞 Distribución de contacto
+            <InfoTip text="Cómo está repartido el campo estado_contacto entre los clientes filtrados. Ideal: la mayoría debería estar en respondio_renueva, contactado o respondio_debe_cuota — no en por_contactar." />
+          </h2>
+          {estadoContactoDist.length === 0 ? (
+            <p className="text-sm text-[var(--muted)]">Sin datos</p>
+          ) : (
+            <div className="space-y-1.5">
+              {estadoContactoDist.map(([k, v]) => {
+                const pct = filtered.length > 0 ? v / filtered.length : 0;
+                const color = k === "por_contactar" ? "bg-[var(--red)]"
+                  : k === "respondio_renueva" || k === "es_socio" ? "bg-[var(--green)]"
+                  : k === "no_renueva" || k === "retirar_acceso" ? "bg-[var(--muted)]"
+                  : "bg-[var(--purple)]";
+                return (
+                  <div key={k} className="flex items-center gap-2 text-xs">
+                    <span className="text-[var(--muted)] w-44">{k}</span>
+                    <div className="flex-1 bg-white/5 rounded h-3 overflow-hidden">
+                      <div className={`h-full ${color}`} style={{ width: `${pct * 100}%` }} />
+                    </div>
+                    <span className="text-white tabular-nums w-12 text-right">{v} ({fmtPct(pct)})</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center">
+            💸 Top 5 deudores
+            <InfoTip text="Clientes con mayor deudor_usd cargado. Cliqueá el nombre para ir al detalle del cliente." />
+          </h2>
+          {topDeudores.length === 0 ? (
+            <p className="text-sm text-[var(--muted)]">Sin clientes con deuda</p>
+          ) : (
+            <div className="space-y-2">
+              {topDeudores.map((c) => (
+                <div key={c.id} className="flex items-center justify-between text-sm border-b border-[var(--card-border)]/30 pb-2 last:border-0">
+                  <Link href={`/clientes/${c.id}`} className="text-white hover:text-[var(--purple-light)]">
+                    {c.nombre}
+                  </Link>
+                  <span className="text-[var(--red)] font-bold tabular-nums">{formatUSD(c.deudor_usd || 0)}</span>
+                </div>
+              ))}
+              <div className="pt-2 mt-2 border-t border-[var(--card-border)] text-xs text-[var(--muted)]">
+                Suma top 5: <span className="text-white">{formatUSD(topDeudores.reduce((s, c) => s + (c.deudor_usd || 0), 0))}</span>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Cohort por mes */}
@@ -410,6 +591,39 @@ Sirve para comparar performance entre meses (¿el lote de enero retiene mejor qu
         </div>
       </div>
     </div>
+  );
+}
+
+function QualityBar({ label, pct, count, total }: { label: string; pct: number; count: number; total: number }) {
+  const color = pct >= 0.8 ? "bg-[var(--green)]" : pct >= 0.5 ? "bg-[var(--yellow)]" : "bg-[var(--red)]";
+  const txt = pct >= 0.8 ? "text-[var(--green)]" : pct >= 0.5 ? "text-[var(--yellow)]" : "text-[var(--red)]";
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-[var(--muted)]">{label}</span>
+        <span className={`tabular-nums font-bold ${txt}`}>{(pct * 100).toFixed(0)}%</span>
+      </div>
+      <div className="bg-white/5 rounded h-2 overflow-hidden">
+        <div className={`h-full ${color}`} style={{ width: `${pct * 100}%` }} />
+      </div>
+      <p className="text-[10px] text-[var(--muted)]">{count} de {total}</p>
+    </div>
+  );
+}
+
+function AlertCard({ label, count, color, href, desc }: { label: string; count: number; color: string; href: string; desc: string }) {
+  const colorMap: Record<string, string> = {
+    red: "border-[var(--red)] text-[var(--red)]",
+    yellow: "border-[var(--yellow)] text-[var(--yellow)]",
+    purple: "border-[var(--purple)] text-[var(--purple-light)]",
+    orange: "border-orange-400 text-orange-400",
+  };
+  return (
+    <Link href={href} className={`block bg-[var(--background)] border ${colorMap[color]?.split(" ")[0] || ""} rounded-lg p-3 hover:bg-white/5 transition-colors`}>
+      <p className="text-[10px] uppercase text-[var(--muted)] tracking-wide">{label}</p>
+      <p className={`text-2xl font-bold mt-1 ${colorMap[color]?.split(" ")[1] || "text-white"}`}>{count}</p>
+      <p className="text-[10px] text-[var(--muted)] mt-1">{desc}</p>
+    </Link>
   );
 }
 

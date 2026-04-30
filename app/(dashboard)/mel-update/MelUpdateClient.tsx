@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 
 interface Client {
   id: string;
@@ -40,9 +41,22 @@ function daysUntilEnd(c: Client): number | null {
 }
 
 export default function MelUpdateClient({ clients: initial }: Props) {
+  const sp = useSearchParams();
+  const initialFilter = (() => {
+    const f = sp.get("filter");
+    if (f === "vencidos" || f === "vencen_pronto" || f === "sin_estado_contacto" || f === "sin_evaluar" || f === "todos") return f;
+    return "vencen_pronto" as const;
+  })();
   const [clients, setClients] = useState<Client[]>(initial);
-  const [filter, setFilter] = useState<"todos" | "vencen_pronto" | "vencidos" | "sin_estado_contacto" | "sin_evaluar">("vencen_pronto");
+  const [filter, setFilter] = useState<"todos" | "vencen_pronto" | "vencidos" | "sin_estado_contacto" | "sin_evaluar">(initialFilter);
   const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const f = sp.get("filter");
+    if (f === "vencidos" || f === "vencen_pronto" || f === "sin_estado_contacto" || f === "sin_evaluar" || f === "todos") {
+      setFilter(f);
+    }
+  }, [sp]);
 
   const filtered = useMemo(() => {
     return clients.filter((c) => {
