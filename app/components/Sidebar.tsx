@@ -53,6 +53,8 @@ function getNav(session: AuthSession): NavSection[] {
         title: "ANALYTICS",
         items: [
           { href: "/metricas-clientes", label: "Métricas Clientes", icon: "\u{1F4C9}" },
+          { href: "/mel-update", label: "Form Mel (clientes)", icon: "\u{1F4DD}" },
+          { href: "/metricas-clientes/explicacion", label: "Guía métricas (PDF)", icon: "\u{1F4D8}" },
           { href: "/comisiones", label: "Comisiones (detalle)", icon: "\u{1F4B8}" },
           { href: "/closers", label: "Closers Analytics", icon: "\u{1F3C6}" },
           { href: "/leaderboard", label: "Leaderboard", icon: "\u{1F947}" },
