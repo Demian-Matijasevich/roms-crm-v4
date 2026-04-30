@@ -198,22 +198,63 @@ export default function MetricasClientesClient({ clients: initialClients, renewa
 
       {/* KPIs principales */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KPI label="Total" value={total.toString()} sub={`${activos} activ · ${inactivos} inactiv · ${pausados} paus`} color="white" />
-        <KPI label="Tasa de renovación" value={fmtPct(tasaRenovacion)} sub={`${renovaron} de ${terminaron.length} terminaron`} color="green" />
-        <KPI label="Churn rate" value={fmtPct(churnRate)} sub={`${churnedSet.size} de ${terminaron.length} terminaron`} color="red" />
-        <KPI label="Tasa de éxito" value={fmtPct(tasaExito)} sub={`${conExito} éxito · ${pesadillaCount} pesadilla · ${sinEvaluar} sin evaluar`} color="purple" />
+        <KPI label="Total" value={total.toString()} color="white"
+          sub={`${activos} activ · ${inactivos} inactiv · ${pausados} paus`}
+          help="Cantidad de clientes que cumplen los filtros de arriba (programa, estado, búsqueda).
+Por defecto NO incluye los clientes históricos del Discord standby — activá el toggle para sumarlos." />
+        <KPI label="Tasa de renovación" value={fmtPct(tasaRenovacion)} color="green"
+          sub={`${renovaron} de ${terminaron.length} terminaron`}
+          help={`Fórmula: clientes que renovaron / clientes que terminaron el programa.
+
+"Terminaron" = cumple alguna:
+• tiene fecha_offboarding cargada
+• estado = inactivo
+• fecha_onboarding + total_dias_programa ya pasó (90d ROMS7/Consult, 120d Omni/Multi)
+
+"Renovaron" = de los que terminaron, los que tienen al menos 1 fila en renewal_history con estado pago / cuota_1_pagada / cuota_2_pagada.
+
+Para alimentarla: cargar en /renovaciones cada cliente que renueve.`} />
+        <KPI label="Churn rate" value={fmtPct(churnRate)} color="red"
+          sub={`${churnedSet.size} de ${terminaron.length} terminaron`}
+          help={`Fórmula: clientes que NO renovaron / clientes que terminaron.
+
+Cuenta como churn si:
+• estado_contacto está en (no_renueva, retirar_acceso, broke_cancelado), o
+• estado = inactivo y no tiene renewal en renewal_history, o
+• tiene fecha_offboarding pero no hay renovación.
+
+Para alimentarla: marcar estado_contacto y estado correctamente desde /mel-update.`} />
+        <KPI label="Tasa de éxito" value={fmtPct(tasaExito)} color="purple"
+          sub={`${conExito} éxito · ${pesadillaCount} pesadilla · ${sinEvaluar} sin evaluar`}
+          help={`Fórmula: clientes con flag exito=true / total clientes.
+
+Es 100% MANUAL. Mel marca el flag ✅ Éxito (caso testimonial / resultados) o ⚠️ Pesadilla (cliente difícil) desde /mel-update o desde la tabla editable de abajo.
+
+Sin evaluar = no tiene ni éxito ni pesadilla y aún sigue activo. Esos son los que falta revisar.`} />
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KPI label="Renovaciones registradas" value={renewals.length.toString()} sub={`${renewals.filter((r) => r.estado && RENOVA_OK.has(r.estado)).length} pagas`} color="white" />
-        <KPI label="Revenue renov" value={formatUSD(renewals.reduce((s, r) => s + (r.monto_total || 0), 0))} sub="Total acumulado" color="green" />
-        <KPI label="Ticket promedio renov" value={renewals.length > 0 ? formatUSD(renewals.reduce((s, r) => s + (r.monto_total || 0), 0) / renewals.length) : "—"} sub="" color="purple" />
-        <KPI label="Deuda total" value={formatUSD(deudorTotal)} sub={`${filtered.filter((c) => (c.deudor_usd || 0) > 0).length} con deuda`} color="red" />
+        <KPI label="Renovaciones registradas" value={renewals.length.toString()} color="white"
+          sub={`${renewals.filter((r) => r.estado && RENOVA_OK.has(r.estado)).length} pagas`}
+          help="Filas totales en la tabla renewal_history (incluye pendientes y canceladas). Las 'pagas' son las que tienen estado pago / cuota_1_pagada / cuota_2_pagada — esas son las que cuentan para 'Tasa de renovación'." />
+        <KPI label="Revenue renov" value={formatUSD(renewals.reduce((s, r) => s + (r.monto_total || 0), 0))} color="green"
+          sub="Total acumulado"
+          help="Suma del campo monto_total de TODAS las filas de renewal_history (sin filtro de estado). Si una renovación se cargó sin monto, suma 0." />
+        <KPI label="Ticket promedio renov" value={renewals.length > 0 ? formatUSD(renewals.reduce((s, r) => s + (r.monto_total || 0), 0) / renewals.length) : "—"} color="purple"
+          help="Revenue total / cantidad de filas en renewal_history. Promedio simple — incluye renovaciones sin monto cargado, así que puede estar subestimado." />
+        <KPI label="Deuda total" value={formatUSD(deudorTotal)} color="red"
+          sub={`${filtered.filter((c) => (c.deudor_usd || 0) > 0).length} con deuda`}
+          help="Suma del campo deudor_usd de los clientes filtrados. Se carga manualmente por cliente en /clientes/[id] o /mel-update." />
       </div>
 
       {/* Cohort por mes */}
       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Cohort por mes de onboarding</h2>
+        <h2 className="text-lg font-semibold text-white mb-4 flex items-center">
+          Cohort por mes de onboarding
+          <InfoTip text={`Agrupa los clientes filtrados por el mes en que arrancaron (fecha_onboarding).
+Para cada mes muestra qué pasó después: cuántos siguen activos, cuántos renovaron, cuántos fueron éxito.
+Sirve para comparar performance entre meses (¿el lote de enero retiene mejor que el de diciembre?).`} />
+        </h2>
         {cohortRetention.length === 0 ? (
           <p className="text-sm text-[var(--muted)]">Sin datos. Asegurate de tener clientes con fecha_onboarding cargada.</p>
         ) : (
@@ -222,12 +263,12 @@ export default function MetricasClientesClient({ clients: initialClients, renewa
               <thead>
                 <tr className="text-left text-[10px] uppercase text-[var(--muted)] border-b border-[var(--card-border)]">
                   <th className="py-2 px-2">Mes</th>
-                  <th className="py-2 px-2 text-right">Onboarding</th>
-                  <th className="py-2 px-2 text-right">Activos hoy</th>
-                  <th className="py-2 px-2 text-right">% Retención</th>
-                  <th className="py-2 px-2 text-right">Renovaron</th>
-                  <th className="py-2 px-2 text-right">% Renovación</th>
-                  <th className="py-2 px-2 text-right">Éxito</th>
+                  <th className="py-2 px-2 text-right">Onboarding<InfoTip text="Cuántos clientes nuevos arrancaron ese mes (fecha_onboarding cae ahí)." /></th>
+                  <th className="py-2 px-2 text-right">Activos hoy<InfoTip text="De los que arrancaron ese mes, cuántos hoy todavía tienen estado=activo." /></th>
+                  <th className="py-2 px-2 text-right">% Retención<InfoTip text="Activos hoy / Onboarding del mes. Mide qué % del lote sigue adentro." /></th>
+                  <th className="py-2 px-2 text-right">Renovaron<InfoTip text="De los que arrancaron ese mes, cuántos tienen al menos una renewal_history con estado pagado." /></th>
+                  <th className="py-2 px-2 text-right">% Renovación<InfoTip text="Renovaron / Onboarding del mes." /></th>
+                  <th className="py-2 px-2 text-right">Éxito<InfoTip text="De los que arrancaron ese mes, cuántos tienen el flag exito=true (marca manual de Mel)." /></th>
                 </tr>
               </thead>
               <tbody>
@@ -250,7 +291,10 @@ export default function MetricasClientesClient({ clients: initialClients, renewa
 
       {/* Por programa */}
       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Por programa</h2>
+        <h2 className="text-lg font-semibold text-white mb-4 flex items-center">
+          Por programa
+          <InfoTip text="Mismas métricas que arriba pero agrupadas por programa (ROMS 7, Consultoría, Omnipresencia, Multicuentas). Útil para ver qué línea performa mejor." />
+        </h2>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -369,14 +413,28 @@ export default function MetricasClientesClient({ clients: initialClients, renewa
   );
 }
 
-function KPI({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
+function InfoTip({ text }: { text: string }) {
+  return (
+    <span className="relative inline-flex group align-middle ml-1">
+      <span className="cursor-help text-[var(--muted)] hover:text-white text-[10px] border border-[var(--muted)]/50 rounded-full w-4 h-4 inline-flex items-center justify-center leading-none">i</span>
+      <span className="invisible group-hover:visible absolute left-1/2 -translate-x-1/2 top-full mt-1 w-64 z-50 bg-[var(--background)] border border-[var(--card-border)] rounded-md p-2 text-[11px] text-white normal-case tracking-normal font-normal shadow-lg whitespace-pre-line">
+        {text}
+      </span>
+    </span>
+  );
+}
+
+function KPI({ label, value, sub, color, help }: { label: string; value: string; sub?: string; color: string; help?: string }) {
   const colorMap: Record<string, string> = {
     green: "text-[var(--green)]", red: "text-[var(--red)]",
     purple: "text-[var(--purple-light)]", white: "text-white",
   };
   return (
     <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
-      <p className="text-xs text-[var(--muted)] uppercase tracking-wide">{label}</p>
+      <p className="text-xs text-[var(--muted)] uppercase tracking-wide flex items-center">
+        {label}
+        {help && <InfoTip text={help} />}
+      </p>
       <p className={`text-2xl font-bold ${colorMap[color] || "text-white"} mt-1`}>{value}</p>
       {sub && <p className="text-[10px] text-[var(--muted)] mt-1">{sub}</p>}
     </div>
