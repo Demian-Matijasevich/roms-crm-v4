@@ -242,10 +242,72 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Insert missing Discord standby clients as histórico inactivos ──
+  const STANDBY_DISCORD: Array<{ nombre: string; programa: string | null }> = [
+    { nombre: "Saba", programa: null },
+    { nombre: "Luis Mongemalo", programa: null },
+    { nombre: "Facundo Cabral", programa: null },
+    { nombre: "Oklan", programa: null },
+    { nombre: "Tutu", programa: null },
+    { nombre: "Suono", programa: null },
+    { nombre: "Phi Phi Toys", programa: null },
+    { nombre: "Ferzazzu", programa: null },
+    { nombre: "Raqia Studio", programa: null },
+  ];
+  let historicoCreated = 0;
+  const historicoReport: unknown[] = [];
+  const { data: clientsAfter2 } = await sb.from("clients").select("id, nombre");
+  for (const sc of STANDBY_DISCORD) {
+    const tks = tokens(sc.nombre);
+    const exists = (clientsAfter2 || []).some((c) => {
+      const cn = norm(c.nombre || "");
+      return tks.every((t) => cn.includes(t));
+    });
+    if (exists) {
+      historicoReport.push({ nombre: sc.nombre, action: "skipped_exists" });
+      continue;
+    }
+    const insertData = {
+      nombre: sc.nombre,
+      programa: sc.programa,
+      total_dias_programa: 90,
+      lead_id: null,
+      llamadas_base: 3,
+      health_score: 0,
+      estado: "inactivo",
+      estado_contacto: "no_renueva",
+      estado_seguimiento: "no_necesita",
+      pesadilla: false,
+      exito: false,
+      discord: true,
+      skool: false,
+      win_discord: false,
+      en_wa_esa: false,
+      en_ig_grupo: false,
+      deudor_usd: 0,
+      notas_seguimiento: "[HIST_DISCORD] Cliente histórico (canal en Discord standby) — ya no está activo según Mel",
+      fecha_onboarding: null,
+    };
+    if (dry) {
+      historicoReport.push({ nombre: sc.nombre, action: "would_create_historico" });
+      historicoCreated++;
+      continue;
+    }
+    const { error } = await sb.from("clients").insert(insertData);
+    if (!error) {
+      historicoCreated++;
+      historicoReport.push({ nombre: sc.nombre, action: "created_historico" });
+    } else {
+      historicoReport.push({ nombre: sc.nombre, error: error.message });
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     dry_run: dry,
     total_xlsx_rows: XLSX.length,
+    historicoCreated,
+    historicoReport,
     markedInactive,
     inactiveReport: inactiveReport.slice(0, 50),
     matched_existing,

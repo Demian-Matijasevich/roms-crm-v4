@@ -12,7 +12,7 @@ export default async function MetricasClientesPage() {
 
   const sb = createServerClient();
   const [clientsRes, renewalsRes] = await Promise.all([
-    sb.from("clients").select("id, nombre, programa, estado, estado_contacto, fecha_onboarding, fecha_offboarding, total_dias_programa, exito, pesadilla").range(0, 4999),
+    sb.from("clients").select("id, nombre, programa, estado, estado_contacto, fecha_onboarding, fecha_offboarding, total_dias_programa, exito, pesadilla, deudor_usd, notas_seguimiento").range(0, 4999),
     sb.from("renewal_history").select("id, client_id, tipo_renovacion, monto_total, estado, fecha_renovacion").range(0, 4999),
   ]);
 
@@ -35,6 +35,8 @@ export interface ClientLite {
   total_dias_programa: number;
   exito: boolean;
   pesadilla: boolean;
+  deudor_usd: number;
+  notas_seguimiento: string | null;
 }
 
 export interface RenewalLite {
