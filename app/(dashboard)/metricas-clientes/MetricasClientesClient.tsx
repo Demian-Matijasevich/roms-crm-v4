@@ -43,6 +43,7 @@ export default function MetricasClientesClient({ clients: initialClients, renewa
   const [includeHistoricos, setIncludeHistoricos] = useState(false);
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [autoMarkBusy, setAutoMarkBusy] = useState(false);
 
   // Apply filters for METRICS (always exclude histórico unless toggled)
   const baseScope = useMemo(() => {
@@ -214,6 +215,28 @@ export default function MetricasClientesClient({ clients: initialClients, renewa
     return [...map.entries()].sort((a, b) => b[1].total - a[1].total);
   }, [filtered, clientIdsWithRenewal]);
 
+  async function runAutoMark(dry: boolean) {
+    setAutoMarkBusy(true);
+    try {
+      const res = await fetch(`/api/admin/auto-mark-inactive?s=roms-iclosed-2026${dry ? "&dry=1" : ""}`, { method: "POST" });
+      const json = await res.json();
+      if (!json.ok) {
+        alert("Error: " + (json.error || "desconocido"));
+        return;
+      }
+      if (dry) {
+        const sample = (json.sample || []).map((s: { nombre: string; daysOverdue: number }) => `• ${s.nombre} (vencido ${s.daysOverdue}d)`).join("\n");
+        const proceed = confirm(`Se van a marcar ${json.total_candidates} clientes como inactivos:\n\n${sample}\n\n¿Confirmás?`);
+        if (proceed) await runAutoMark(false);
+      } else {
+        alert(`✅ ${json.marked} clientes marcados inactivos. Recargando...`);
+        location.reload();
+      }
+    } finally {
+      setAutoMarkBusy(false);
+    }
+  }
+
   // ─── Inline edit ───
   async function patch(id: string, field: string, value: string | number | boolean | null) {
     setBusy(id + ":" + field);
@@ -356,10 +379,16 @@ Si estos % están bajos, las métricas de arriba no son confiables — hay que c
 
       {/* Atención requerida */}
       <div className="bg-[var(--card-bg)] border border-[var(--red)]/30 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center">
-          🔥 Atención requerida
-          <InfoTip text="Acciones priorizadas para mejorar las métricas. Los números son links — cliqueá para ir al form de Mel filtrado por ese caso." />
-        </h2>
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+          <h2 className="text-lg font-semibold text-white flex items-center">
+            🔥 Atención requerida
+            <InfoTip text="Acciones priorizadas para mejorar las métricas. Los números son links — cliqueá para ir al form de Mel filtrado por ese caso." />
+          </h2>
+          <button onClick={() => runAutoMark(true)} disabled={autoMarkBusy}
+            className="text-xs bg-[var(--purple)] hover:bg-[var(--purple-dark)] disabled:opacity-50 text-white px-3 py-1.5 rounded-lg">
+            {autoMarkBusy ? "Procesando..." : "🤖 Auto-marcar inactivos (>30d sin contacto)"}
+          </button>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <AlertCard label="Vencidos sin contactar" count={atencion.vencidosSinContacto.length} color="red"
             href="/mel-update?filter=vencidos" desc="Programa terminó y nadie habló con ellos" />
@@ -526,8 +555,14 @@ Sirve para comparar performance entre meses (¿el lote de enero retiene mejor qu
                 <th className="py-2 px-2 text-right">Días</th>
                 <th className="py-2 px-2">Estado</th>
                 <th className="py-2 px-2">Contacto</th>
-                <th className="py-2 px-2 text-center">✅</th>
-                <th className="py-2 px-2 text-center">⚠️</th>
+                <th className="py-2 px-2 text-center">
+                  Éxito
+                  <InfoTip text="Marcá ✅ si el cliente tuvo resultados claros (testimonio, ventas, crecimiento). Cuenta para 'Tasa de éxito'." />
+                </th>
+                <th className="py-2 px-2 text-center">
+                  Pesadilla
+                  <InfoTip text="Marcá ⚠️ si fue cliente difícil/conflictivo. NO cuenta para tasa de éxito (es lo opuesto), sirve para identificar casos a no renovar." />
+                </th>
                 <th className="py-2 px-2 text-right">Deuda</th>
               </tr>
             </thead>

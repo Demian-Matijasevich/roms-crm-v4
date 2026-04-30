@@ -2,5 +2,11 @@
   "framework": "nextjs",
   "buildCommand": "npm run build",
   "installCommand": "npm install",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "crons": [
+    {
+      "path": "/api/admin/auto-mark-inactive",
+      "schedule": "0 12 * * 1"
+    }
+  ]
 }
