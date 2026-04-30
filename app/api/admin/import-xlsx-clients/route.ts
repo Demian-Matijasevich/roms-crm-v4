@@ -40,6 +40,28 @@ const XLSX: Row[] = [
   { nombre: "Carola Moran", abonado: "A_CONFIRMAR", primer_video: "2026-01-20", cant_grabaciones: "PENDIENTE", renovacion: "AL_DIA" },
 ];
 
+// Canales de Discord en "CLIENTES A RENOVAR/STANDBY" → según Mel ya NO son clientes
+const DISCORD_INACTIVOS: string[] = [
+  "jairo",
+  "saba",
+  "luis mongemalo",
+  "facundo cabral",
+  "lebrot",
+  "leblon",
+  "titto galvez",
+  "oklan",
+  "tutu",
+  "matias nolasco",
+  "pangea",
+  "nolasco",
+  "suono",
+  "phi phi toys",
+  "phi phi",
+  "ferzazzu",
+  "raqiastudio",
+  "raqia",
+];
+
 const PROGRAMA_DAYS: Record<string, number> = {
   roms_7: 90, consultoria: 90, omnipresencia: 120, multicuentas: 120,
 };
@@ -89,7 +111,38 @@ export async function POST(req: NextRequest) {
   const { data: leads } = await sb.from("leads").select("id, nombre, email, programa_pitcheado, fecha_llamada, estado").range(0, 4999);
 
   let updated = 0, created = 0, matched_existing = 0, leadLinked = 0;
+  let renewalsCreated = 0;
   const report: unknown[] = [];
+
+  // Pre-fetch existing renewals to avoid duplicates
+  const { data: existingRenewals } = await sb.from("renewal_history").select("client_id, estado").eq("estado", "pago");
+  const renewedClientIds = new Set((existingRenewals || []).map((r) => r.client_id));
+
+  async function maybeCreateRenewal(clientId: string, r: Row) {
+    if (r.renovacion !== "AL_DIA") return;
+    if (renewedClientIds.has(clientId)) return;
+    const fecha = (r.abonado && /^\d{4}-\d{2}-\d{2}$/.test(r.abonado)) ? r.abonado
+      : (r.primer_video && /^\d{4}-\d{2}-\d{2}$/.test(r.primer_video) ? r.primer_video : new Date().toISOString().slice(0, 10));
+    if (dry) {
+      report.push({ nombre: r.nombre, action: "would_create_renewal", client_id: clientId, fecha });
+      renewalsCreated++;
+      renewedClientIds.add(clientId);
+      return;
+    }
+    const { error } = await sb.from("renewal_history").insert({
+      client_id: clientId,
+      estado: "pago",
+      tipo_renovacion: "resell",
+      fecha_renovacion: fecha,
+      monto_total: 0,
+    });
+    if (!error) {
+      renewalsCreated++;
+      renewedClientIds.add(clientId);
+    } else {
+      report.push({ nombre: r.nombre, action: "renewal_failed", error: error.message });
+    }
+  }
 
   for (const r of XLSX) {
     const tks = tokens(r.nombre);
@@ -116,6 +169,7 @@ export async function POST(req: NextRequest) {
       } else {
         report.push({ nombre: r.nombre, action: "would_update", client_id: cMatch.id });
       }
+      await maybeCreateRenewal(cMatch.id, r);
     } else {
       // Build new client from lead match (if any) + xlsx data
       const programa = lMatch?.programa_pitcheado || null;
@@ -143,11 +197,47 @@ export async function POST(req: NextRequest) {
       }
       if (lMatch) leadLinked++;
       if (!dry) {
-        const { error } = await sb.from("clients").insert(insertData);
-        if (!error) created++;
-        else report.push({ nombre: r.nombre, action: "insert_failed", error: error.message });
+        const { data: newCli, error } = await sb.from("clients").insert(insertData).select("id").single();
+        if (!error && newCli) {
+          created++;
+          await maybeCreateRenewal(newCli.id, r);
+        }
+        else if (error) report.push({ nombre: r.nombre, action: "insert_failed", error: error.message });
       } else {
         report.push({ nombre: r.nombre, action: "would_insert", lead_id: lMatch?.id ?? null });
+        // Renewal will be created in real run after insert; skip in dry
+      }
+    }
+  }
+
+  // ── Mark Discord standby clients as inactivo/churned ──
+  let markedInactive = 0;
+  const inactiveReport: unknown[] = [];
+  // Re-fetch updated clients list (may have new inserts)
+  const { data: clientsAfter } = await sb.from("clients").select("id, nombre, estado, estado_contacto");
+  for (const needle of DISCORD_INACTIVOS) {
+    const tks = tokens(needle);
+    if (tks.length === 0) continue;
+    const matches = (clientsAfter || []).filter((c) => {
+      const cn = norm(c.nombre || "");
+      return tks.every((t) => cn.includes(t));
+    });
+    for (const m of matches) {
+      if (m.estado === "inactivo" && m.estado_contacto === "no_renueva") continue;
+      if (dry) {
+        inactiveReport.push({ needle, matched: m.nombre, action: "would_mark_inactive" });
+        markedInactive++;
+        continue;
+      }
+      const { error } = await sb.from("clients").update({
+        estado: "inactivo",
+        estado_contacto: "no_renueva",
+      }).eq("id", m.id);
+      if (!error) {
+        markedInactive++;
+        inactiveReport.push({ needle, matched: m.nombre });
+      } else {
+        inactiveReport.push({ needle, matched: m.nombre, error: error.message });
       }
     }
   }
@@ -156,10 +246,13 @@ export async function POST(req: NextRequest) {
     ok: true,
     dry_run: dry,
     total_xlsx_rows: XLSX.length,
+    markedInactive,
+    inactiveReport: inactiveReport.slice(0, 50),
     matched_existing,
     updated,
     created,
     leadLinked,
+    renewalsCreated,
     report: report.slice(0, 50),
   });
 }
