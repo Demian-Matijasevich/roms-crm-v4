@@ -14,6 +14,8 @@ interface Props {
   campaigns: CampaignLite[];
   fiscalStart: string;
   fiscalEnd: string;
+  currentTeamMemberId?: string | null;
+  isAdmin?: boolean;
 }
 
 interface SaleRow {
@@ -29,7 +31,7 @@ interface SaleRow {
   comision: number;
 }
 
-export default function ComisionesClient({ payments, leads, team, campaigns, fiscalStart: defaultStart, fiscalEnd: defaultEnd }: Props) {
+export default function ComisionesClient({ payments, leads, team, campaigns, fiscalStart: defaultStart, fiscalEnd: defaultEnd, currentTeamMemberId, isAdmin }: Props) {
   const [selectedMonth, setSelectedMonth] = useState(getFiscalStart().toISOString().split("T")[0]);
 
   const monthRange = useMemo(() => {
@@ -160,8 +162,13 @@ export default function ComisionesClient({ payments, leads, team, campaigns, fis
         totalGeneral: total,
       });
     }
-    return out.sort((a, b) => b.totalGeneral - a.totalGeneral);
-  }, [team, monthPayments, leadById, mediumToSetter]);
+    const sorted = out.sort((a, b) => b.totalGeneral - a.totalGeneral);
+    // Si no es admin, mostrar solo el row del usuario actual
+    if (!isAdmin && currentTeamMemberId) {
+      return sorted.filter((b) => b.member.id === currentTeamMemberId);
+    }
+    return sorted;
+  }, [team, monthPayments, leadById, mediumToSetter, isAdmin, currentTeamMemberId]);
 
   void defaultStart; void defaultEnd;
 

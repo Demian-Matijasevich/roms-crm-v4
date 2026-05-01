@@ -9,7 +9,9 @@ export const dynamic = "force-dynamic";
 export default async function ComisionesPage() {
   const session = await getSession();
   if (!session) redirect("/login");
-  if (!session.is_admin) redirect("/");
+  const isCloser = session.roles.includes("closer");
+  const isSetter = session.roles.includes("setter");
+  if (!session.is_admin && !isCloser && !isSetter) redirect("/");
 
   const sb = createServerClient();
   const fiscalStart = toDateString(getFiscalStart());
@@ -37,6 +39,8 @@ export default async function ComisionesPage() {
       campaigns={(campaignsRes.data ?? []) as CampaignLite[]}
       fiscalStart={fiscalStart}
       fiscalEnd={fiscalEnd}
+      currentTeamMemberId={session.team_member_id}
+      isAdmin={session.is_admin}
     />
   );
 }
