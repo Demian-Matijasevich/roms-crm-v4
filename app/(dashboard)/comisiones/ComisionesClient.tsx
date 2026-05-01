@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import MonthSelector77 from "@/app/components/MonthSelector77";
 import LeadEditModal, { type EditableLead } from "@/app/components/LeadEditModal";
+import AddPaymentModal, { type PaymentResult } from "@/app/components/AddPaymentModal";
 import { formatUSD } from "@/lib/format";
 import { computeValenCommission, SETTER_PCT } from "@/lib/commissions";
 import { getFiscalStart, getFiscalMonth, parseLocalDate } from "@/lib/date-utils";
@@ -38,6 +39,7 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
   const [selectedMonth, setSelectedMonth] = useState(getFiscalStart().toISOString().split("T")[0]);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
   const [deletingPayment, setDeletingPayment] = useState<string | null>(null);
+  const [showAddPayment, setShowAddPayment] = useState(false);
   const closers = useMemo(() => team.filter((t) => t.is_closer), [team]);
   const setters = useMemo(() => team.filter((t) => t.is_setter), [team]);
   const editingLead = useMemo<EditableLead | null>(() => {
@@ -210,7 +212,13 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
           <h1 className="text-2xl font-bold text-white">Detalle de Comisiones</h1>
           <p className="text-sm text-[var(--muted)]">{currentLabel} — desglose lead-por-lead con % aplicado</p>
         </div>
-        <MonthSelector77 value={selectedMonth} onChange={setSelectedMonth} />
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowAddPayment(true)}
+            className="text-sm bg-[var(--green)] hover:bg-[var(--green)]/80 text-white px-4 py-2 rounded-lg font-medium">
+            + Cargar pago
+          </button>
+          <MonthSelector77 value={selectedMonth} onChange={setSelectedMonth} />
+        </div>
       </div>
 
       {/* Resumen rápido */}
@@ -374,6 +382,16 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
           onClose={() => setEditingLeadId(null)}
           onSaved={(updated) => {
             setLeads((prev) => prev.map((l) => (l.id === editingLead.id ? { ...l, ...updated } as LeadLite : l)));
+          }}
+        />
+      )}
+
+      {showAddPayment && (
+        <AddPaymentModal
+          leads={leads.map((l) => ({ id: l.id, nombre: l.nombre }))}
+          onClose={() => setShowAddPayment(false)}
+          onCreated={(p: PaymentResult) => {
+            setPayments((prev) => [...prev, p as PaymentRow]);
           }}
         />
       )}
