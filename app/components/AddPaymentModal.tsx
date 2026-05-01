@@ -28,7 +28,8 @@ const METODOS = ["transferencia", "criptos", "tarjeta", "efectivo", "stripe", "t
 
 export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreated }: Props) {
   const [leadId, setLeadId] = useState<string>(defaultLeadId || "");
-  const [search, setSearch] = useState("");
+  const defaultLeadName = defaultLeadId ? (leads.find((l) => l.id === defaultLeadId)?.nombre || "") : "";
+  const [search, setSearch] = useState(defaultLeadName);
   const [montoUsd, setMontoUsd] = useState<string>("");
   const [montoArs, setMontoArs] = useState<string>("");
   const [fechaPago, setFechaPago] = useState<string>(() => new Date().toISOString().slice(0, 10));

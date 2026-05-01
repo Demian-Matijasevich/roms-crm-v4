@@ -7,6 +7,7 @@ import { LEAD_ESTADOS_LABELS, PROGRAMS } from "@/lib/constants";
 import { formatUSD, formatDate, formatMoney } from "@/lib/format";
 import { getFiscalMonthOptions, getFiscalEnd, parseLocalDate, toDateString } from "@/lib/date-utils";
 import StatusBadge from "@/app/components/StatusBadge";
+import AddPaymentModal from "@/app/components/AddPaymentModal";
 
 interface Props {
   leads: LeadWithTeam[];
@@ -70,6 +71,7 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
   const [editData, setEditData] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [addPaymentForLead, setAddPaymentForLead] = useState<string | null>(null);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey !== key) {
@@ -563,6 +565,13 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
                   className="text-sm font-medium bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white px-5 py-2 rounded-lg transition-colors disabled:opacity-50"
                 >
                   {saving ? "Guardando..." : "Guardar"}
+                </button>
+                <button
+                  onClick={() => setAddPaymentForLead(lead.id)}
+                  disabled={saving}
+                  className="text-sm font-medium bg-[var(--green)]/20 hover:bg-[var(--green)]/40 border border-[var(--green)]/40 text-[var(--green)] px-4 py-2 rounded-lg transition-colors"
+                >
+                  💵 Cargar pago / cash
                 </button>
                 {saveMsg && (
                   <span className={`text-sm ${saveMsg.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
@@ -1351,6 +1360,15 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
           payment={editingPayment}
           onClose={() => setEditingPayment(null)}
           onSaved={() => { setEditingPayment(null); window.location.reload(); }}
+        />
+      )}
+
+      {addPaymentForLead && (
+        <AddPaymentModal
+          leads={leads.map((l) => ({ id: l.id, nombre: l.nombre }))}
+          defaultLeadId={addPaymentForLead}
+          onClose={() => setAddPaymentForLead(null)}
+          onCreated={() => { setAddPaymentForLead(null); window.location.reload(); }}
         />
       )}
     </div>
