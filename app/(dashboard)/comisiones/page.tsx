@@ -23,7 +23,7 @@ export default async function ComisionesPage() {
       .eq("estado", "pagado")
       .range(0, 9999),
     sb.from("leads")
-      .select("id, nombre, closer_id, setter_id, utm_medium, programa_pitcheado")
+      .select("id, nombre, closer_id, setter_id, utm_medium, utm_source, utm_content, programa_pitcheado, email, telefono, instagram, fecha_agendado, fecha_llamada, estado, lead_calificado, ticket_total, plan_pago, concepto, fuente, notas_internas, reporte_general")
       .range(0, 9999),
     sb.from("team_members")
       .select("id, nombre, is_closer, is_setter")
@@ -60,7 +60,22 @@ export interface LeadLite {
   closer_id: string | null;
   setter_id: string | null;
   utm_medium: string | null;
+  utm_source: string | null;
+  utm_content: string | null;
   programa_pitcheado: string | null;
+  email: string | null;
+  telefono: string | null;
+  instagram: string | null;
+  fecha_agendado: string | null;
+  fecha_llamada: string | null;
+  estado: string;
+  lead_calificado: string | null;
+  ticket_total: number;
+  plan_pago: string | null;
+  concepto: string | null;
+  fuente: string | null;
+  notas_internas: string | null;
+  reporte_general: string | null;
 }
 export interface TeamLite { id: string; nombre: string; is_closer: boolean; is_setter: boolean }
 export interface CampaignLite { medium: string | null; setter_id: string | null }

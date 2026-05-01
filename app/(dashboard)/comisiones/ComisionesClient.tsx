@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import MonthSelector77 from "@/app/components/MonthSelector77";
+import LeadEditModal, { type EditableLead } from "@/app/components/LeadEditModal";
 import { formatUSD } from "@/lib/format";
 import { computeValenCommission, SETTER_PCT } from "@/lib/commissions";
 import { getFiscalStart, getFiscalMonth, parseLocalDate } from "@/lib/date-utils";
@@ -31,8 +32,17 @@ interface SaleRow {
   comision: number;
 }
 
-export default function ComisionesClient({ payments, leads, team, campaigns, fiscalStart: defaultStart, fiscalEnd: defaultEnd, currentTeamMemberId, isAdmin }: Props) {
+export default function ComisionesClient({ payments, leads: initialLeads, team, campaigns, fiscalStart: defaultStart, fiscalEnd: defaultEnd, currentTeamMemberId, isAdmin }: Props) {
+  const [leads, setLeads] = useState<LeadLite[]>(initialLeads);
   const [selectedMonth, setSelectedMonth] = useState(getFiscalStart().toISOString().split("T")[0]);
+  const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
+  const closers = useMemo(() => team.filter((t) => t.is_closer), [team]);
+  const setters = useMemo(() => team.filter((t) => t.is_setter), [team]);
+  const editingLead = useMemo<EditableLead | null>(() => {
+    if (!editingLeadId) return null;
+    const l = leads.find((x) => x.id === editingLeadId);
+    return l ? (l as unknown as EditableLead) : null;
+  }, [editingLeadId, leads]);
 
   const monthRange = useMemo(() => {
     const start = parseLocalDate(selectedMonth);
@@ -236,19 +246,29 @@ export default function ComisionesClient({ payments, leads, team, campaigns, fis
                       <th className="py-2 px-3 text-right">Monto</th>
                       <th className="py-2 px-3 text-right">%</th>
                       <th className="py-2 px-3 text-right">Comisión</th>
+                      <th className="py-2 px-3 text-center">Editar</th>
                     </tr>
                   </thead>
                   <tbody>
                     {b.ventasComoCloser.map((v) => (
                       <tr key={v.paymentId} className="border-t border-[var(--card-border)]/30 hover:bg-white/5">
                         <td className="py-2 px-3 text-[var(--muted)] text-xs">{v.fecha}</td>
-                        <td className="py-2 px-3 text-white text-xs">{v.leadName}</td>
+                        <td className="py-2 px-3 text-white text-xs">
+                          <button onClick={() => setEditingLeadId(v.leadId)} className="hover:text-[var(--purple-light)] text-left">
+                            {v.leadName}
+                          </button>
+                        </td>
                         <td className="py-2 px-3 text-[var(--muted)] text-xs">{v.programa || "—"}</td>
                         <td className="py-2 px-3 text-center text-[var(--muted)] text-xs">#{v.cuota}</td>
                         <td className="py-2 px-3 text-[var(--muted)] text-xs">{v.receptor || "—"}</td>
                         <td className="py-2 px-3 text-right font-mono text-xs text-white">{formatUSD(v.monto)}</td>
                         <td className="py-2 px-3 text-right font-mono text-xs text-[var(--purple-light)]">{v.pctAplicado.toFixed(2)}%</td>
                         <td className="py-2 px-3 text-right font-mono text-xs font-bold text-[var(--green)]">{formatUSD(v.comision)}</td>
+                        <td className="py-2 px-3 text-center">
+                          <button onClick={() => setEditingLeadId(v.leadId)} className="text-[10px] bg-[var(--purple)]/20 hover:bg-[var(--purple)]/40 text-[var(--purple-light)] px-2 py-0.5 rounded">
+                            ✏️
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -273,18 +293,28 @@ export default function ComisionesClient({ payments, leads, team, campaigns, fis
                       <th className="py-2 px-3 text-right">Monto</th>
                       <th className="py-2 px-3 text-right">%</th>
                       <th className="py-2 px-3 text-right">Comisión</th>
+                      <th className="py-2 px-3 text-center">Editar</th>
                     </tr>
                   </thead>
                   <tbody>
                     {b.ventasComoSetter.map((v) => (
                       <tr key={v.paymentId} className="border-t border-[var(--card-border)]/30 hover:bg-white/5">
                         <td className="py-2 px-3 text-[var(--muted)] text-xs">{v.fecha}</td>
-                        <td className="py-2 px-3 text-white text-xs">{v.leadName}</td>
+                        <td className="py-2 px-3 text-white text-xs">
+                          <button onClick={() => setEditingLeadId(v.leadId)} className="hover:text-[var(--purple-light)] text-left">
+                            {v.leadName}
+                          </button>
+                        </td>
                         <td className="py-2 px-3 text-center text-[var(--muted)] text-xs">#{v.cuota}</td>
                         <td className="py-2 px-3 text-[var(--muted)] text-xs">{v.receptor || "—"}</td>
                         <td className="py-2 px-3 text-right font-mono text-xs text-white">{formatUSD(v.monto)}</td>
                         <td className="py-2 px-3 text-right font-mono text-xs text-[var(--green)]">3,00%</td>
                         <td className="py-2 px-3 text-right font-mono text-xs font-bold text-[var(--green)]">{formatUSD(v.comision)}</td>
+                        <td className="py-2 px-3 text-center">
+                          <button onClick={() => setEditingLeadId(v.leadId)} className="text-[10px] bg-[var(--purple)]/20 hover:bg-[var(--purple)]/40 text-[var(--purple-light)] px-2 py-0.5 rounded">
+                            ✏️
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -299,6 +329,18 @@ export default function ComisionesClient({ payments, leads, team, campaigns, fis
         <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-8 text-center text-[var(--muted)]">
           Sin comisiones para este periodo
         </div>
+      )}
+
+      {editingLead && (
+        <LeadEditModal
+          lead={editingLead}
+          closers={closers}
+          setters={setters}
+          onClose={() => setEditingLeadId(null)}
+          onSaved={(updated) => {
+            setLeads((prev) => prev.map((l) => (l.id === editingLead.id ? { ...l, ...updated } as LeadLite : l)));
+          }}
+        />
       )}
     </div>
   );
