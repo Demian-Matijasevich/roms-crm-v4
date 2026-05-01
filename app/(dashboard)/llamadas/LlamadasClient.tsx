@@ -412,8 +412,8 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
                     {Object.entries(PROGRAMS).map(([key, p]) => (
                       <option key={key} value={key}>{p.label}</option>
                     ))}
-                    {editData.programa_pitcheado && !PROGRAMS[editData.programa_pitcheado as string] && (
-                      <option value={editData.programa_pitcheado as string}>{editData.programa_pitcheado as string}</option>
+                    {typeof editData.programa_pitcheado === "string" && editData.programa_pitcheado && !PROGRAMS[editData.programa_pitcheado] && (
+                      <option value={editData.programa_pitcheado}>{editData.programa_pitcheado}</option>
                     )}
                     <option value="__otro__">+ Otro (escribir nuevo)</option>
                   </select>

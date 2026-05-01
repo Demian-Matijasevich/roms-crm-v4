@@ -153,8 +153,8 @@ export default function LeadEditModal({ lead, closers, setters, onClose, onSaved
                 className={selectClass}>
                 <option value="">Sin programa</option>
                 {Object.entries(PROGRAMS).map(([k, p]) => (<option key={k} value={k}>{p.label}</option>))}
-                {data.programa_pitcheado && !PROGRAMS[data.programa_pitcheado as string] && (
-                  <option value={data.programa_pitcheado as string}>{data.programa_pitcheado as string}</option>
+                {typeof data.programa_pitcheado === "string" && data.programa_pitcheado && !PROGRAMS[data.programa_pitcheado] && (
+                  <option value={data.programa_pitcheado}>{data.programa_pitcheado}</option>
                 )}
                 <option value="__otro__">+ Otro (escribir nuevo)</option>
               </select>

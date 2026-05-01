@@ -138,6 +138,7 @@ function getNav(session: AuthSession): NavSection[] {
         title: "ACCIONES",
         items: [
           { href: "/form/llamada", label: "Cargar Llamada", icon: "\u{1F4DE}" },
+          { href: "/form/pago", label: "Cargar Pago", icon: "\u{1F4B3}" },
           { href: "/form/venta-chat", label: "Venta por Chat", icon: "\u{1F4AC}" },
           { href: "/form/reporte-setter", label: "Reporte Diario", icon: "\u{1F4DD}" },
         ],
