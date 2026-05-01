@@ -98,7 +98,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const authResult = await requireAdmin();
+  const authResult = await requireSession();
   if ("error" in authResult) return authResult.error;
 
   try {

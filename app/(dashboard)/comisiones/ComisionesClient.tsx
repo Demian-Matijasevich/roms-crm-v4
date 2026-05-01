@@ -32,10 +32,12 @@ interface SaleRow {
   comision: number;
 }
 
-export default function ComisionesClient({ payments, leads: initialLeads, team, campaigns, fiscalStart: defaultStart, fiscalEnd: defaultEnd, currentTeamMemberId, isAdmin }: Props) {
+export default function ComisionesClient({ payments: initialPayments, leads: initialLeads, team, campaigns, fiscalStart: defaultStart, fiscalEnd: defaultEnd, currentTeamMemberId, isAdmin }: Props) {
   const [leads, setLeads] = useState<LeadLite[]>(initialLeads);
+  const [payments, setPayments] = useState<PaymentRow[]>(initialPayments);
   const [selectedMonth, setSelectedMonth] = useState(getFiscalStart().toISOString().split("T")[0]);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
+  const [deletingPayment, setDeletingPayment] = useState<string | null>(null);
   const closers = useMemo(() => team.filter((t) => t.is_closer), [team]);
   const setters = useMemo(() => team.filter((t) => t.is_setter), [team]);
   const editingLead = useMemo<EditableLead | null>(() => {
@@ -43,6 +45,25 @@ export default function ComisionesClient({ payments, leads: initialLeads, team, 
     const l = leads.find((x) => x.id === editingLeadId);
     return l ? (l as unknown as EditableLead) : null;
   }, [editingLeadId, leads]);
+
+  async function handleDeletePayment(paymentId: string, leadName: string) {
+    const ok = window.confirm(`¿Eliminar este pago de "${leadName}"?\n\nAcción IRREVERSIBLE.`);
+    if (!ok) return;
+    setDeletingPayment(paymentId);
+    try {
+      const res = await fetch(`/api/pagos?id=${encodeURIComponent(paymentId)}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.ok) {
+        setPayments((prev) => prev.filter((p) => p.id !== paymentId));
+      } else {
+        alert("Error: " + (json.error || "no se pudo eliminar"));
+      }
+    } catch (err) {
+      alert("Error de red: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setDeletingPayment(null);
+    }
+  }
 
   const monthRange = useMemo(() => {
     const start = parseLocalDate(selectedMonth);
@@ -246,7 +267,7 @@ export default function ComisionesClient({ payments, leads: initialLeads, team, 
                       <th className="py-2 px-3 text-right">Monto</th>
                       <th className="py-2 px-3 text-right">%</th>
                       <th className="py-2 px-3 text-right">Comisión</th>
-                      <th className="py-2 px-3 text-center">Editar</th>
+                      <th className="py-2 px-3 text-center">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -264,9 +285,16 @@ export default function ComisionesClient({ payments, leads: initialLeads, team, 
                         <td className="py-2 px-3 text-right font-mono text-xs text-white">{formatUSD(v.monto)}</td>
                         <td className="py-2 px-3 text-right font-mono text-xs text-[var(--purple-light)]">{v.pctAplicado.toFixed(2)}%</td>
                         <td className="py-2 px-3 text-right font-mono text-xs font-bold text-[var(--green)]">{formatUSD(v.comision)}</td>
-                        <td className="py-2 px-3 text-center">
-                          <button onClick={() => setEditingLeadId(v.leadId)} className="text-[10px] bg-[var(--purple)]/20 hover:bg-[var(--purple)]/40 text-[var(--purple-light)] px-2 py-0.5 rounded">
+                        <td className="py-2 px-3 text-center whitespace-nowrap">
+                          <button onClick={() => setEditingLeadId(v.leadId)} title="Editar lead"
+                            className="text-[10px] bg-[var(--purple)]/20 hover:bg-[var(--purple)]/40 text-[var(--purple-light)] px-2 py-0.5 rounded">
                             ✏️
+                          </button>
+                          <button onClick={() => handleDeletePayment(v.paymentId, v.leadName)}
+                            disabled={deletingPayment === v.paymentId}
+                            title="Eliminar pago"
+                            className="ml-1 text-[10px] bg-[var(--red)]/15 hover:bg-[var(--red)]/35 text-[var(--red)] px-2 py-0.5 rounded disabled:opacity-50">
+                            {deletingPayment === v.paymentId ? "..." : "🗑️"}
                           </button>
                         </td>
                       </tr>
@@ -293,7 +321,7 @@ export default function ComisionesClient({ payments, leads: initialLeads, team, 
                       <th className="py-2 px-3 text-right">Monto</th>
                       <th className="py-2 px-3 text-right">%</th>
                       <th className="py-2 px-3 text-right">Comisión</th>
-                      <th className="py-2 px-3 text-center">Editar</th>
+                      <th className="py-2 px-3 text-center">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -310,9 +338,16 @@ export default function ComisionesClient({ payments, leads: initialLeads, team, 
                         <td className="py-2 px-3 text-right font-mono text-xs text-white">{formatUSD(v.monto)}</td>
                         <td className="py-2 px-3 text-right font-mono text-xs text-[var(--green)]">3,00%</td>
                         <td className="py-2 px-3 text-right font-mono text-xs font-bold text-[var(--green)]">{formatUSD(v.comision)}</td>
-                        <td className="py-2 px-3 text-center">
-                          <button onClick={() => setEditingLeadId(v.leadId)} className="text-[10px] bg-[var(--purple)]/20 hover:bg-[var(--purple)]/40 text-[var(--purple-light)] px-2 py-0.5 rounded">
+                        <td className="py-2 px-3 text-center whitespace-nowrap">
+                          <button onClick={() => setEditingLeadId(v.leadId)} title="Editar lead"
+                            className="text-[10px] bg-[var(--purple)]/20 hover:bg-[var(--purple)]/40 text-[var(--purple-light)] px-2 py-0.5 rounded">
                             ✏️
+                          </button>
+                          <button onClick={() => handleDeletePayment(v.paymentId, v.leadName)}
+                            disabled={deletingPayment === v.paymentId}
+                            title="Eliminar pago"
+                            className="ml-1 text-[10px] bg-[var(--red)]/15 hover:bg-[var(--red)]/35 text-[var(--red)] px-2 py-0.5 rounded disabled:opacity-50">
+                            {deletingPayment === v.paymentId ? "..." : "🗑️"}
                           </button>
                         </td>
                       </tr>
@@ -336,13 +371,9 @@ export default function ComisionesClient({ payments, leads: initialLeads, team, 
           lead={editingLead}
           closers={closers}
           setters={setters}
-          isAdmin={!!isAdmin}
           onClose={() => setEditingLeadId(null)}
           onSaved={(updated) => {
             setLeads((prev) => prev.map((l) => (l.id === editingLead.id ? { ...l, ...updated } as LeadLite : l)));
-          }}
-          onDeleted={(id) => {
-            setLeads((prev) => prev.filter((l) => l.id !== id));
           }}
         />
       )}
