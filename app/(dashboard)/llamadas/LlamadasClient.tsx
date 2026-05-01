@@ -8,6 +8,7 @@ import { formatUSD, formatDate, formatMoney } from "@/lib/format";
 import { getFiscalMonthOptions, getFiscalEnd, parseLocalDate, toDateString } from "@/lib/date-utils";
 import StatusBadge from "@/app/components/StatusBadge";
 import AddPaymentModal from "@/app/components/AddPaymentModal";
+import AddLeadModal from "@/app/components/AddLeadModal";
 
 interface Props {
   leads: LeadWithTeam[];
@@ -72,6 +73,7 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [addPaymentForLead, setAddPaymentForLead] = useState<string | null>(null);
+  const [showAddLead, setShowAddLead] = useState(false);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey !== key) {
@@ -1100,12 +1102,20 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
             {filtered.length} de {leads.length} leads
           </p>
         </div>
-        <button
-          onClick={handleExportCSV}
-          className="text-sm font-medium bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white px-4 py-2 rounded-lg transition-colors"
-        >
-          Exportar CSV
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowAddLead(true)}
+            className="text-sm font-medium bg-[var(--green)] hover:bg-[var(--green)]/80 text-white px-4 py-2 rounded-lg transition-colors"
+          >
+            + Nuevo lead
+          </button>
+          <button
+            onClick={handleExportCSV}
+            className="text-sm font-medium bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white px-4 py-2 rounded-lg transition-colors"
+          >
+            Exportar CSV
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -1381,6 +1391,15 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
           defaultLeadId={addPaymentForLead}
           onClose={() => setAddPaymentForLead(null)}
           onCreated={() => { setAddPaymentForLead(null); window.location.reload(); }}
+        />
+      )}
+
+      {showAddLead && (
+        <AddLeadModal
+          closers={closers}
+          setters={setters}
+          onClose={() => setShowAddLead(false)}
+          onCreated={() => { setShowAddLead(false); window.location.reload(); }}
         />
       )}
     </div>

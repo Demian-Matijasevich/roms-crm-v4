@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import MonthSelector77 from "@/app/components/MonthSelector77";
 import LeadEditModal, { type EditableLead } from "@/app/components/LeadEditModal";
 import AddPaymentModal, { type PaymentResult } from "@/app/components/AddPaymentModal";
+import AddLeadModal from "@/app/components/AddLeadModal";
 import { formatUSD } from "@/lib/format";
 import { computeValenCommission, SETTER_PCT } from "@/lib/commissions";
 import { getFiscalStart, getFiscalMonth, parseLocalDate } from "@/lib/date-utils";
@@ -40,6 +41,7 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
   const [deletingPayment, setDeletingPayment] = useState<string | null>(null);
   const [showAddPayment, setShowAddPayment] = useState(false);
+  const [showAddLead, setShowAddLead] = useState(false);
   const closers = useMemo(() => team.filter((t) => t.is_closer), [team]);
   const setters = useMemo(() => team.filter((t) => t.is_setter), [team]);
   const editingLead = useMemo<EditableLead | null>(() => {
@@ -213,6 +215,10 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
           <p className="text-sm text-[var(--muted)]">{currentLabel} — desglose lead-por-lead con % aplicado</p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={() => setShowAddLead(true)}
+            className="text-sm bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white px-4 py-2 rounded-lg font-medium">
+            + Nuevo lead
+          </button>
           <button onClick={() => setShowAddPayment(true)}
             className="text-sm bg-[var(--green)] hover:bg-[var(--green)]/80 text-white px-4 py-2 rounded-lg font-medium">
             + Cargar pago
@@ -393,6 +399,15 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
           onCreated={(p: PaymentResult) => {
             setPayments((prev) => [...prev, p as PaymentRow]);
           }}
+        />
+      )}
+
+      {showAddLead && (
+        <AddLeadModal
+          closers={closers}
+          setters={setters}
+          onClose={() => setShowAddLead(false)}
+          onCreated={() => { setShowAddLead(false); window.location.reload(); }}
         />
       )}
     </div>

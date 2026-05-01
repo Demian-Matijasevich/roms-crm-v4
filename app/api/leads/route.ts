@@ -14,6 +14,47 @@ const ADMIN_ONLY_FIELDS = new Set([
 // Setters/closers can only update setter_id/estado/notes on leads without setter (claim workflow)
 const SETTER_ALLOWED_FIELDS = new Set(["setter_id", "estado", "notas_internas", "contexto_setter", "reporte_general"]);
 
+export async function POST(req: NextRequest) {
+  const auth = await requireSession();
+  if ("error" in auth) return auth.error;
+
+  try {
+    const body = await req.json();
+    if (!body.nombre || typeof body.nombre !== "string" || !body.nombre.trim()) {
+      return NextResponse.json({ error: "nombre requerido" }, { status: 400 });
+    }
+
+    const allowed = [
+      "nombre", "email", "telefono", "instagram",
+      "fuente", "utm_source", "utm_medium", "utm_content",
+      "fecha_agendado", "fecha_llamada",
+      "estado", "setter_id", "closer_id", "cobrador_id",
+      "ticket_total", "programa_pitcheado", "concepto", "plan_pago",
+      "lead_calificado", "lead_score",
+      "contexto_setter", "reporte_general", "notas_internas",
+    ];
+
+    const insertData: Record<string, unknown> = {
+      estado: "pendiente",
+      ticket_total: 0,
+      fue_seguimiento: false,
+    };
+    for (const k of allowed) {
+      if (k in body && body[k] !== undefined && body[k] !== "") insertData[k] = body[k];
+    }
+
+    const sb = createServerClient();
+    const { data, error } = await sb.from("leads").insert(insertData).select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    if (data?.id) await syncLeadToSheet(data.id);
+    return NextResponse.json({ ok: true, lead: data });
+  } catch (err) {
+    console.error("[POST /api/leads]", err);
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
+  }
+}
+
 export async function PATCH(req: NextRequest) {
   const auth = await requireSession();
   if ("error" in auth) return auth.error;
