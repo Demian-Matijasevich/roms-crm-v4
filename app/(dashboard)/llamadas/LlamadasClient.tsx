@@ -87,10 +87,24 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
     setSaving(true);
     setSaveMsg(null);
     try {
+      // Sanitize: empty strings → null for nullable fields (dates, ids, optional text)
+      const NULLABLE: Set<string> = new Set([
+        "email", "telefono", "instagram", "fecha_agendado", "fecha_llamada",
+        "closer_id", "setter_id", "cobrador_id",
+        "fuente", "plan_pago", "concepto",
+        "utm_source", "utm_medium", "utm_content",
+        "programa_pitcheado", "lead_calificado",
+      ]);
+      const payload: Record<string, unknown> = { id: leadId };
+      for (const [k, v] of Object.entries(editData)) {
+        if (k.startsWith("_")) continue;
+        if (v === "" && NULLABLE.has(k)) payload[k] = null;
+        else payload[k] = v;
+      }
       const res = await fetch("/api/llamadas", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: leadId, ...editData }),
+        body: JSON.stringify(payload),
       });
       const json = await res.json();
       if (json.ok) {
@@ -174,6 +188,20 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
           ticket_total: lead.ticket_total,
           notas_internas: lead.notas_internas || "",
           reporte_general: lead.reporte_general || "",
+          nombre: lead.nombre || "",
+          email: lead.email || "",
+          telefono: lead.telefono || "",
+          instagram: lead.instagram || "",
+          fecha_agendado: lead.fecha_agendado ? lead.fecha_agendado.split("T")[0] : "",
+          fecha_llamada: lead.fecha_llamada ? lead.fecha_llamada.split("T")[0] : "",
+          closer_id: lead.closer_id || "",
+          setter_id: lead.setter_id || "",
+          fuente: lead.fuente || "",
+          plan_pago: lead.plan_pago || "",
+          concepto: lead.concepto || "",
+          utm_source: lead.utm_source || "",
+          utm_medium: lead.utm_medium || "",
+          utm_content: lead.utm_content || "",
         });
         setSaveMsg(null);
       }, 0);
@@ -315,7 +343,41 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
 
             {/* Inline Edit Form */}
             <div className="pt-3 border-t border-[var(--card-border)] space-y-4">
-              <h4 className="text-sm font-semibold text-[var(--purple-light)]">Editar lead</h4>
+              <h4 className="text-sm font-semibold text-[var(--purple-light)]">Editar lead (todos los campos)</h4>
+
+              {/* Contacto */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">Nombre</label>
+                  <input type="text"
+                    value={(editData.nombre as string) ?? ""}
+                    onChange={(e) => setEditData({ ...editData, nombre: e.target.value })}
+                    className={inputClass} />
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">Email</label>
+                  <input type="email"
+                    value={(editData.email as string) ?? ""}
+                    onChange={(e) => setEditData({ ...editData, email: e.target.value || null })}
+                    className={inputClass} />
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">Telefono</label>
+                  <input type="tel"
+                    value={(editData.telefono as string) ?? ""}
+                    onChange={(e) => setEditData({ ...editData, telefono: e.target.value || null })}
+                    className={inputClass} />
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">Instagram</label>
+                  <input type="text"
+                    value={(editData.instagram as string) ?? ""}
+                    onChange={(e) => setEditData({ ...editData, instagram: e.target.value || null })}
+                    className={inputClass} placeholder="@usuario" />
+                </div>
+              </div>
+
+              {/* Estado / Calificación / Programa / Ticket */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <label className="text-xs text-[var(--muted)] mb-1 block">Estado</label>
@@ -367,6 +429,113 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
                   />
                 </div>
               </div>
+
+              {/* Asignaciones + Fechas */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">Closer</label>
+                  <select
+                    value={(editData.closer_id as string) || ""}
+                    onChange={(e) => setEditData({ ...editData, closer_id: e.target.value || null })}
+                    className={selectClass}
+                  >
+                    <option value="">Sin closer</option>
+                    {closers.map((c) => (<option key={c.id} value={c.id}>{c.nombre}</option>))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">Setter</label>
+                  <select
+                    value={(editData.setter_id as string) || ""}
+                    onChange={(e) => setEditData({ ...editData, setter_id: e.target.value || null })}
+                    className={selectClass}
+                  >
+                    <option value="">Sin setter</option>
+                    {setters.map((s) => (<option key={s.id} value={s.id}>{s.nombre}</option>))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">Fecha agendado</label>
+                  <input type="date"
+                    value={(editData.fecha_agendado as string) || ""}
+                    onChange={(e) => setEditData({ ...editData, fecha_agendado: e.target.value || null })}
+                    className={inputClass} />
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">Fecha llamada</label>
+                  <input type="date"
+                    value={(editData.fecha_llamada as string) || ""}
+                    onChange={(e) => setEditData({ ...editData, fecha_llamada: e.target.value || null })}
+                    className={inputClass} />
+                </div>
+              </div>
+
+              {/* Fuente + UTMs */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">Fuente</label>
+                  <input type="text"
+                    value={(editData.fuente as string) ?? ""}
+                    onChange={(e) => setEditData({ ...editData, fuente: e.target.value || null })}
+                    className={inputClass} />
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">UTM source</label>
+                  <input type="text"
+                    value={(editData.utm_source as string) ?? ""}
+                    onChange={(e) => setEditData({ ...editData, utm_source: e.target.value || null })}
+                    className={inputClass} />
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">UTM medium</label>
+                  <input type="text"
+                    value={(editData.utm_medium as string) ?? ""}
+                    onChange={(e) => setEditData({ ...editData, utm_medium: e.target.value || null })}
+                    className={inputClass} />
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">UTM content</label>
+                  <input type="text"
+                    value={(editData.utm_content as string) ?? ""}
+                    onChange={(e) => setEditData({ ...editData, utm_content: e.target.value || null })}
+                    className={inputClass} />
+                </div>
+              </div>
+
+              {/* Plan + Concepto */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">Plan pago</label>
+                  <select
+                    value={(editData.plan_pago as string) || ""}
+                    onChange={(e) => setEditData({ ...editData, plan_pago: e.target.value || null })}
+                    className={selectClass}
+                  >
+                    <option value="">---</option>
+                    <option value="cash">Cash</option>
+                    <option value="2_cuotas">2 cuotas</option>
+                    <option value="3_cuotas">3 cuotas</option>
+                    <option value="4_cuotas">4 cuotas</option>
+                    <option value="otro">Otro</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">Concepto</label>
+                  <select
+                    value={(editData.concepto as string) || ""}
+                    onChange={(e) => setEditData({ ...editData, concepto: e.target.value || null })}
+                    className={selectClass}
+                  >
+                    <option value="">---</option>
+                    <option value="reserva">Reserva</option>
+                    <option value="pago_total">Pago total</option>
+                    <option value="cuota_1">Cuota 1</option>
+                    <option value="cuota_2">Cuota 2</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Notas */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-[var(--muted)] mb-1 block">Notas internas</label>
