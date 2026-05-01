@@ -74,7 +74,6 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await requireSession();
   if ("error" in auth) return auth.error;
-  if (!auth.session.is_admin) return NextResponse.json({ error: "Solo admins" }, { status: 403 });
 
   try {
     const { searchParams } = new URL(req.url);

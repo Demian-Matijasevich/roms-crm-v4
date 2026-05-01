@@ -262,14 +262,12 @@ export default function LeadEditModal({ lead, closers, setters, onClose, onSaved
             className="text-sm text-[var(--muted)] hover:text-white px-3 py-2">
             Cancelar
           </button>
-          {isAdmin && (
-            <button onClick={handleDelete} disabled={saving || deleting}
-              className="text-sm font-medium bg-[var(--red)]/10 hover:bg-[var(--red)]/30 border border-[var(--red)]/40 text-[var(--red)] px-4 py-2 rounded-lg disabled:opacity-50 ml-auto">
-              {deleting ? "Eliminando..." : "🗑️ Eliminar lead"}
-            </button>
-          )}
+          <button onClick={handleDelete} disabled={saving || deleting}
+            className="text-sm font-medium bg-[var(--red)]/10 hover:bg-[var(--red)]/30 border border-[var(--red)]/40 text-[var(--red)] px-4 py-2 rounded-lg disabled:opacity-50 ml-auto">
+            {deleting ? "Eliminando..." : "🗑️ Eliminar lead"}
+          </button>
           {msg && (
-            <span className={`text-sm ${isAdmin ? "" : "ml-auto"} ${msg.startsWith("Error") ? "text-[var(--red)]" : "text-[var(--green)]"}`}>
+            <span className={`text-sm ${msg.startsWith("Error") ? "text-[var(--red)]" : "text-[var(--green)]"}`}>
               {msg}
             </span>
           )}
