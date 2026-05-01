@@ -35,6 +35,8 @@ interface Props {
   setters: TeamMemberLite[];
   onClose: () => void;
   onSaved?: (updated: Partial<EditableLead>) => void;
+  onDeleted?: (id: string) => void;
+  isAdmin?: boolean;
 }
 
 const NULLABLE = new Set([
@@ -45,9 +47,10 @@ const NULLABLE = new Set([
   "notas_internas", "reporte_general",
 ]);
 
-export default function LeadEditModal({ lead, closers, setters, onClose, onSaved }: Props) {
+export default function LeadEditModal({ lead, closers, setters, onClose, onSaved, onDeleted, isAdmin }: Props) {
   const [data, setData] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -74,6 +77,27 @@ export default function LeadEditModal({ lead, closers, setters, onClose, onSaved
       reporte_general: lead.reporte_general || "",
     });
   }, [lead]);
+
+  async function handleDelete() {
+    const ok = window.confirm(`¿Eliminar el lead "${lead.nombre}"?\n\nEsto borra también todos los pagos asociados. Acción IRREVERSIBLE.`);
+    if (!ok) return;
+    setDeleting(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/leads?id=${encodeURIComponent(lead.id)}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.ok) {
+        if (onDeleted) onDeleted(lead.id);
+        onClose();
+      } else {
+        setMsg(`Error: ${json.error || "no se pudo eliminar"}`);
+      }
+    } catch (err) {
+      setMsg("Error de red: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -230,7 +254,7 @@ export default function LeadEditModal({ lead, closers, setters, onClose, onSaved
         </div>
 
         <div className="p-5 border-t border-[var(--card-border)] flex items-center gap-3 sticky bottom-0 bg-[var(--card-bg)]">
-          <button onClick={handleSave} disabled={saving}
+          <button onClick={handleSave} disabled={saving || deleting}
             className="text-sm font-medium bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white px-5 py-2 rounded-lg disabled:opacity-50">
             {saving ? "Guardando..." : "Guardar"}
           </button>
@@ -238,8 +262,14 @@ export default function LeadEditModal({ lead, closers, setters, onClose, onSaved
             className="text-sm text-[var(--muted)] hover:text-white px-3 py-2">
             Cancelar
           </button>
+          {isAdmin && (
+            <button onClick={handleDelete} disabled={saving || deleting}
+              className="text-sm font-medium bg-[var(--red)]/10 hover:bg-[var(--red)]/30 border border-[var(--red)]/40 text-[var(--red)] px-4 py-2 rounded-lg disabled:opacity-50 ml-auto">
+              {deleting ? "Eliminando..." : "🗑️ Eliminar lead"}
+            </button>
+          )}
           {msg && (
-            <span className={`text-sm ml-auto ${msg.startsWith("Error") ? "text-[var(--red)]" : "text-[var(--green)]"}`}>
+            <span className={`text-sm ${isAdmin ? "" : "ml-auto"} ${msg.startsWith("Error") ? "text-[var(--red)]" : "text-[var(--green)]"}`}>
               {msg}
             </span>
           )}

@@ -336,9 +336,13 @@ export default function ComisionesClient({ payments, leads: initialLeads, team, 
           lead={editingLead}
           closers={closers}
           setters={setters}
+          isAdmin={!!isAdmin}
           onClose={() => setEditingLeadId(null)}
           onSaved={(updated) => {
             setLeads((prev) => prev.map((l) => (l.id === editingLead.id ? { ...l, ...updated } as LeadLite : l)));
+          }}
+          onDeleted={(id) => {
+            setLeads((prev) => prev.filter((l) => l.id !== id));
           }}
         />
       )}

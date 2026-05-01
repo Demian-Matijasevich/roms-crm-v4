@@ -564,6 +564,30 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
                 >
                   {saving ? "Guardando..." : "Guardar"}
                 </button>
+                {session.is_admin && (
+                  <button
+                    onClick={async () => {
+                      const ok = window.confirm(`¿Eliminar el lead "${lead.nombre}"?\n\nBorra también todos los pagos asociados. Acción IRREVERSIBLE.`);
+                      if (!ok) return;
+                      try {
+                        const res = await fetch(`/api/leads?id=${encodeURIComponent(lead.id)}`, { method: "DELETE" });
+                        const json = await res.json();
+                        if (json.ok) {
+                          setLocalLeads((prev) => prev.filter((l) => l.id !== lead.id));
+                          setExpandedId(null);
+                        } else {
+                          alert(`Error: ${json.error || "no se pudo eliminar"}`);
+                        }
+                      } catch (err) {
+                        alert("Error de red: " + (err instanceof Error ? err.message : String(err)));
+                      }
+                    }}
+                    disabled={saving}
+                    className="text-sm font-medium bg-red-500/10 hover:bg-red-500/30 border border-red-500/40 text-red-400 px-4 py-2 rounded-lg transition-colors disabled:opacity-50 ml-auto"
+                  >
+                    🗑️ Eliminar lead
+                  </button>
+                )}
                 {saveMsg && (
                   <span className={`text-sm ${saveMsg.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
                     {saveMsg}
