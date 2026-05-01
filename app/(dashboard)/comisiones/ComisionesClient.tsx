@@ -57,6 +57,24 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
     return l ? (l as unknown as EditableLead) : null;
   }, [editingLeadId, leads]);
 
+  async function patchPayment(paymentId: string, field: string, value: string | number | null) {
+    try {
+      const res = await fetch("/api/pagos", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: paymentId, [field]: value }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setPayments((prev) => prev.map((p) => p.id === paymentId ? { ...p, [field]: value } as PaymentRow : p));
+      } else {
+        alert("Error: " + (json.error || "no se pudo guardar"));
+      }
+    } catch (err) {
+      alert("Error de red: " + (err instanceof Error ? err.message : String(err)));
+    }
+  }
+
   async function handleDeletePayment(paymentId: string, leadName: string) {
     const ok = window.confirm(`¿Eliminar este pago de "${leadName}"?\n\nAcción IRREVERSIBLE.`);
     if (!ok) return;
@@ -302,7 +320,18 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
                         </td>
                         <td className="py-2 px-3 text-[var(--muted)] text-xs">{v.programa || "—"}</td>
                         <td className="py-2 px-3 text-center text-[var(--muted)] text-xs">#{v.cuota}</td>
-                        <td className="py-2 px-3 text-[var(--muted)] text-xs">{v.receptor || "—"}</td>
+                        <td className="py-2 px-3 text-xs">
+                          <input
+                            type="text"
+                            defaultValue={v.receptor || ""}
+                            placeholder="—"
+                            onBlur={(e) => {
+                              const newVal = e.target.value.trim();
+                              if (newVal !== (v.receptor || "")) patchPayment(v.paymentId, "receptor", newVal || null);
+                            }}
+                            className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1.5 py-0.5 text-xs text-[var(--muted)] focus:text-white focus:outline-none w-24"
+                          />
+                        </td>
                         <td className="py-2 px-3 text-right font-mono text-xs text-white">{formatUSD(v.monto)}</td>
                         <td className="py-2 px-3 text-right font-mono text-xs text-[var(--purple-light)]">{v.pctAplicado.toFixed(2)}%</td>
                         <td className="py-2 px-3 text-right font-mono text-xs font-bold text-[var(--green)]">{formatUSD(v.comision)}</td>
@@ -359,7 +388,18 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
                           </button>
                         </td>
                         <td className="py-2 px-3 text-center text-[var(--muted)] text-xs">#{v.cuota}</td>
-                        <td className="py-2 px-3 text-[var(--muted)] text-xs">{v.receptor || "—"}</td>
+                        <td className="py-2 px-3 text-xs">
+                          <input
+                            type="text"
+                            defaultValue={v.receptor || ""}
+                            placeholder="—"
+                            onBlur={(e) => {
+                              const newVal = e.target.value.trim();
+                              if (newVal !== (v.receptor || "")) patchPayment(v.paymentId, "receptor", newVal || null);
+                            }}
+                            className="bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-1.5 py-0.5 text-xs text-[var(--muted)] focus:text-white focus:outline-none w-24"
+                          />
+                        </td>
                         <td className="py-2 px-3 text-right font-mono text-xs text-white">{formatUSD(v.monto)}</td>
                         <td className="py-2 px-3 text-right font-mono text-xs text-[var(--green)]">3,00%</td>
                         <td className="py-2 px-3 text-right font-mono text-xs font-bold text-[var(--green)]">{formatUSD(v.comision)}</td>
