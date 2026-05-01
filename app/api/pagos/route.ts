@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSession, requireAdmin } from "@/lib/auth";
+import { requireSession } from "@/lib/auth";
 import { pagoSchema } from "@/lib/schemas";
 import { createPayment, uploadComprobante } from "@/lib/queries/payments";
 import { createServerClient } from "@/lib/supabase-server";
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const authResult = await requireAdmin();
+  const authResult = await requireSession();
   if ("error" in authResult) return authResult.error;
 
   try {

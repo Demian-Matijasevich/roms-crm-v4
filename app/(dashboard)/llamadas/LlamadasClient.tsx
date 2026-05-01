@@ -1395,22 +1395,33 @@ function PaymentEditModal({ payment, onClose, onSaved }: { payment: Payment; onC
   const [receptor, setReceptor] = useState(payment.receptor || "");
   const [saving, setSaving] = useState(false);
 
+  const [errMsg, setErrMsg] = useState<string | null>(null);
   async function handleSave() {
     setSaving(true);
-    const res = await fetch("/api/pagos", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: payment.id,
-        monto_usd: parseFloat(monto) || 0,
-        fecha_pago: fechaPago || null,
-        estado,
-        metodo_pago: metodoPago || null,
-        receptor: receptor || null,
-      }),
-    });
-    if ((await res.json()).ok) onSaved();
-    else setSaving(false);
+    setErrMsg(null);
+    try {
+      const res = await fetch("/api/pagos", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: payment.id,
+          monto_usd: parseFloat(monto) || 0,
+          fecha_pago: fechaPago || null,
+          estado,
+          metodo_pago: metodoPago || null,
+          receptor: receptor || null,
+        }),
+      });
+      const json = await res.json();
+      if (json.ok) onSaved();
+      else {
+        setErrMsg("Error: " + (json.error || "no se pudo guardar"));
+        setSaving(false);
+      }
+    } catch (err) {
+      setErrMsg("Error de red: " + (err instanceof Error ? err.message : String(err)));
+      setSaving(false);
+    }
   }
 
   return (
@@ -1458,6 +1469,7 @@ function PaymentEditModal({ payment, onClose, onSaved }: { payment: Payment; onC
             {saving ? "Guardando..." : "Guardar"}
           </button>
         </div>
+        {errMsg && <p className="text-xs text-[var(--red)] mt-2">{errMsg}</p>}
       </div>
     </div>
   );
