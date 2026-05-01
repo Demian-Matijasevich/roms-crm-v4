@@ -9,6 +9,7 @@ import { getFiscalMonthOptions, getFiscalEnd, parseLocalDate, toDateString } fro
 import StatusBadge from "@/app/components/StatusBadge";
 import AddPaymentModal from "@/app/components/AddPaymentModal";
 import AddLeadModal from "@/app/components/AddLeadModal";
+import PaymentEditModalShared, { type EditablePayment } from "@/app/components/PaymentEditModalShared";
 
 interface Props {
   leads: LeadWithTeam[];
@@ -305,19 +306,32 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
                     leadPayments
                       .sort((a, b) => a.numero_cuota - b.numero_cuota)
                       .map((p) => (
-                        <div key={p.id} className="flex justify-between items-center">
-                          <span className="text-[var(--muted)]">Cuota #{p.numero_cuota}</span>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono">{formatMoney(p.monto_usd, p.monto_ars, usdRate)}</span>
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                              p.estado === "pagado" ? "bg-green-500/15 text-green-400 border-green-500/20" :
-                              p.estado === "pendiente" ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/20" :
-                              p.estado === "perdido" ? "bg-red-500/15 text-red-400 border-red-500/20" :
-                              "bg-orange-400/15 text-orange-400 border-orange-400/20"
-                            }`}>
-                              {p.estado}
-                            </span>
+                        <div key={p.id} className="flex justify-between items-center gap-2 py-1 border-b border-[var(--card-border)]/30 last:border-0">
+                          <div className="flex flex-col text-[11px] flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[var(--muted)]">#{p.numero_cuota}</span>
+                              <span className="font-mono text-white">{formatMoney(p.monto_usd, p.monto_ars, usdRate)}</span>
+                              <span className={`text-[9px] font-bold px-1 py-0.5 rounded border ${
+                                p.estado === "pagado" ? "bg-green-500/15 text-green-400 border-green-500/20" :
+                                p.estado === "pendiente" ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/20" :
+                                p.estado === "perdido" ? "bg-red-500/15 text-red-400 border-red-500/20" :
+                                "bg-orange-400/15 text-orange-400 border-orange-400/20"
+                              }`}>
+                                {p.estado}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-[var(--muted)] truncate">
+                              {p.fecha_pago ? formatDate(p.fecha_pago) : "sin fecha"}
+                              {p.metodo_pago && ` · ${p.metodo_pago.replace(/_/g, " ")}`}
+                              {p.receptor && ` · ${p.receptor}`}
+                            </div>
                           </div>
+                          <button
+                            onClick={() => setEditingPayment(p)}
+                            className="text-[10px] bg-[var(--purple)]/20 hover:bg-[var(--purple)]/40 text-[var(--purple-light)] px-2 py-0.5 rounded shrink-0"
+                          >
+                            ✏️
+                          </button>
                         </div>
                       ))
                   ) : (
@@ -1378,10 +1392,11 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
 
 
       {editingPayment && (
-        <PaymentEditModal
-          payment={editingPayment}
+        <PaymentEditModalShared
+          payment={editingPayment as EditablePayment}
           onClose={() => setEditingPayment(null)}
           onSaved={() => { setEditingPayment(null); window.location.reload(); }}
+          onDeleted={() => { setEditingPayment(null); window.location.reload(); }}
         />
       )}
 
@@ -1406,90 +1421,3 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
   );
 }
 
-function PaymentEditModal({ payment, onClose, onSaved }: { payment: Payment; onClose: () => void; onSaved: () => void }) {
-  const [monto, setMonto] = useState(String(payment.monto_usd));
-  const [fechaPago, setFechaPago] = useState(payment.fecha_pago?.split("T")[0] || "");
-  const [estado, setEstado] = useState(payment.estado);
-  const [metodoPago, setMetodoPago] = useState(payment.metodo_pago || "");
-  const [receptor, setReceptor] = useState(payment.receptor || "");
-  const [saving, setSaving] = useState(false);
-
-  const [errMsg, setErrMsg] = useState<string | null>(null);
-  async function handleSave() {
-    setSaving(true);
-    setErrMsg(null);
-    try {
-      const res = await fetch("/api/pagos", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: payment.id,
-          monto_usd: parseFloat(monto) || 0,
-          fecha_pago: fechaPago || null,
-          estado,
-          metodo_pago: metodoPago || null,
-          receptor: receptor || null,
-        }),
-      });
-      const json = await res.json();
-      if (json.ok) onSaved();
-      else {
-        setErrMsg("Error: " + (json.error || "no se pudo guardar"));
-        setSaving(false);
-      }
-    } catch (err) {
-      setErrMsg("Error de red: " + (err instanceof Error ? err.message : String(err)));
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-semibold mb-4">Editar pago cuota {payment.numero_cuota}</h3>
-        <div className="space-y-3">
-          <div>
-            <label className="text-sm text-[var(--muted)] block mb-1">Monto USD</label>
-            <input type="number" value={monto} onChange={(e) => setMonto(e.target.value)} className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="text-sm text-[var(--muted)] block mb-1">Fecha de pago</label>
-            <input type="date" value={fechaPago} onChange={(e) => setFechaPago(e.target.value)} className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="text-sm text-[var(--muted)] block mb-1">Estado</label>
-            <select value={estado} onChange={(e) => setEstado(e.target.value as Payment["estado"])} className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm">
-              <option value="pagado">Pagado</option>
-              <option value="pendiente">Pendiente</option>
-              <option value="perdido">Perdido</option>
-              <option value="refund">Refund</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-sm text-[var(--muted)] block mb-1">Método</label>
-            <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm">
-              <option value="">—</option>
-              <option value="mercado_pago">Mercado Pago</option>
-              <option value="transferencia">Transferencia</option>
-              <option value="cash">Cash</option>
-              <option value="binance">Binance</option>
-              <option value="stripe">Stripe</option>
-              <option value="wise">Wise</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-sm text-[var(--muted)] block mb-1">Receptor</label>
-            <input type="text" value={receptor} onChange={(e) => setReceptor(e.target.value)} className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm" placeholder="FRAN, JUANMA, VALEN..." />
-          </div>
-        </div>
-        <div className="flex gap-2 mt-5">
-          <button onClick={onClose} className="flex-1 border border-[var(--card-border)] py-2 rounded-lg text-sm">Cancelar</button>
-          <button onClick={handleSave} disabled={saving} className="flex-1 bg-[var(--purple)] text-white py-2 rounded-lg text-sm disabled:opacity-50">
-            {saving ? "Guardando..." : "Guardar"}
-          </button>
-        </div>
-        {errMsg && <p className="text-xs text-[var(--red)] mt-2">{errMsg}</p>}
-      </div>
-    </div>
-  );
-}

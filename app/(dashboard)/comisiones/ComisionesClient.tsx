@@ -5,6 +5,7 @@ import MonthSelector77 from "@/app/components/MonthSelector77";
 import LeadEditModal, { type EditableLead } from "@/app/components/LeadEditModal";
 import AddPaymentModal, { type PaymentResult } from "@/app/components/AddPaymentModal";
 import AddLeadModal from "@/app/components/AddLeadModal";
+import PaymentEditModalShared, { type EditablePayment } from "@/app/components/PaymentEditModalShared";
 import { formatUSD } from "@/lib/format";
 import { computeValenCommission, SETTER_PCT } from "@/lib/commissions";
 import { getFiscalStart, getFiscalMonth, parseLocalDate } from "@/lib/date-utils";
@@ -42,6 +43,12 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
   const [deletingPayment, setDeletingPayment] = useState<string | null>(null);
   const [showAddPayment, setShowAddPayment] = useState(false);
   const [showAddLead, setShowAddLead] = useState(false);
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
+  const editingPayment = useMemo<EditablePayment | null>(() => {
+    if (!editingPaymentId) return null;
+    const p = payments.find((x) => x.id === editingPaymentId);
+    return p ? (p as unknown as EditablePayment) : null;
+  }, [editingPaymentId, payments]);
   const closers = useMemo(() => team.filter((t) => t.is_closer), [team]);
   const setters = useMemo(() => team.filter((t) => t.is_setter), [team]);
   const editingLead = useMemo<EditableLead | null>(() => {
@@ -304,6 +311,10 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
                             className="text-[10px] bg-[var(--purple)]/20 hover:bg-[var(--purple)]/40 text-[var(--purple-light)] px-2 py-0.5 rounded">
                             ✏️
                           </button>
+                          <button onClick={() => setEditingPaymentId(v.paymentId)} title="Editar pago"
+                            className="ml-1 text-[10px] bg-[var(--green)]/15 hover:bg-[var(--green)]/35 text-[var(--green)] px-2 py-0.5 rounded">
+                            📝
+                          </button>
                           <button onClick={() => handleDeletePayment(v.paymentId, v.leadName)}
                             disabled={deletingPayment === v.paymentId}
                             title="Eliminar pago"
@@ -357,6 +368,10 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
                             className="text-[10px] bg-[var(--purple)]/20 hover:bg-[var(--purple)]/40 text-[var(--purple-light)] px-2 py-0.5 rounded">
                             ✏️
                           </button>
+                          <button onClick={() => setEditingPaymentId(v.paymentId)} title="Editar pago"
+                            className="ml-1 text-[10px] bg-[var(--green)]/15 hover:bg-[var(--green)]/35 text-[var(--green)] px-2 py-0.5 rounded">
+                            📝
+                          </button>
                           <button onClick={() => handleDeletePayment(v.paymentId, v.leadName)}
                             disabled={deletingPayment === v.paymentId}
                             title="Eliminar pago"
@@ -408,6 +423,19 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
           setters={setters}
           onClose={() => setShowAddLead(false)}
           onCreated={() => { setShowAddLead(false); window.location.reload(); }}
+        />
+      )}
+
+      {editingPayment && (
+        <PaymentEditModalShared
+          payment={editingPayment}
+          onClose={() => setEditingPaymentId(null)}
+          onSaved={(updated) => {
+            setPayments((prev) => prev.map((p) => (p.id === editingPayment.id ? { ...p, ...updated } as PaymentRow : p)));
+          }}
+          onDeleted={(id) => {
+            setPayments((prev) => prev.filter((p) => p.id !== id));
+          }}
         />
       )}
     </div>
