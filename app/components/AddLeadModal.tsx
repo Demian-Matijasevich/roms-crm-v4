@@ -31,6 +31,13 @@ export default function AddLeadModal({ closers, setters, onClose, onCreated }: P
   const [calificado, setCalificado] = useState("");
   const [planPago, setPlanPago] = useState("");
   const [notas, setNotas] = useState("");
+  const [cashUsd, setCashUsd] = useState<string>("");
+  const [cashArs, setCashArs] = useState<string>("");
+  const [fechaPago, setFechaPago] = useState<string>("");
+  const [numeroCuota, setNumeroCuota] = useState<number>(1);
+  const [metodoPago, setMetodoPago] = useState<string>("");
+  const [metodoCustom, setMetodoCustom] = useState<string>("");
+  const [receptor, setReceptor] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -71,12 +78,40 @@ export default function AddLeadModal({ closers, setters, onClose, onCreated }: P
         body: JSON.stringify(body),
       });
       const json = await res.json();
-      if (json.ok && json.lead) {
-        if (onCreated) onCreated({ id: json.lead.id, nombre: json.lead.nombre });
-        onClose();
-      } else {
+      if (!json.ok || !json.lead) {
         setMsg("Error: " + (json.error || "no se pudo crear"));
+        return;
       }
+
+      // Si cargó cash collected, crear el pago asociado
+      const cashUsdNum = Number(cashUsd) || 0;
+      const cashArsNum = Number(cashArs) || 0;
+      if (cashUsdNum > 0 || cashArsNum > 0) {
+        const finalMetodo = metodoPago === "otro" ? metodoCustom.trim() : metodoPago;
+        const payRes = await fetch("/api/pagos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lead_id: json.lead.id,
+            numero_cuota: numeroCuota,
+            monto_usd: cashUsdNum,
+            monto_ars: cashArsNum,
+            fecha_pago: fechaPago || new Date().toISOString().slice(0, 10),
+            estado: "pagado",
+            metodo_pago: finalMetodo || undefined,
+            receptor: receptor || undefined,
+            es_renovacion: false,
+          }),
+        });
+        const payJson = await payRes.json();
+        if (!payJson.ok) {
+          setMsg("Lead creado pero error en pago: " + (payJson.error || "desconocido"));
+          // No retornar — el lead ya se creó
+        }
+      }
+
+      if (onCreated) onCreated({ id: json.lead.id, nombre: json.lead.nombre });
+      onClose();
     } catch (err) {
       setMsg("Error de red: " + (err instanceof Error ? err.message : String(err)));
     } finally {
@@ -196,6 +231,44 @@ export default function AddLeadModal({ closers, setters, onClose, onCreated }: P
           <Field label="Notas internas">
             <textarea value={notas} onChange={(e) => setNotas(e.target.value)} className={`${inputClass} min-h-[80px] resize-y`} rows={3} />
           </Field>
+
+          <h3 className="text-xs font-semibold uppercase text-[var(--green)] tracking-wider pt-3">💵 Cash collected (opcional)</h3>
+          <p className="text-[10px] text-[var(--muted)]">Si el lead pagó algo en esta llamada, cargá los datos del pago acá. Se crea automáticamente como cuota.</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Field label="Cash USD">
+              <input type="number" value={cashUsd} onChange={(e) => setCashUsd(e.target.value)} className={inputClass} min={0} step={50} placeholder="0" />
+            </Field>
+            <Field label="Cash ARS">
+              <input type="number" value={cashArs} onChange={(e) => setCashArs(e.target.value)} className={inputClass} min={0} step={1000} placeholder="0" />
+            </Field>
+            <Field label="Cuota #">
+              <input type="number" value={numeroCuota} onChange={(e) => setNumeroCuota(Number(e.target.value))} className={inputClass} min={1} max={10} />
+            </Field>
+            <Field label="Fecha pago">
+              <input type="date" value={fechaPago} onChange={(e) => setFechaPago(e.target.value)} className={inputClass} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <Field label="Método de pago">
+              <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className={inputClass}>
+                <option value="">---</option>
+                <option value="mercado_pago">mercado_pago</option>
+                <option value="transferencia">transferencia</option>
+                <option value="cash">cash</option>
+                <option value="binance">binance</option>
+                <option value="stripe">stripe</option>
+                <option value="wise">wise</option>
+                <option value="otro">+ Otro (escribir)</option>
+              </select>
+              {metodoPago === "otro" && (
+                <input type="text" value={metodoCustom} onChange={(e) => setMetodoCustom(e.target.value)}
+                  placeholder="ej: paypal..." className={`${inputClass} mt-2`} />
+              )}
+            </Field>
+            <Field label="Receptor">
+              <input type="text" value={receptor} onChange={(e) => setReceptor(e.target.value)} className={inputClass} placeholder="Quién cobró" />
+            </Field>
+          </div>
         </div>
 
         <div className="p-5 border-t border-[var(--card-border)] flex items-center gap-3 sticky bottom-0 bg-[var(--card-bg)]">
