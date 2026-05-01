@@ -81,7 +81,11 @@ export async function DELETE(req: NextRequest) {
     if (!id) return NextResponse.json({ error: "id requerido" }, { status: 400 });
 
     const sb = createServerClient();
-    // Delete associated payments first
+    // Unlink related records first (preserve them, just break the FK to avoid constraint errors)
+    await sb.from("clients").update({ lead_id: null }).eq("lead_id", id);
+    await sb.from("tracker_sessions").update({ lead_id: null }).eq("lead_id", id);
+    await sb.from("agent_tasks").update({ lead_id: null }).eq("lead_id", id);
+    // Delete associated payments (no value preserving them without a lead)
     await sb.from("payments").delete().eq("lead_id", id);
     const { error } = await sb.from("leads").delete().eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
