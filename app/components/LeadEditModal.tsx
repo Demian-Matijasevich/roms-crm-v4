@@ -140,9 +140,23 @@ export default function LeadEditModal({ lead, closers, setters, onClose, onSaved
               </select>
             </Field>
             <Field label="Programa pitcheado">
-              <select value={(data.programa_pitcheado as string) ?? ""} onChange={(e) => setData({ ...data, programa_pitcheado: e.target.value })} className={selectClass}>
+              <select value={(data.programa_pitcheado as string) ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "__otro__") {
+                    const custom = window.prompt("Nuevo programa (slug, ej: ecommerce_pro):");
+                    if (custom && custom.trim()) setData({ ...data, programa_pitcheado: custom.trim() });
+                  } else {
+                    setData({ ...data, programa_pitcheado: v });
+                  }
+                }}
+                className={selectClass}>
                 <option value="">Sin programa</option>
                 {Object.entries(PROGRAMS).map(([k, p]) => (<option key={k} value={k}>{p.label}</option>))}
+                {data.programa_pitcheado && !PROGRAMS[data.programa_pitcheado as string] && (
+                  <option value={data.programa_pitcheado as string}>{data.programa_pitcheado as string}</option>
+                )}
+                <option value="__otro__">+ Otro (escribir nuevo)</option>
               </select>
             </Field>
             <Field label="Lead calificado">

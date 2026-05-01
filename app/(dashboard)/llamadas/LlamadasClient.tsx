@@ -397,13 +397,25 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
                   <label className="text-xs text-[var(--muted)] mb-1 block">Programa pitcheado</label>
                   <select
                     value={(editData.programa_pitcheado as string) || ""}
-                    onChange={(e) => setEditData({ ...editData, programa_pitcheado: e.target.value || null })}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "__otro__") {
+                        const custom = window.prompt("Nuevo programa (slug, ej: ecommerce_pro):");
+                        if (custom && custom.trim()) setEditData({ ...editData, programa_pitcheado: custom.trim() });
+                      } else {
+                        setEditData({ ...editData, programa_pitcheado: v || null });
+                      }
+                    }}
                     className={selectClass}
                   >
                     <option value="">Sin programa</option>
                     {Object.entries(PROGRAMS).map(([key, p]) => (
                       <option key={key} value={key}>{p.label}</option>
                     ))}
+                    {editData.programa_pitcheado && !PROGRAMS[editData.programa_pitcheado as string] && (
+                      <option value={editData.programa_pitcheado as string}>{editData.programa_pitcheado as string}</option>
+                    )}
+                    <option value="__otro__">+ Otro (escribir nuevo)</option>
                   </select>
                 </div>
                 <div>

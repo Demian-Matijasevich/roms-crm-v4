@@ -24,7 +24,7 @@ export interface PaymentResult {
   receptor: string | null;
 }
 
-const METODOS = ["transferencia", "criptos", "tarjeta", "efectivo", "stripe", "tally", "otro"];
+const METODOS = ["mercado_pago", "transferencia", "cash", "binance", "stripe", "wise"];
 
 export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreated }: Props) {
   const [leadId, setLeadId] = useState<string>(defaultLeadId || "");
@@ -36,16 +36,20 @@ export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreat
   const [numeroCuota, setNumeroCuota] = useState<number>(1);
   const [estado, setEstado] = useState<"pagado" | "pendiente" | "perdido" | "refund">("pagado");
   const [metodoPago, setMetodoPago] = useState<string>("");
+  const [metodoCustom, setMetodoCustom] = useState<string>("");
   const [receptor, setReceptor] = useState<string>("");
   const [esRenovacion, setEsRenovacion] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const filteredLeads = useMemo(() => {
-    if (!search) return leads.slice(0, 50);
+    const sorted = [...leads].sort((a, b) => a.nombre.localeCompare(b.nombre));
+    if (!search) return sorted.slice(0, 200);
     const s = search.toLowerCase();
-    return leads.filter((l) => l.nombre.toLowerCase().includes(s)).slice(0, 50);
+    return sorted.filter((l) => l.nombre.toLowerCase().includes(s)).slice(0, 200);
   }, [leads, search]);
+
+  const selectedLead = leads.find((l) => l.id === leadId);
 
   async function handleSave() {
     if (!leadId) {
@@ -59,6 +63,7 @@ export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreat
     setSaving(true);
     setMsg(null);
     try {
+      const finalMetodo = metodoPago === "otro" ? metodoCustom.trim() : metodoPago;
       const body = {
         lead_id: leadId,
         numero_cuota: numeroCuota,
@@ -66,7 +71,7 @@ export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreat
         monto_ars: Number(montoArs) || 0,
         fecha_pago: fechaPago,
         estado,
-        metodo_pago: metodoPago || undefined,
+        metodo_pago: finalMetodo || undefined,
         receptor: receptor || undefined,
         es_renovacion: esRenovacion,
       };
@@ -105,13 +110,32 @@ export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreat
         <div className="p-5 space-y-4">
           {/* Lead picker */}
           <div>
-            <label className="text-xs text-[var(--muted)] mb-1 block">Lead</label>
+            <label className="text-xs text-[var(--muted)] mb-1 block">
+              Lead {selectedLead && <span className="text-[var(--green)] ml-1">✓ {selectedLead.nombre}</span>}
+            </label>
             <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-              placeholder="🔍 Buscar lead por nombre..." className={`${inputClass} mb-2`} />
-            <select value={leadId} onChange={(e) => setLeadId(e.target.value)} className={inputClass} size={6}>
-              <option value="">— Seleccioná un lead —</option>
-              {filteredLeads.map((l) => (<option key={l.id} value={l.id}>{l.nombre}</option>))}
-            </select>
+              placeholder="🔍 Buscar lead por nombre..." className={`${inputClass} mb-2`} autoFocus />
+            <div className="max-h-48 overflow-y-auto border border-[var(--card-border)] rounded bg-[var(--background)]">
+              {filteredLeads.length === 0 ? (
+                <p className="text-xs text-[var(--muted)] p-3">Sin resultados</p>
+              ) : filteredLeads.map((l) => (
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() => setLeadId(l.id)}
+                  className={`block w-full text-left px-3 py-1.5 text-sm border-b border-[var(--card-border)]/30 last:border-0 ${
+                    leadId === l.id ? "bg-[var(--purple)]/30 text-white" : "text-[var(--muted)] hover:bg-white/5 hover:text-white"
+                  }`}
+                >
+                  {l.nombre}
+                </button>
+              ))}
+            </div>
+            {leads.length > filteredLeads.length && !search && (
+              <p className="text-[10px] text-[var(--muted)] mt-1">
+                Mostrando {filteredLeads.length} de {leads.length}. Buscá por nombre para filtrar.
+              </p>
+            )}
           </div>
 
           {/* Monto + Cuota + Fecha */}
@@ -154,7 +178,12 @@ export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreat
               <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className={inputClass}>
                 <option value="">---</option>
                 {METODOS.map((m) => (<option key={m} value={m}>{m}</option>))}
+                <option value="otro">+ Otro (escribir nuevo)</option>
               </select>
+              {metodoPago === "otro" && (
+                <input type="text" value={metodoCustom} onChange={(e) => setMetodoCustom(e.target.value)}
+                  placeholder="ej: paypal, payoneer..." className={`${inputClass} mt-2`} autoFocus />
+              )}
             </div>
             <div>
               <label className="text-xs text-[var(--muted)] mb-1 block">Receptor</label>
