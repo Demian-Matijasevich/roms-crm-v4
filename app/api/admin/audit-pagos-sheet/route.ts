@@ -127,6 +127,23 @@ async function handle(req: NextRequest) {
     }
   }
 
+  // ── Fix specific date diffs ──
+  const fixIds = (url.searchParams.get("fixFechaIds") || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (fixIds.length > 0) {
+    let fixed = 0;
+    const fixErrors: string[] = [];
+    for (const m of missing) {
+      if (m.kind !== "fecha_diff") continue;
+      const pid = m.paymentId as string;
+      if (!fixIds.includes(pid)) continue;
+      const newFecha = (m.fechaSheet as string).split("T")[0];
+      const { error } = await sb.from("payments").update({ fecha_pago: newFecha }).eq("id", pid);
+      if (error) fixErrors.push(`${m.lead}: ${error.message}`);
+      else fixed++;
+    }
+    return NextResponse.json({ ok: true, fixed, errors: fixErrors });
+  }
+
   if (!apply) {
     return NextResponse.json({
       ok: true,
