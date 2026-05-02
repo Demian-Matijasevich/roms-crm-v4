@@ -16,24 +16,15 @@ import {
 import MonthSelector77 from "@/app/components/MonthSelector77";
 import { formatUSD } from "@/lib/format";
 import { getFiscalStart, getFiscalMonth, getFiscalMonthOptions, parseLocalDate } from "@/lib/date-utils";
-import { computeValenCommission } from "@/lib/commissions";
+import { computeValenCommission, computeTeamCommissions } from "@/lib/commissions";
 import type { CloserKPI, Lead } from "@/lib/types";
-
-interface Commission {
-  team_member_id: string;
-  nombre: string;
-  mes_fiscal: string;
-  comision_closer: number | null;
-  comision_setter: number | null;
-  comision_total: number | null;
-}
 
 interface Props {
   closerKpis: CloserKPI[];
   leads: Lead[];
-  commissions: Commission[];
   payments: { id: string; lead_id: string | null; monto_usd: number; fecha_pago: string | null; estado: string }[];
-  team: { id: string; nombre: string; is_closer: boolean }[];
+  team: { id: string; nombre: string; is_closer: boolean; is_setter: boolean }[];
+  campaigns: { medium: string | null; setter_id: string | null }[];
 }
 
 interface ComputedKpi {
@@ -47,6 +38,8 @@ interface ComputedKpi {
   cierre_pct: number;
   aov: number;
   comision_closer: number;
+  comision_setter: number;
+  comision_total: number;
   cash_cobrado: number;
   leads_con_cobro: number;
 }
@@ -54,11 +47,10 @@ interface ComputedKpi {
 export default function ClosersClient({
   closerKpis,
   leads,
-  commissions,
   payments,
   team,
+  campaigns,
 }: Props) {
-  void commissions;
   const [selectedMonth, setSelectedMonth] = useState(
     getFiscalStart().toISOString().split("T")[0]
   );
@@ -83,6 +75,7 @@ export default function ClosersClient({
     const byCloser: Record<string, ComputedKpi> = {};
     // Init for every closer (even those with 0 leads this month)
     for (const t of team) {
+      if (!t.is_closer) continue;
       byCloser[t.id] = {
         team_member_id: t.id,
         nombre: t.nombre,
@@ -94,6 +87,8 @@ export default function ClosersClient({
         cierre_pct: 0,
         aov: 0,
         comision_closer: 0,
+        comision_setter: 0,
+        comision_total: 0,
         cash_cobrado: 0,
         leads_con_cobro: 0,
       };
@@ -165,12 +160,27 @@ export default function ClosersClient({
       k.comision_closer = result.total;
     }
 
+    // ── Setter commission piece (3% flat) — for closers que también son setters ──
+    const teamCommissions = computeTeamCommissions({
+      leads: leads as unknown as Parameters<typeof computeTeamCommissions>[0]["leads"],
+      payments: payments,
+      team: team,
+      campaigns: campaigns,
+      monthStart: monthRange.start,
+      monthEnd: monthRange.end,
+    });
+    const setterByMember = new Map(teamCommissions.map((r) => [r.id, r.comision_setter]));
+    for (const k of Object.values(byCloser)) {
+      k.comision_setter = setterByMember.get(k.team_member_id) || 0;
+      k.comision_total = k.comision_closer + k.comision_setter;
+    }
+
     for (const [cid, set] of Object.entries(leadsConCobroSet)) {
       if (byCloser[cid]) byCloser[cid].leads_con_cobro = set.size;
     }
 
     return Object.values(byCloser).sort((a, b) => b.cash_cobrado - a.cash_cobrado);
-  }, [leads, payments, team, monthRange]);
+  }, [leads, payments, team, campaigns, monthRange]);
 
   // Funnel data per closer (filter out closers with 0 agendas)
   const funnelData = useMemo(() => {
@@ -212,13 +222,15 @@ export default function ClosersClient({
   // Commission table rows for current month (from computed KPIs)
   const commissionRows = useMemo(() => {
     return currentKpis
-      .filter((k) => k.comision_closer > 0)
+      .filter((k) => k.comision_total > 0)
       .map((k) => ({
         nombre: k.nombre,
         comision_closer: Math.round(k.comision_closer),
+        comision_setter: Math.round(k.comision_setter),
+        comision_total: Math.round(k.comision_total),
         mes_fiscal: currentLabel,
       }))
-      .sort((a, b) => b.comision_closer - a.comision_closer);
+      .sort((a, b) => b.comision_total - a.comision_total);
   }, [currentKpis, currentLabel]);
 
   return (
@@ -358,9 +370,14 @@ export default function ClosersClient({
                   <p className="text-xs text-[var(--muted)]">Cash cobrado</p>
                   <p className="text-sm font-bold text-[var(--green)]">{formatUSD(k.cash_cobrado)}</p>
                 </div>
-                <div title="Comisión por servicio × multiplicador de volumen (ver '¿Cómo se calcula?')">
-                  <p className="text-xs text-[var(--muted)]">Comisión</p>
-                  <p className="text-sm font-bold text-[var(--purple-light)]">{formatUSD(Math.round(k.comision_closer))}</p>
+                <div title="Comisión total = closer (7%/5%/7% × tier × cap 10%) + setter (3% si aplica)">
+                  <p className="text-xs text-[var(--muted)]">Comisión total</p>
+                  <p className="text-sm font-bold text-[var(--purple-light)]">{formatUSD(Math.round(k.comision_total))}</p>
+                  {k.comision_setter > 0 && (
+                    <p className="text-[10px] text-[var(--muted)]">
+                      closer {formatUSD(Math.round(k.comision_closer))} + setter {formatUSD(Math.round(k.comision_setter))}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -475,7 +492,9 @@ export default function ClosersClient({
               <thead>
                 <tr className="text-[var(--muted)] text-xs uppercase">
                   <th className="text-left py-2 px-3">Closer</th>
-                  <th className="text-right py-2 px-3">Comision</th>
+                  <th className="text-right py-2 px-3">Closer</th>
+                  <th className="text-right py-2 px-3">Setter (3%)</th>
+                  <th className="text-right py-2 px-3">Total</th>
                   <th className="text-left py-2 px-3">Periodo</th>
                 </tr>
               </thead>
@@ -488,8 +507,14 @@ export default function ClosersClient({
                     <td className="py-2 px-3 text-white font-medium">
                       {c.nombre}
                     </td>
-                    <td className="py-2 px-3 text-right font-bold text-[var(--green)]">
+                    <td className="py-2 px-3 text-right text-[var(--purple-light)]">
                       {formatUSD(c.comision_closer)}
+                    </td>
+                    <td className="py-2 px-3 text-right text-[var(--green)]">
+                      {c.comision_setter > 0 ? formatUSD(c.comision_setter) : "—"}
+                    </td>
+                    <td className="py-2 px-3 text-right font-bold text-[var(--green)]">
+                      {formatUSD(c.comision_total)}
                     </td>
                     <td className="py-2 px-3 text-[var(--muted)]">
                       {c.mes_fiscal}
