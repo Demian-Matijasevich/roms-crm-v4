@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
 import { llamadaSchema } from "@/lib/schemas";
-import { updateLead } from "@/lib/queries/leads";
+import { updateLead, updateLeadVerbose } from "@/lib/queries/leads";
 import { createPayment } from "@/lib/queries/payments";
 import { getToday, toDateString } from "@/lib/date-utils";
 import { syncLeadToSheet } from "@/lib/sheet-sync";
@@ -119,13 +119,13 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "No hay campos para actualizar" }, { status: 400 });
     }
 
-    const updatedLead = await updateLead(id, updates);
-    if (!updatedLead) {
-      return NextResponse.json({ error: "Error al actualizar lead" }, { status: 500 });
+    const result = await updateLeadVerbose(id, updates);
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error || "Error al actualizar lead" }, { status: 500 });
     }
 
     await syncLeadToSheet(id);
-    return NextResponse.json({ ok: true, lead: updatedLead });
+    return NextResponse.json({ ok: true, lead: result.lead });
   } catch (err) {
     console.error("[PATCH /api/llamadas]", err);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });

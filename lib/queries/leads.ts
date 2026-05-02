@@ -111,10 +111,32 @@ export async function updateLead(
     .single();
 
   if (error) {
-    console.error("[updateLead]", error.message);
+    console.error("[updateLead]", error.message, "updates:", JSON.stringify(updates));
     return null;
   }
   return data as Lead;
+}
+
+/**
+ * Same as updateLead but exposes the DB error message instead of swallowing it.
+ */
+export async function updateLeadVerbose(
+  id: string,
+  updates: Record<string, unknown>
+): Promise<{ ok: boolean; lead?: Lead; error?: string }> {
+  const supabase = createServerClient();
+  const { data, error } = await supabase
+    .from("leads")
+    .update(updates)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("[updateLeadVerbose]", error.message, "updates:", JSON.stringify(updates));
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, lead: data as Lead };
 }
 
 /**
