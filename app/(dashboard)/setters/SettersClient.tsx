@@ -294,15 +294,14 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
             <YAxis stroke="#888" fontSize={11} allowDecimals={false} />
             <Tooltip contentStyle={{ background: "#1a1a1a", border: "1px solid #333", fontSize: 12 }} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
-            {chartSeries.map((s, idx) => (
-              <Bar key={s.dataKey} dataKey={s.dataKey} stackId="a" fill={s.fill} name={s.name}>
-                {/* Mostrar el total arriba del último bar de cada stack */}
-                {idx === chartSeries.length - 1 && (
-                  <LabelList dataKey="total" position="top" fill="#fff" fontSize={10}
-                    formatter={(v) => (typeof v === "number" && v > 0 ? String(v) : "")} />
-                )}
-              </Bar>
+            {chartSeries.map((s) => (
+              <Bar key={s.dataKey} dataKey={s.dataKey} stackId="a" fill={s.fill} name={s.name} />
             ))}
+            {/* Bar invisible solo para el label del total arriba del stack */}
+            <Bar dataKey="total" stackId="b" fill="transparent" isAnimationActive={false} legendType="none">
+              <LabelList dataKey="total" position="top" fill="#fff" fontSize={11} fontWeight={600}
+                formatter={(v) => (typeof v === "number" && v > 0 ? String(v) : "")} />
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
