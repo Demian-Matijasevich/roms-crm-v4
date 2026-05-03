@@ -51,18 +51,35 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
     return map;
   }, [campaigns]);
 
-  // Source breakdown: count leads by utm_source in month
+  // Source breakdown: leads del mes clasificados por origen real (outbound / inbound:source / landing)
   const sourceBreakdown = useMemo(() => {
     const inMonth = leads.filter((l) => {
+      if (l.estado === "cancelada" || l.estado === "reprogramada") return false;
       const f = l.fecha_agendado?.split("T")[0] || l.fecha_llamada?.split("T")[0];
       return f && f >= monthRange.start && f <= monthRange.end;
     });
-    const counts: Record<string, number> = {};
+    let outbound = 0;
+    let landing = 0;
+    const inboundBySource: Record<string, number> = {};
     for (const l of inMonth) {
-      const src = (l.utm_source || "sin_utm").toLowerCase().trim();
-      counts[src] = (counts[src] || 0) + 1;
+      if (l.utm_medium) {
+        const src = (l.utm_source || "sin_source").toLowerCase().trim();
+        inboundBySource[src] = (inboundBySource[src] || 0) + 1;
+        continue;
+      }
+      if (l.setter_id) {
+        outbound++;
+        continue;
+      }
+      landing++;
     }
-    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    return {
+      outbound,
+      landing,
+      inboundBySource: Object.entries(inboundBySource).sort((a, b) => b[1] - a[1]),
+      totalInbound: Object.values(inboundBySource).reduce((s, n) => s + n, 0),
+      total: inMonth.length,
+    };
   }, [leads, monthRange]);
 
   // Helper: resolve setter for a lead and whether it's outbound (direct setter_id) or inbound (via utm_medium)
@@ -299,8 +316,23 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
             ))}
             {/* Bar invisible solo para el label del total arriba del stack */}
             <Bar dataKey="total" stackId="b" fill="transparent" isAnimationActive={false} legendType="none">
-              <LabelList dataKey="total" position="top" fill="#fff" fontSize={11} fontWeight={600}
-                formatter={(v) => (typeof v === "number" && v > 0 ? String(v) : "")} />
+              <LabelList
+                dataKey="total"
+                position="top"
+                content={(props) => {
+                  const { x, y, width, value } = props as { x?: number; y?: number; width?: number; value?: number | string };
+                  const v = typeof value === "number" ? value : Number(value || 0);
+                  if (!v || x == null || y == null || width == null) return null;
+                  const cx = x + width / 2;
+                  const labelW = v >= 100 ? 28 : v >= 10 ? 22 : 18;
+                  return (
+                    <g>
+                      <rect x={cx - labelW / 2} y={y - 18} width={labelW} height={15} rx={7} fill="#1f1f24" stroke="#444" strokeWidth={1} />
+                      <text x={cx} y={y - 7} textAnchor="middle" fill="#fff" fontSize={11} fontWeight={700}>{v}</text>
+                    </g>
+                  );
+                }}
+              />
             </Bar>
           </BarChart>
         </ResponsiveContainer>
@@ -308,21 +340,45 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
 
       {/* Fuente breakdown */}
       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Agendas por fuente (UTM Source) — {currentLabel}</h2>
-        {sourceBreakdown.length === 0 ? (
+        <h2 className="text-lg font-semibold text-white mb-4">Agendas por origen — {currentLabel}</h2>
+        {sourceBreakdown.total === 0 ? (
           <p className="text-[var(--muted)] text-sm">Sin datos para este mes</p>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {sourceBreakdown.map(([src, count]) => (
-              <div key={src} className="bg-[var(--background)] border border-[var(--card-border)] rounded-lg p-3">
-                <p className="text-xs text-[var(--muted)] uppercase">{src}</p>
-                <p className="text-xl font-bold text-white">{count}</p>
+          <>
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="bg-[var(--background)] border border-orange-400/40 rounded-lg p-3">
+                <p className="text-xs text-orange-400 uppercase">🟧 Outbound</p>
+                <p className="text-2xl font-bold text-white">{sourceBreakdown.outbound}</p>
+                <p className="text-[10px] text-[var(--muted)]">setter prospectó manual</p>
               </div>
-            ))}
-          </div>
+              <div className="bg-[var(--background)] border border-blue-400/40 rounded-lg p-3">
+                <p className="text-xs text-blue-400 uppercase">🟦 Inbound</p>
+                <p className="text-2xl font-bold text-white">{sourceBreakdown.totalInbound}</p>
+                <p className="text-[10px] text-[var(--muted)]">vino por UTM medium</p>
+              </div>
+              <div className="bg-[var(--background)] border border-[var(--purple)]/40 rounded-lg p-3">
+                <p className="text-xs text-[var(--purple-light)] uppercase">🟪 Landing</p>
+                <p className="text-2xl font-bold text-white">{sourceBreakdown.landing}</p>
+                <p className="text-[10px] text-[var(--muted)]">sin UTM ni setter</p>
+              </div>
+            </div>
+            {sourceBreakdown.inboundBySource.length > 0 && (
+              <>
+                <p className="text-xs text-[var(--muted)] uppercase tracking-wide mb-2">Inbound desglose por UTM source</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {sourceBreakdown.inboundBySource.map(([src, count]) => (
+                    <div key={src} className="bg-[var(--background)] border border-[var(--card-border)] rounded-lg p-2.5">
+                      <p className="text-[10px] text-[var(--muted)] uppercase truncate">{src}</p>
+                      <p className="text-base font-bold text-blue-400">{count}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
         )}
         <p className="text-xs text-[var(--muted)] mt-3">
-          Las agendas de <code>landing</code> generalmente vienen de página directa sin setter asignado. Si un setter tiene un link propio con <code>utm_source=landing</code>, configuralo en <a href="/utm" className="text-[var(--purple-light)] underline">UTM Builder</a> con él como setter.
+          Si un lead vino por landing pero querés atribuirlo a un setter, configuralo en <a href="/utm" className="text-[var(--purple-light)] underline">UTM Builder</a>.
         </p>
       </div>
 
