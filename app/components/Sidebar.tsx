@@ -28,6 +28,7 @@ function getNav(session: AuthSession): NavSection[] {
         title: "PRINCIPAL",
         items: [
           { href: "/", label: "Dashboard", icon: "\u{1F4CA}" },
+          { href: "/hoy", label: "Actividad hoy", icon: "\u{1F4C6}" },
           { href: "/calendario", label: "Calendario", icon: "\u{1F4C5}" },
           { href: "/pipeline", label: "Pipeline", icon: "\u{1F4DE}" },
           { href: "/llamadas", label: "CRM Llamadas", icon: "\u{1F4CB}" },
@@ -119,6 +120,7 @@ function getNav(session: AuthSession): NavSection[] {
         title: "MI PANEL",
         items: [
           { href: "/", label: "Mi Dashboard", icon: "\u{1F4CA}" },
+          { href: "/hoy", label: "Actividad hoy", icon: "\u{1F4C6}" },
           { href: "/calendario", label: "Calendario", icon: "\u{1F4C5}" },
           { href: "/pipeline", label: "Mi Pipeline", icon: "\u{1F4DE}" },
           { href: "/llamadas", label: "CRM Llamadas", icon: "\u{1F4CB}" },
@@ -152,6 +154,7 @@ function getNav(session: AuthSession): NavSection[] {
         title: "MI PANEL",
         items: [
           { href: "/", label: "Mi Dashboard", icon: "\u{1F4CA}" },
+          { href: "/hoy", label: "Actividad hoy", icon: "\u{1F4C6}" },
           { href: "/calendario", label: "Calendario", icon: "\u{1F4C5}" },
           { href: "/pipeline", label: "Mi Pipeline", icon: "\u{1F4DE}" },
           { href: "/llamadas", label: "CRM Llamadas", icon: "\u{1F4CB}" },
