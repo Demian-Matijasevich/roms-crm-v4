@@ -56,6 +56,11 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
   const [pagoFilter, setPagoFilter] = useState<string>("todos");
   const [programaFilter, setProgramaFilter] = useState<string>("todos");
   const [calificadoFilter, setCalificadoFilter] = useState<string>("todos");
+  const [fuenteFilter, setFuenteFilter] = useState<string>("todos");
+  const [tipoOrigenFilter, setTipoOrigenFilter] = useState<"todos" | "outbound" | "inbound" | "sin_setter">("todos");
+  const [cashFilter, setCashFilter] = useState<"todos" | "con_cash" | "sin_cash">("todos");
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [showEstadoCuenta, setShowEstadoCuenta] = useState<string | null>(null);
@@ -1001,9 +1006,39 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
         if (pagoFilter === "sin_pago" && hasPago) return false;
       }
 
+      // Fuente filter
+      if (fuenteFilter !== "todos" && lead.fuente !== fuenteFilter) return false;
+
+      // Tipo origen (outbound/inbound) filter
+      if (tipoOrigenFilter !== "todos") {
+        const hasSetter = !!lead.setter_id;
+        const hasUtmMedium = !!lead.utm_medium;
+        if (tipoOrigenFilter === "outbound" && !(hasSetter && !hasUtmMedium)) return false;
+        if (tipoOrigenFilter === "inbound" && !hasUtmMedium) return false;
+        if (tipoOrigenFilter === "sin_setter" && hasSetter) return false;
+      }
+
+      // Cash filter
+      if (cashFilter !== "todos") {
+        const leadPayments = paymentsByLead.get(lead.id) || [];
+        const totalCash = leadPayments.filter(p => p.estado === "pagado").reduce((s, p) => s + p.monto_usd, 0);
+        if (cashFilter === "con_cash" && totalCash <= 0) return false;
+        if (cashFilter === "sin_cash" && totalCash > 0) return false;
+      }
+
+      // Custom date range (aplica a fecha_llamada o fecha_agendado)
+      if (dateFrom || dateTo) {
+        const ll = lead.fecha_llamada?.split("T")[0];
+        const ag = lead.fecha_agendado?.split("T")[0];
+        const dateToCheck = ll || ag;
+        if (!dateToCheck) return false;
+        if (dateFrom && dateToCheck < dateFrom) return false;
+        if (dateTo && dateToCheck > dateTo) return false;
+      }
+
       return true;
     });
-  }, [leads, search, estadoFilter, closerFilter, setterFilter, monthFilter, programaFilter, calificadoFilter, pagoFilter, paymentsByLead]);
+  }, [leads, search, estadoFilter, closerFilter, setterFilter, monthFilter, programaFilter, calificadoFilter, pagoFilter, fuenteFilter, tipoOrigenFilter, cashFilter, dateFrom, dateTo, paymentsByLead]);
 
   // Sorted data
   const sorted = useMemo(() => {
@@ -1217,6 +1252,69 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
           <option value="con_pago">Con pago registrado</option>
           <option value="sin_pago">Sin pago</option>
         </select>
+
+        <select
+          value={tipoOrigenFilter}
+          onChange={(e) => setTipoOrigenFilter(e.target.value as typeof tipoOrigenFilter)}
+          className={selectClass}
+        >
+          <option value="todos">Origen: Todos</option>
+          <option value="outbound">Outbound (setter directo)</option>
+          <option value="inbound">Inbound (UTM medium)</option>
+          <option value="sin_setter">Sin setter</option>
+        </select>
+
+        <select
+          value={cashFilter}
+          onChange={(e) => setCashFilter(e.target.value as typeof cashFilter)}
+          className={selectClass}
+        >
+          <option value="todos">Cash: Todos</option>
+          <option value="con_cash">Con cash {">"} 0</option>
+          <option value="sin_cash">Sin cash</option>
+        </select>
+
+        <select
+          value={fuenteFilter}
+          onChange={(e) => setFuenteFilter(e.target.value)}
+          className={selectClass}
+        >
+          <option value="todos">Fuente: Todas</option>
+          {[...new Set(leads.map((l) => l.fuente).filter(Boolean))].sort().map((f) => (
+            <option key={f as string} value={f as string}>{f}</option>
+          ))}
+        </select>
+
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className={inputClass}
+          title="Desde (fecha llamada/agenda)"
+          placeholder="Desde"
+        />
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className={inputClass}
+          title="Hasta (fecha llamada/agenda)"
+          placeholder="Hasta"
+        />
+
+        {(tipoOrigenFilter !== "todos" || cashFilter !== "todos" || fuenteFilter !== "todos" || dateFrom || dateTo || estadoFilter !== "todos" || closerFilter !== "todos" || setterFilter !== "todos" || programaFilter !== "todos" || calificadoFilter !== "todos" || pagoFilter !== "todos" || monthFilter !== "todos" || search) && (
+          <button
+            onClick={() => {
+              setSearch(""); setEstadoFilter("todos"); setCloserFilter("todos"); setSetterFilter("todos");
+              setMonthFilter("todos"); setPagoFilter("todos"); setProgramaFilter("todos"); setCalificadoFilter("todos");
+              setFuenteFilter("todos"); setTipoOrigenFilter("todos"); setCashFilter("todos");
+              setDateFrom(""); setDateTo("");
+            }}
+            className="text-xs text-[var(--muted)] hover:text-white border border-[var(--card-border)] px-3 py-2 rounded-lg"
+          >
+            ✕ Limpiar filtros
+          </button>
+        )}
       </div>
 
       {/* Table */}

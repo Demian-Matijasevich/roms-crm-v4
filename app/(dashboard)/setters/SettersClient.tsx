@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import MonthSelector77 from "@/app/components/MonthSelector77";
 import { formatUSD } from "@/lib/format";
 import { getFiscalStart, getFiscalMonth, parseLocalDate } from "@/lib/date-utils";
@@ -17,6 +18,8 @@ interface SetterKpi {
   id: string;
   nombre: string;
   agendas: number;
+  outbound: number;
+  inbound: number;
   presentadas: number;
   cerradas: number;
   show_up_pct: number;
@@ -62,35 +65,47 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [leads, monthRange]);
 
+  // Helper: resolve setter for a lead and whether it's outbound (direct setter_id) or inbound (via utm_medium)
+  const resolveSetter = useMemo(() => {
+    return (l: Lead): { sid: string | null; via: "direct" | "utm" | null } => {
+      if (l.setter_id) return { sid: l.setter_id, via: "direct" };
+      if (l.utm_medium) {
+        const sid = mediumToSetter.get(l.utm_medium.toLowerCase());
+        if (sid) return { sid, via: "utm" };
+      }
+      return { sid: null, via: null };
+    };
+  }, [mediumToSetter]);
+
   // Compute KPIs per setter
   const kpis: SetterKpi[] = useMemo(() => {
     const byId = new Map<string, SetterKpi>();
     for (const s of setters) {
-      byId.set(s.id, { id: s.id, nombre: s.nombre, agendas: 0, presentadas: 0, cerradas: 0, show_up_pct: 0, cierre_pct: 0, cash_cobrado: 0, comision: 0 });
+      byId.set(s.id, { id: s.id, nombre: s.nombre, agendas: 0, outbound: 0, inbound: 0, presentadas: 0, cerradas: 0, show_up_pct: 0, cierre_pct: 0, cash_cobrado: 0, comision: 0 });
     }
 
     // Build a helper: resolve setter for a lead.
-    // First check lead.setter_id; if missing but utm_medium maps to a campaign → use that.
-    const leadSetterMap = new Map<string, string>();
+    const leadSetterMap = new Map<string, { sid: string; via: "direct" | "utm" }>();
     const monthLeads = leads.filter((l) => {
       const f = l.fecha_agendado?.split("T")[0] || l.fecha_llamada?.split("T")[0];
       return f && f >= monthRange.start && f <= monthRange.end;
     });
     for (const l of monthLeads) {
-      let sid: string | null | undefined = l.setter_id;
-      if (!sid && l.utm_medium) sid = mediumToSetter.get(l.utm_medium.toLowerCase()) ?? null;
-      if (sid) leadSetterMap.set(l.id, sid);
+      const { sid, via } = resolveSetter(l);
+      if (sid && via) leadSetterMap.set(l.id, { sid, via });
     }
 
-    // Agendas + Presentadas + Cerradas per setter
+    // Agendas + Presentadas + Cerradas per setter (con desglose outbound/inbound)
     for (const l of monthLeads) {
-      const sid = leadSetterMap.get(l.id);
-      if (!sid) continue;
-      const k = byId.get(sid);
+      const entry = leadSetterMap.get(l.id);
+      if (!entry) continue;
+      const k = byId.get(entry.sid);
       if (!k) continue;
       // Agendas reales: excluyo cancelada y reprogramada
       if (l.estado !== "cancelada" && l.estado !== "reprogramada") {
         k.agendas++;
+        if (entry.via === "direct") k.outbound++;
+        else k.inbound++;
       }
       const presented = !["pendiente", "cancelada", "no_show", "reprogramada"].includes(l.estado);
       if (presented) k.presentadas++;
@@ -124,7 +139,36 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
     }
 
     return Array.from(byId.values()).sort((a, b) => b.agendas - a.agendas);
-  }, [leads, payments, setters, mediumToSetter, monthRange]);
+  }, [leads, payments, setters, monthRange, resolveSetter]);
+
+  // ─── Daily breakdown per setter (con outbound/inbound stacked) ───
+  const [dailySetterFilter, setDailySetterFilter] = useState<string>("todos");
+
+  const dailyChartData = useMemo(() => {
+    // Build day buckets: each day in monthRange
+    const start = parseLocalDate(monthRange.start);
+    const end = parseLocalDate(monthRange.end);
+    const days: Map<string, { day: string; outbound: number; inbound: number }> = new Map();
+    const cur = new Date(start);
+    while (cur <= end) {
+      const k = cur.toISOString().slice(0, 10);
+      days.set(k, { day: k.slice(5), outbound: 0, inbound: 0 });
+      cur.setDate(cur.getDate() + 1);
+    }
+    for (const l of leads) {
+      const f = l.fecha_agendado?.split("T")[0] || l.fecha_llamada?.split("T")[0];
+      if (!f || f < monthRange.start || f > monthRange.end) continue;
+      if (l.estado === "cancelada" || l.estado === "reprogramada") continue;
+      const { sid, via } = resolveSetter(l);
+      if (!sid) continue;
+      if (dailySetterFilter !== "todos" && sid !== dailySetterFilter) continue;
+      const bucket = days.get(f);
+      if (!bucket) continue;
+      if (via === "direct") bucket.outbound++;
+      else bucket.inbound++;
+    }
+    return Array.from(days.values());
+  }, [leads, monthRange, resolveSetter, dailySetterFilter]);
 
   return (
     <div className="space-y-6">
@@ -165,6 +209,35 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
         </div>
       )}
 
+      {/* Daily chart - agendas by day with outbound/inbound stacked */}
+      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-white">📅 Agendas por día — {currentLabel}</h2>
+            <p className="text-xs text-[var(--muted)] mt-1">
+              <span className="text-orange-400">●</span> Outbound (setter prospectó manualmente) ·{" "}
+              <span className="text-blue-400">●</span> Inbound (vino por campaña UTM del setter)
+            </p>
+          </div>
+          <select value={dailySetterFilter} onChange={(e) => setDailySetterFilter(e.target.value)}
+            className="bg-[var(--background)] border border-[var(--card-border)] rounded px-3 py-1.5 text-sm text-white">
+            <option value="todos">Todos los setters</option>
+            {setters.map((s) => (<option key={s.id} value={s.id}>{s.nombre}</option>))}
+          </select>
+        </div>
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={dailyChartData}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+            <XAxis dataKey="day" stroke="#888" fontSize={11} />
+            <YAxis stroke="#888" fontSize={11} allowDecimals={false} />
+            <Tooltip contentStyle={{ background: "#1a1a1a", border: "1px solid #333", fontSize: 12 }} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Bar dataKey="outbound" stackId="a" fill="#fb923c" name="Outbound" />
+            <Bar dataKey="inbound" stackId="a" fill="#60a5fa" name="Inbound" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
       {/* Fuente breakdown */}
       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
         <h2 className="text-lg font-semibold text-white mb-4">Agendas por fuente (UTM Source) — {currentLabel}</h2>
@@ -199,6 +272,9 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
                 <div>
                   <p className="text-xs text-[var(--muted)]">Agendas</p>
                   <p className="text-lg font-bold text-white">{k.agendas}</p>
+                  <p className="text-[10px] text-[var(--muted)]">
+                    <span className="text-orange-400">{k.outbound} out</span> · <span className="text-blue-400">{k.inbound} in</span>
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-[var(--muted)]">Presentadas</p>
