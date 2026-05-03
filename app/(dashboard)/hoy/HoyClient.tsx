@@ -51,16 +51,16 @@ export default function HoyClient({ leads, team, campaigns }: Props) {
   const teamById = useMemo(() => new Map(team.map((t) => [t.id, t])), [team]);
 
   // Classify a lead's origen
+  // Prioridad: utm_medium (inbound) > setter_id solo (outbound) > landing
   function classify(l: Lead): { origen: Origen; setterId: string | null } {
-    if (l.setter_id && !l.utm_medium) {
-      return { origen: "outbound", setterId: l.setter_id };
-    }
     if (l.utm_medium) {
-      const sid = mediumToSetter.get(l.utm_medium.toLowerCase()) || null;
+      const sid = mediumToSetter.get(l.utm_medium.toLowerCase().trim()) || null;
       return { origen: "inbound", setterId: sid || l.setter_id };
     }
-    // sin setter, sin utm_medium → landing
-    return { origen: "landing", setterId: l.setter_id };
+    if (l.setter_id) {
+      return { origen: "outbound", setterId: l.setter_id };
+    }
+    return { origen: "landing", setterId: null };
   }
 
   // Filter leads of the day (by fecha_agendado or fecha_llamada)

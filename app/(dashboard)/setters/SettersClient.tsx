@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList } from "recharts";
 import MonthSelector77 from "@/app/components/MonthSelector77";
 import { formatUSD } from "@/lib/format";
 import { getFiscalStart, getFiscalMonth, parseLocalDate } from "@/lib/date-utils";
@@ -59,20 +59,22 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
     });
     const counts: Record<string, number> = {};
     for (const l of inMonth) {
-      const src = (l.utm_source || "sin_utm").toLowerCase();
+      const src = (l.utm_source || "sin_utm").toLowerCase().trim();
       counts[src] = (counts[src] || 0) + 1;
     }
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [leads, monthRange]);
 
   // Helper: resolve setter for a lead and whether it's outbound (direct setter_id) or inbound (via utm_medium)
+  // Prioridad: si tiene utm_medium que mapea a un setter → INBOUND (vino por campaña).
+  // Sino, si tiene setter_id → OUTBOUND (setter lo cargó/prospectó manual).
   const resolveSetter = useMemo(() => {
     return (l: Lead): { sid: string | null; via: "direct" | "utm" | null } => {
-      if (l.setter_id) return { sid: l.setter_id, via: "direct" };
       if (l.utm_medium) {
-        const sid = mediumToSetter.get(l.utm_medium.toLowerCase());
+        const sid = mediumToSetter.get(l.utm_medium.toLowerCase().trim());
         if (sid) return { sid, via: "utm" };
       }
+      if (l.setter_id) return { sid: l.setter_id, via: "direct" };
       return { sid: null, via: null };
     };
   }, [mediumToSetter]);
@@ -143,16 +145,40 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
 
   // ─── Daily breakdown per setter (con outbound/inbound stacked) ───
   const [dailySetterFilter, setDailySetterFilter] = useState<string>("todos");
+  const [chartMode, setChartMode] = useState<"out_in" | "by_setter">("by_setter");
+
+  // Color palette por setter (estable por id)
+  const setterColors = useMemo(() => {
+    const palette = ["#fb923c", "#60a5fa", "#34d399", "#a78bfa", "#f472b6", "#facc15", "#22d3ee", "#fb7185", "#84cc16", "#c084fc"];
+    const sortedSetters = [...setters].sort((a, b) => a.nombre.localeCompare(b.nombre));
+    const map = new Map<string, string>();
+    sortedSetters.forEach((s, i) => map.set(s.id, palette[i % palette.length]));
+    return map;
+  }, [setters]);
 
   const dailyChartData = useMemo(() => {
     // Build day buckets: each day in monthRange
     const start = parseLocalDate(monthRange.start);
     const end = parseLocalDate(monthRange.end);
-    const days: Map<string, { day: string; outbound: number; inbound: number }> = new Map();
+    const isAll = dailySetterFilter === "todos";
+
+    // Cuando "todos" + modo by_setter → claves dinámicas <setter>_out / <setter>_in
+    // Cuando un setter específico → claves fijas outbound / inbound
+    const days: Map<string, Record<string, number | string>> = new Map();
     const cur = new Date(start);
     while (cur <= end) {
       const k = cur.toISOString().slice(0, 10);
-      days.set(k, { day: k.slice(5), outbound: 0, inbound: 0 });
+      const bucket: Record<string, number | string> = { day: k.slice(5), total: 0 };
+      if (!isAll || chartMode === "out_in") {
+        bucket.outbound = 0;
+        bucket.inbound = 0;
+      } else {
+        for (const s of setters) {
+          bucket[`${s.id}_out`] = 0;
+          bucket[`${s.id}_in`] = 0;
+        }
+      }
+      days.set(k, bucket);
       cur.setDate(cur.getDate() + 1);
     }
     for (const l of leads) {
@@ -161,14 +187,40 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
       if (l.estado === "cancelada" || l.estado === "reprogramada") continue;
       const { sid, via } = resolveSetter(l);
       if (!sid) continue;
-      if (dailySetterFilter !== "todos" && sid !== dailySetterFilter) continue;
+      if (!isAll && sid !== dailySetterFilter) continue;
       const bucket = days.get(f);
       if (!bucket) continue;
-      if (via === "direct") bucket.outbound++;
-      else bucket.inbound++;
+      bucket.total = (bucket.total as number) + 1;
+      if (!isAll || chartMode === "out_in") {
+        if (via === "direct") bucket.outbound = (bucket.outbound as number) + 1;
+        else bucket.inbound = (bucket.inbound as number) + 1;
+      } else {
+        const key = via === "direct" ? `${sid}_out` : `${sid}_in`;
+        bucket[key] = (bucket[key] as number || 0) + 1;
+      }
     }
     return Array.from(days.values());
-  }, [leads, monthRange, resolveSetter, dailySetterFilter]);
+  }, [leads, monthRange, resolveSetter, dailySetterFilter, chartMode, setters]);
+
+  // Series para el chart (depende del modo)
+  const chartSeries = useMemo(() => {
+    const isAll = dailySetterFilter === "todos";
+    if (!isAll || chartMode === "out_in") {
+      return [
+        { dataKey: "outbound", fill: "#fb923c", name: "Outbound" },
+        { dataKey: "inbound", fill: "#60a5fa", name: "Inbound" },
+      ];
+    }
+    // Modo por setter: 2 series por setter (out + in con misma base color)
+    const series: { dataKey: string; fill: string; name: string }[] = [];
+    const sortedSetters = [...setters].sort((a, b) => a.nombre.localeCompare(b.nombre));
+    for (const s of sortedSetters) {
+      const baseColor = setterColors.get(s.id) || "#888";
+      series.push({ dataKey: `${s.id}_out`, fill: baseColor, name: `${s.nombre} · out` });
+      series.push({ dataKey: `${s.id}_in`, fill: baseColor + "99", name: `${s.nombre} · in` });
+    }
+    return series;
+  }, [setters, dailySetterFilter, chartMode, setterColors]);
 
   return (
     <div className="space-y-6">
@@ -215,25 +267,42 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
           <div>
             <h2 className="text-lg font-semibold text-white">📅 Agendas por día — {currentLabel}</h2>
             <p className="text-xs text-[var(--muted)] mt-1">
-              <span className="text-orange-400">●</span> Outbound (setter prospectó manualmente) ·{" "}
-              <span className="text-blue-400">●</span> Inbound (vino por campaña UTM del setter)
+              {dailySetterFilter === "todos" && chartMode === "by_setter"
+                ? "Color sólido = outbound · color claro = inbound · cada color es un setter distinto"
+                : <><span className="text-orange-400">●</span> Outbound (setter manual) · <span className="text-blue-400">●</span> Inbound (vino por UTM)</>}
             </p>
           </div>
-          <select value={dailySetterFilter} onChange={(e) => setDailySetterFilter(e.target.value)}
-            className="bg-[var(--background)] border border-[var(--card-border)] rounded px-3 py-1.5 text-sm text-white">
-            <option value="todos">Todos los setters</option>
-            {setters.map((s) => (<option key={s.id} value={s.id}>{s.nombre}</option>))}
-          </select>
+          <div className="flex items-center gap-2">
+            {dailySetterFilter === "todos" && (
+              <select value={chartMode} onChange={(e) => setChartMode(e.target.value as "out_in" | "by_setter")}
+                className="bg-[var(--background)] border border-[var(--card-border)] rounded px-3 py-1.5 text-sm text-white">
+                <option value="by_setter">Vista: por setter</option>
+                <option value="out_in">Vista: out vs in</option>
+              </select>
+            )}
+            <select value={dailySetterFilter} onChange={(e) => setDailySetterFilter(e.target.value)}
+              className="bg-[var(--background)] border border-[var(--card-border)] rounded px-3 py-1.5 text-sm text-white">
+              <option value="todos">Todos los setters</option>
+              {setters.map((s) => (<option key={s.id} value={s.id}>{s.nombre}</option>))}
+            </select>
+          </div>
         </div>
-        <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={dailyChartData}>
+        <ResponsiveContainer width="100%" height={320}>
+          <BarChart data={dailyChartData} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#333" />
             <XAxis dataKey="day" stroke="#888" fontSize={11} />
             <YAxis stroke="#888" fontSize={11} allowDecimals={false} />
             <Tooltip contentStyle={{ background: "#1a1a1a", border: "1px solid #333", fontSize: 12 }} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="outbound" stackId="a" fill="#fb923c" name="Outbound" />
-            <Bar dataKey="inbound" stackId="a" fill="#60a5fa" name="Inbound" />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            {chartSeries.map((s, idx) => (
+              <Bar key={s.dataKey} dataKey={s.dataKey} stackId="a" fill={s.fill} name={s.name}>
+                {/* Mostrar el total arriba del último bar de cada stack */}
+                {idx === chartSeries.length - 1 && (
+                  <LabelList dataKey="total" position="top" fill="#fff" fontSize={10}
+                    formatter={(v) => (typeof v === "number" && v > 0 ? String(v) : "")} />
+                )}
+              </Bar>
+            ))}
           </BarChart>
         </ResponsiveContainer>
       </div>
