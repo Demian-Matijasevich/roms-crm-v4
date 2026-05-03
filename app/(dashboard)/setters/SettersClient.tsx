@@ -67,8 +67,8 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
       return f && f >= monthRange.start && f <= monthRange.end;
     });
     let outbound = 0;
-    let landing = 0;
     const inboundBySource: Record<string, number> = {};
+    const landingBySource: Record<string, number> = {};
     for (const l of inMonth) {
       if (l.utm_medium) {
         const src = (l.utm_source || "sin_source").toLowerCase().trim();
@@ -79,11 +79,15 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
         outbound++;
         continue;
       }
-      landing++;
+      // landing: sin setter, sin utm_medium — pero podemos usar utm_source para saber de dónde vino
+      const src = (l.utm_source || "sin_source").toLowerCase().trim();
+      landingBySource[src] = (landingBySource[src] || 0) + 1;
     }
+    const totalLanding = Object.values(landingBySource).reduce((s, n) => s + n, 0);
     return {
       outbound,
-      landing,
+      landing: totalLanding,
+      landingBySource: Object.entries(landingBySource).sort((a, b) => b[1] - a[1]),
       inboundBySource: Object.entries(inboundBySource).sort((a, b) => b[1] - a[1]),
       totalInbound: Object.values(inboundBySource).reduce((s, n) => s + n, 0),
       total: inMonth.length,
@@ -387,17 +391,33 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
               </div>
             </div>
             {sourceBreakdown.inboundBySource.length > 0 && (
-              <>
-                <p className="text-xs text-[var(--muted)] uppercase tracking-wide mb-2">Inbound desglose por UTM source</p>
+              <div className="mb-4">
+                <p className="text-xs text-blue-400 uppercase tracking-wide mb-2">🟦 Inbound desglose por UTM source</p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                   {sourceBreakdown.inboundBySource.map(([src, count]) => (
-                    <div key={src} className="bg-[var(--background)] border border-[var(--card-border)] rounded-lg p-2.5">
+                    <div key={src} className="bg-[var(--background)] border border-blue-400/30 rounded-lg p-2.5">
                       <p className="text-[10px] text-[var(--muted)] uppercase truncate">{src}</p>
                       <p className="text-base font-bold text-blue-400">{count}</p>
                     </div>
                   ))}
                 </div>
-              </>
+              </div>
+            )}
+            {sourceBreakdown.landingBySource.length > 0 && (
+              <div>
+                <p className="text-xs text-[var(--purple-light)] uppercase tracking-wide mb-2">🟪 Landing desglose por UTM source</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {sourceBreakdown.landingBySource.map(([src, count]) => (
+                    <div key={src} className="bg-[var(--background)] border border-[var(--purple)]/30 rounded-lg p-2.5">
+                      <p className="text-[10px] text-[var(--muted)] uppercase truncate">{src}</p>
+                      <p className="text-base font-bold text-[var(--purple-light)]">{count}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] text-[var(--muted)] mt-2">
+                  Estos son los leads sin setter ni UTM medium — si les pegás distinto <code>utm_source</code> en cada lugar (IG bio, web, ads...) vas a ver de dónde vienen acá.
+                </p>
+              </div>
             )}
           </>
         )}
