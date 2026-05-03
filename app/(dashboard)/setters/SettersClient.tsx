@@ -30,17 +30,25 @@ interface SetterKpi {
 
 export default function SettersClient({ leads, payments, setters, campaigns }: Props) {
   const [selectedMonth, setSelectedMonth] = useState(getFiscalStart().toISOString().split("T")[0]);
+  const [selectedDay, setSelectedDay] = useState<string>(""); // si hay valor → override, filtra solo ese día
   const [showHelp, setShowHelp] = useState(false);
 
-  const currentLabel = useMemo(() => getFiscalMonth(parseLocalDate(selectedMonth)), [selectedMonth]);
+  const currentLabel = useMemo(() => {
+    if (selectedDay) return selectedDay;
+    return getFiscalMonth(parseLocalDate(selectedMonth));
+  }, [selectedMonth, selectedDay]);
 
   const monthRange = useMemo(() => {
+    if (selectedDay) {
+      // Si hay día seleccionado, el rango es solo ese día
+      return { start: selectedDay, end: selectedDay };
+    }
     const start = parseLocalDate(selectedMonth);
     const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
     const pad = (n: number) => String(n).padStart(2, "0");
     const toStr = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     return { start: toStr(start), end: toStr(end) };
-  }, [selectedMonth]);
+  }, [selectedMonth, selectedDay]);
 
   // Build mapping utm_medium → setter_id
   const mediumToSetter = useMemo(() => {
@@ -241,16 +249,32 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-white">Setters Analytics</h1>
-          <p className="text-sm text-[var(--muted)]">Agendas por setter — {currentLabel}</p>
+          <p className="text-sm text-[var(--muted)]">
+            Agendas por setter — {currentLabel}
+            {selectedDay && <span className="ml-2 text-[var(--purple-light)]">(día específico)</span>}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => setShowHelp(!showHelp)} className="px-3 py-2 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)] text-sm text-[var(--muted)] hover:text-white">
             {showHelp ? "Ocultar" : "¿Cómo se calcula?"}
           </button>
-          <MonthSelector77 value={selectedMonth} onChange={setSelectedMonth} />
+          <input type="date" value={selectedDay} onChange={(e) => setSelectedDay(e.target.value)}
+            className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm text-white"
+            title="Seleccionar día específico" />
+          {selectedDay && (
+            <button onClick={() => setSelectedDay("")}
+              className="text-xs text-[var(--muted)] hover:text-white border border-[var(--card-border)] px-3 py-2 rounded-lg">
+              ✕ Volver al mes
+            </button>
+          )}
+          <button onClick={() => setSelectedDay(new Date().toISOString().slice(0, 10))}
+            className="text-xs bg-[var(--purple)]/20 hover:bg-[var(--purple)]/40 text-[var(--purple-light)] px-3 py-2 rounded-lg">
+            Hoy
+          </button>
+          <MonthSelector77 value={selectedMonth} onChange={(v) => { setSelectedMonth(v); setSelectedDay(""); }} />
         </div>
       </div>
 
