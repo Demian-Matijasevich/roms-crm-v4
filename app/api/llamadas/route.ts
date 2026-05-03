@@ -119,13 +119,13 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "No hay campos para actualizar" }, { status: 400 });
     }
 
-    const result = await updateLeadVerbose(id, updates);
-    if (!result.ok) {
-      return NextResponse.json({ error: result.error || "Error al actualizar lead" }, { status: 500 });
+    const updateRes = await updateLeadVerbose(id, updates);
+    if (!updateRes.ok) {
+      return NextResponse.json({ error: updateRes.error || "Error al actualizar lead" }, { status: 500 });
     }
 
     await syncLeadToSheet(id);
-    return NextResponse.json({ ok: true, lead: result.lead });
+    return NextResponse.json({ ok: true, lead: updateRes.lead });
   } catch (err) {
     console.error("[PATCH /api/llamadas]", err);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });

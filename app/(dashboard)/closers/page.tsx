@@ -33,7 +33,7 @@ export default async function ClosersPage() {
   return (
     <ClosersClient
       closerKpis={(kpisRes.data as CloserKPI[]) ?? []}
-      leads={(leadsRes.data as Lead[]) ?? []}
+      leads={(leadsRes.data as unknown as Lead[]) ?? []}
       payments={(paymentsRes.data as { id: string; lead_id: string | null; monto_usd: number; fecha_pago: string | null; estado: string }[]) ?? []}
       team={(teamRes.data as { id: string; nombre: string; is_closer: boolean; is_setter: boolean }[]) ?? []}
       campaigns={(campaignsRes.data as { medium: string | null; setter_id: string | null }[]) ?? []}
