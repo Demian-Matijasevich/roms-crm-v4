@@ -266,7 +266,10 @@ export default function LeaderboardClient({
         });
       }
       const entry = setterMap.get(l.setter_id)!;
-      entry.agendas++;
+      // Agendas reales: excluyo cancelada y reprogramada
+      if (l.estado !== "cancelada" && l.estado !== "reprogramada") {
+        entry.agendas++;
+      }
       if (
         l.estado === "cerrado" ||
         l.estado === "adentro_seguimiento"

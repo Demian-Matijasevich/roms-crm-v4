@@ -88,7 +88,10 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
       if (!sid) continue;
       const k = byId.get(sid);
       if (!k) continue;
-      k.agendas++;
+      // Agendas reales: excluyo cancelada y reprogramada
+      if (l.estado !== "cancelada" && l.estado !== "reprogramada") {
+        k.agendas++;
+      }
       const presented = !["pendiente", "cancelada", "no_show", "reprogramada"].includes(l.estado);
       if (presented) k.presentadas++;
       if (l.estado === "cerrado" || l.estado === "adentro_seguimiento") k.cerradas++;

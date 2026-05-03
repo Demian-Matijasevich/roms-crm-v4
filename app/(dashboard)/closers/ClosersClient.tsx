@@ -104,7 +104,10 @@ export default function ClosersClient({
     for (const l of leadsThisMonth) {
       const k = byCloser[l.closer_id!];
       if (!k) continue;
-      k.total_agendas++;
+      // Agendas reales: excluyo cancelada y reprogramada (ya no son la agenda original)
+      if (l.estado !== "cancelada" && l.estado !== "reprogramada") {
+        k.total_agendas++;
+      }
       const presentada = !["pendiente", "cancelada", "no_show", "reprogramada"].includes(l.estado);
       if (presentada) {
         k.presentadas++;
