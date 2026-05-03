@@ -53,22 +53,26 @@ function getNav(session: AuthSession): NavSection[] {
       {
         title: "ANALYTICS",
         items: [
-          { href: "/metricas-clientes", label: "Métricas Clientes", icon: "\u{1F4C9}" },
-          { href: "/mel-update", label: "Form Mel (clientes)", icon: "\u{1F4DD}" },
-          { href: "/metricas-clientes/explicacion", label: "Guía métricas (PDF)", icon: "\u{1F4D8}" },
           { href: "/comisiones", label: "Comisiones (detalle)", icon: "\u{1F4B8}" },
           { href: "/closers", label: "Closers Analytics", icon: "\u{1F3C6}" },
+          { href: "/setters", label: "Setters Analytics", icon: "\u{1F4AC}" },
           { href: "/leaderboard", label: "Leaderboard", icon: "\u{1F947}" },
           { href: "/scorecard", label: "Scorecard", icon: "\u{1F4CA}" },
           { href: "/funnel", label: "Funnel", icon: "\u{1F504}" },
           { href: "/comparativa", label: "Comparativa", icon: "\u{1F4CA}" },
           { href: "/ig-metrics", label: "IG Metrics", icon: "\u{1F4F1}" },
-          { href: "/setters", label: "Setters Analytics", icon: "\u{1F4AC}" },
           { href: "/leads", label: "Leads (global)", icon: "\u{1F465}" },
           { href: "/leads-sin-setter", label: "Leads sin setter", icon: "\u{1F50D}" },
           { href: "/reporte-diario", label: "Reporte Diario (texto)", icon: "\u{1F4F0}" },
           { href: "/reportes", label: "Reportes Diarios", icon: "\u{1F4DD}" },
-          { href: "/reportes/marzo-2026", label: "Reporte Mar 2026", icon: "\u{1F4C4}" },
+        ],
+      },
+      {
+        title: "MEL / CLIENTES",
+        items: [
+          { href: "/metricas-clientes", label: "Métricas Clientes", icon: "\u{1F4C9}" },
+          { href: "/mel-update", label: "Form Mel (update)", icon: "\u{1F4DD}" },
+          { href: "/metricas-clientes/explicacion", label: "Guía métricas (PDF)", icon: "\u{1F4D8}" },
         ],
       },
       {
