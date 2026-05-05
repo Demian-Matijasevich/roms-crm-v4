@@ -66,6 +66,9 @@ export default async function FinanzasPage() {
     .not("fecha_onboarding", "is", null)
     .range(0, 4999);
 
+  // USD rate history para mostrar/editar en finanzas
+  const usdRatesRes = await supabase.from("usd_rate_history").select("*").order("mes", { ascending: false });
+
   // Compute commissions per month using Valen scheme (7/5/7 × multiplicador, cap 10%) + setter 3%
   const allPayments = (paymentsRes.data ?? []) as Array<{ lead_id: string | null; monto_usd: number; fecha_pago: string | null; estado: string }>;
   const leadsForComm = (leadsForCommRes.data ?? []) as Array<{ id: string; closer_id: string | null; setter_id: string | null; utm_medium: string | null; programa_pitcheado: string | null }>;
@@ -163,6 +166,7 @@ export default async function FinanzasPage() {
       }
       leadsForPro={leadsForPro}
       clientsForPro={clientsForPro}
+      usdRateHistory={(usdRatesRes.data ?? []) as Array<{ mes: string; rate: number }>}
       currentFiscalMonth={currentFiscalMonth}
     />
   );

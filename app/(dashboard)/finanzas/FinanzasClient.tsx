@@ -61,6 +61,7 @@ interface Props {
   payments: PaymentRow[];
   leadsForPro: LeadForPro[];
   clientsForPro: ClientForPro[];
+  usdRateHistory: Array<{ mes: string; rate: number }>;
   currentFiscalMonth: string;
 }
 
@@ -88,8 +89,40 @@ export default function FinanzasClient({
   payments,
   leadsForPro,
   clientsForPro,
+  usdRateHistory: initialRates,
   currentFiscalMonth,
 }: Props) {
+  const [rates, setRates] = useState(initialRates);
+  const [newRateMes, setNewRateMes] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [newRateValue, setNewRateValue] = useState<string>("");
+
+  async function saveMonthRate() {
+    const r = Number(newRateValue);
+    if (!Number.isFinite(r) || r <= 0) { alert("Rate inválido"); return; }
+    const res = await fetch("/api/usd-rates", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mes: newRateMes, rate: r }),
+    });
+    const json = await res.json();
+    if (json.ok) {
+      setRates((prev) => {
+        const filtered = prev.filter((x) => x.mes !== newRateMes);
+        return [...filtered, { mes: newRateMes, rate: r }].sort((a, b) => b.mes.localeCompare(a.mes));
+      });
+      setNewRateValue("");
+    } else {
+      alert("Error: " + (json.error || ""));
+    }
+  }
+
+  async function deleteMonthRate(mes: string) {
+    if (!confirm(`¿Borrar rate de ${mes}?`)) return;
+    const res = await fetch(`/api/usd-rates?mes=${encodeURIComponent(mes)}`, { method: "DELETE" });
+    const json = await res.json();
+    if (json.ok) setRates((prev) => prev.filter((r) => r.mes !== mes));
+    else alert("Error: " + (json.error || ""));
+  }
   const [usdRate, setUsdRate] = useState(initialUsdRate);
   const [editingRate, setEditingRate] = useState(false);
   const [rateInput, setRateInput] = useState(String(initialUsdRate));
@@ -619,6 +652,58 @@ export default function FinanzasClient({
             <span className="text-blue-400 font-semibold">Devengado:</span> ¿Cuánto ganamos contablemente?
           </div>
         </div>
+      </div>
+
+      {/* ══════════════ USD RATE POR MES ══════════════ */}
+      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <h2 className="text-lg font-semibold text-white">💱 USD/ARS por mes</h2>
+            <p className="text-xs text-[var(--muted)] mt-1">
+              Cuando cargás un gasto en ARS, se convierte a USD usando el rate del mes del gasto. Si no hay rate cargado para ese mes, usa el global ({usdRate} ARS/USD).
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input type="month" value={newRateMes} onChange={(e) => setNewRateMes(e.target.value)}
+              className="bg-[var(--background)] border border-[var(--card-border)] rounded px-3 py-1.5 text-sm text-white" />
+            <input type="number" value={newRateValue} onChange={(e) => setNewRateValue(e.target.value)}
+              placeholder="Rate ARS/USD" min={0} step={1}
+              className="bg-[var(--background)] border border-[var(--card-border)] rounded px-3 py-1.5 text-sm text-white w-32" />
+            <button onClick={saveMonthRate}
+              className="text-sm bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white px-4 py-1.5 rounded">
+              Guardar
+            </button>
+          </div>
+        </div>
+        {rates.length === 0 ? (
+          <p className="text-[var(--muted)] text-sm">Sin rates cargados. Usá el form de arriba para empezar.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[10px] uppercase text-[var(--muted)] border-b border-[var(--card-border)]">
+                  <th className="py-2 px-3">Mes</th>
+                  <th className="py-2 px-3 text-right">Rate (ARS/USD)</th>
+                  <th className="py-2 px-3 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rates.map((r) => (
+                  <tr key={r.mes} className="border-t border-[var(--card-border)]/30">
+                    <td className="py-2 px-3 text-white font-medium">{r.mes}</td>
+                    <td className="py-2 px-3 text-right font-mono text-[var(--green)]">{Number(r.rate).toLocaleString("en-US")}</td>
+                    <td className="py-2 px-3 text-right">
+                      <button onClick={() => deleteMonthRate(r.mes)}
+                        className="text-xs bg-[var(--red)]/15 hover:bg-[var(--red)]/35 text-[var(--red)] px-2 py-0.5 rounded">
+                        🗑️
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* ══════════════ P&L ══════════════ */}

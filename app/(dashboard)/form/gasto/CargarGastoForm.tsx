@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { AuthSession, TeamMember } from "@/lib/types";
 
 interface Props {
@@ -9,20 +9,8 @@ interface Props {
   session: AuthSession;
 }
 
-const CATEGORIAS = [
-  "Editores",
-  "Setters",
-  "Closers",
-  "Ads",
-  "Herramientas",
-  "Comisiones",
-  "Sueldos",
-  "Infraestructura",
-  "Impuestos",
-  "Otros",
-];
-
-const BILLETERAS = ["Binance", "Wise", "Mercado Pago", "Cash", "Transferencia", "Stripe"];
+interface CategoriaMeta { nombre: string; activo: boolean }
+interface CajaMeta { nombre: string; moneda: string; activo: boolean }
 
 const ESTADOS = ["pagado", "pendiente"];
 
@@ -39,6 +27,17 @@ export default function CargarGastoForm({ admins, usdRate, session }: Props) {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [categorias, setCategorias] = useState<CategoriaMeta[]>([]);
+  const [cajas, setCajas] = useState<CajaMeta[]>([]);
+
+  useEffect(() => {
+    fetch("/api/gastos-meta").then((r) => r.json()).then((j) => {
+      if (j.ok) {
+        setCategorias(j.categorias || []);
+        setCajas(j.cajas || []);
+      }
+    }).catch(() => {});
+  }, []);
 
   const [fecha, setFecha] = useState(todayISO());
   const [concepto, setConcepto] = useState("");
@@ -48,12 +47,20 @@ export default function CargarGastoForm({ admins, usdRate, session }: Props) {
   const montoUsd = currency === "USD" ? montoInput : montoInput && parseFloat(montoInput) > 0 ? String(Math.round(parseFloat(montoInput) / usdRate)) : "";
   const montoArs = currency === "ARS" ? montoInput : "";
   const [billetera, setBilletera] = useState("");
+  const cajaSeleccionada = cajas.find((c) => c.nombre === billetera);
+  // Si la caja es ARS, sugerir/forzar moneda ARS; si es USD, sugerir USD
+  useEffect(() => {
+    if (cajaSeleccionada?.moneda === "ars") setCurrency("ARS");
+    else if (cajaSeleccionada?.moneda === "usd") setCurrency("USD");
+  }, [cajaSeleccionada]);
   const [pagadoA, setPagadoA] = useState("");
   const [pagadoPor, setPagadoPor] = useState(session.nombre || "");
   const [estado, setEstado] = useState("pagado");
 
   async function handleSubmit() {
     if (!concepto.trim()) { setError("Concepto requerido"); return; }
+    if (!categoria) { setError("Categoría es obligatoria"); return; }
+    if (!billetera) { setError("Caja de pago es obligatoria"); return; }
     const raw = parseFloat(montoInput);
     if (!montoInput || isNaN(raw) || raw <= 0) { setError("Monto inválido"); return; }
     const usd = currency === "USD" ? raw : Math.round(raw / usdRate);
@@ -138,11 +145,11 @@ export default function CargarGastoForm({ admins, usdRate, session }: Props) {
             <input type="date" className={inputClass} value={fecha} onChange={(e) => setFecha(e.target.value)} />
           </div>
           <div>
-            <label className={labelClass}>Categoría</label>
+            <label className={labelClass}>Categoría <span className="text-[var(--red)]">*</span></label>
             <select className={selectClass} value={categoria} onChange={(e) => setCategoria(e.target.value)}>
               <option value="">Seleccionar...</option>
-              {CATEGORIAS.map((c) => (
-                <option key={c} value={c}>{c}</option>
+              {categorias.map((c) => (
+                <option key={c.nombre} value={c.nombre}>{c.nombre}</option>
               ))}
             </select>
           </div>
@@ -191,13 +198,18 @@ export default function CargarGastoForm({ admins, usdRate, session }: Props) {
         </div>
 
         <div>
-          <label className={labelClass}>Billetera / Método</label>
+          <label className={labelClass}>Caja de pago / Billetera <span className="text-[var(--red)]">*</span></label>
           <select className={selectClass} value={billetera} onChange={(e) => setBilletera(e.target.value)}>
             <option value="">Seleccionar...</option>
-            {BILLETERAS.map((b) => (
-              <option key={b} value={b}>{b}</option>
+            {cajas.map((c) => (
+              <option key={c.nombre} value={c.nombre}>{c.nombre} ({c.moneda.toUpperCase()})</option>
             ))}
           </select>
+          {cajaSeleccionada && (
+            <p className="text-[10px] text-[var(--muted)] mt-1">
+              Esta caja maneja {cajaSeleccionada.moneda.toUpperCase()} → moneda del gasto autoseleccionada
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
