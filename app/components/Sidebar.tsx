@@ -91,6 +91,7 @@ function getNav(session: AuthSession): NavSection[] {
         title: "CONFIG",
         items: [
           { href: "/admin", label: "Admin Panel", icon: "\u2699\uFE0F" },
+          { href: "/presentacion", label: "Presentaci\u00F3n I\u00F1aki", icon: "\u{1F4FD}\uFE0F" },
         ],
       },
     ];
