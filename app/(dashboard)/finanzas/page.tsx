@@ -38,7 +38,7 @@ export default async function FinanzasPage() {
       supabase.from("gastos").select("*").order("fecha", { ascending: false }),
       supabase
         .from("payments")
-        .select("id, lead_id, monto_usd, receptor, fecha_pago, estado, metodo_pago")
+        .select("id, lead_id, monto_usd, monto_ars, receptor, fecha_pago, estado, metodo_pago")
         .eq("estado", "pagado"),
       supabase
         .from("payments")
@@ -49,7 +49,7 @@ export default async function FinanzasPage() {
         .range(0, 4999),
       supabase
         .from("leads")
-        .select("id, closer_id, setter_id, utm_medium, programa_pitcheado")
+        .select("id, closer_id, setter_id, utm_medium, programa_pitcheado, ticket_total, estado, fecha_llamada")
         .range(0, 9999),
       supabase
         .from("team_members")
@@ -58,6 +58,13 @@ export default async function FinanzasPage() {
       supabase.from("utm_campaigns").select("medium, setter_id"),
       getUsdRate(),
     ]);
+
+  // Clients para revenue devengado
+  const clientsRes = await supabase
+    .from("clients")
+    .select("id, lead_id, programa, fecha_onboarding, fecha_offboarding, total_dias_programa, estado")
+    .not("fecha_onboarding", "is", null)
+    .range(0, 4999);
 
   // Compute commissions per month using Valen scheme (7/5/7 × multiplicador, cap 10%) + setter 3%
   const allPayments = (paymentsRes.data ?? []) as Array<{ lead_id: string | null; monto_usd: number; fecha_pago: string | null; estado: string }>;
@@ -117,6 +124,24 @@ export default async function FinanzasPage() {
     };
   });
 
+  // Pro metrics: leads cerrados con info de venta + clients para revenue devengado
+  const leadsForPro = leadsForComm.map((l) => ({
+    id: l.id,
+    programa_pitcheado: l.programa_pitcheado,
+    ticket_total: (l as { ticket_total?: number }).ticket_total ?? 0,
+    estado: (l as { estado?: string }).estado ?? null,
+    fecha_llamada: (l as { fecha_llamada?: string | null }).fecha_llamada ?? null,
+  }));
+  const clientsForPro = ((clientsRes.data ?? []) as Array<{
+    id: string;
+    lead_id: string | null;
+    programa: string | null;
+    fecha_onboarding: string | null;
+    fecha_offboarding: string | null;
+    total_dias_programa: number;
+    estado: string;
+  }>);
+
   return (
     <FinanzasClient
       monthlyCash={(monthlyCashRes.data as MonthlyCash[]) ?? []}
@@ -133,8 +158,11 @@ export default async function FinanzasPage() {
           fecha_pago: string | null;
           estado: string;
           metodo_pago: string | null;
+          lead_id?: string | null;
         }[]) ?? []
       }
+      leadsForPro={leadsForPro}
+      clientsForPro={clientsForPro}
       currentFiscalMonth={currentFiscalMonth}
     />
   );

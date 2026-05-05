@@ -30,6 +30,25 @@ interface PaymentRow {
   fecha_pago: string | null;
   estado: string;
   metodo_pago: string | null;
+  lead_id?: string | null;
+}
+
+interface LeadForPro {
+  id: string;
+  programa_pitcheado: string | null;
+  ticket_total: number;
+  estado: string | null;
+  fecha_llamada: string | null;
+}
+
+interface ClientForPro {
+  id: string;
+  lead_id: string | null;
+  programa: string | null;
+  fecha_onboarding: string | null;
+  fecha_offboarding: string | null;
+  total_dias_programa: number;
+  estado: string;
 }
 
 interface Props {
@@ -40,6 +59,8 @@ interface Props {
   ingresos: IngresoRow[];
   usdRate: number;
   payments: PaymentRow[];
+  leadsForPro: LeadForPro[];
+  clientsForPro: ClientForPro[];
   currentFiscalMonth: string;
 }
 
@@ -65,6 +86,8 @@ export default function FinanzasClient({
   ingresos,
   usdRate: initialUsdRate,
   payments,
+  leadsForPro,
+  clientsForPro,
   currentFiscalMonth,
 }: Props) {
   const [usdRate, setUsdRate] = useState(initialUsdRate);
@@ -178,6 +201,84 @@ export default function FinanzasClient({
   const currentLabel = useMemo(() => {
     return getFiscalMonth(parseLocalDate(selectedMonth));
   }, [selectedMonth]);
+
+  // Range calendario del mes seleccionado (start/end YYYY-MM-DD)
+  const monthRange = useMemo(() => {
+    const start = parseLocalDate(selectedMonth);
+    const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const toStr = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    return { start: toStr(start), end: toStr(end) };
+  }, [selectedMonth]);
+
+  // ────── PRO METRICS: Ventas / Cash Collected / Revenue Devengado por programa ──────
+  const proMetrics = useMemo(() => {
+    const init = () => ({ omnipresencia: 0, multicuentas: 0, consultoria: 0, roms_7: 0, otros: 0, total: 0 });
+    const ventas = init();
+    const cash = init();
+    const revenue = init();
+
+    function bucketKey(programa: string | null): keyof ReturnType<typeof init> {
+      const p = (programa || "").toLowerCase();
+      if (p.includes("multi")) return "multicuentas";
+      if (p.includes("consult")) return "consultoria";
+      if (p.includes("omni")) return "omnipresencia";
+      if (p.includes("roms_7") || p === "roms_7") return "roms_7";
+      return "otros";
+    }
+
+    // 1) VENTAS DEL MES — leads cerrados en el mes (por fecha_llamada)
+    for (const l of leadsForPro) {
+      if (!l.fecha_llamada) continue;
+      const f = l.fecha_llamada.split("T")[0];
+      if (f < monthRange.start || f > monthRange.end) continue;
+      if (l.estado !== "cerrado" && l.estado !== "adentro_seguimiento") continue;
+      const k = bucketKey(l.programa_pitcheado);
+      ventas[k] += l.ticket_total || 0;
+      ventas.total += l.ticket_total || 0;
+    }
+
+    // 2) CASH COLLECTED — payments pagados en el mes, agrupados por programa del lead
+    const leadProgramaMap = new Map<string, string | null>();
+    for (const l of leadsForPro) leadProgramaMap.set(l.id, l.programa_pitcheado);
+    for (const p of payments) {
+      if (!p.fecha_pago) continue;
+      const f = p.fecha_pago.split("T")[0];
+      if (f < monthRange.start || f > monthRange.end) continue;
+      const programa = p.lead_id ? leadProgramaMap.get(p.lead_id) : null;
+      const k = bucketKey(programa || null);
+      cash[k] += p.monto_usd || 0;
+      cash.total += p.monto_usd || 0;
+    }
+
+    // 3) REVENUE DEVENGADO — para cada cliente, días del programa que cayeron en el mes
+    const leadTicketMap = new Map<string, number>();
+    for (const l of leadsForPro) leadTicketMap.set(l.id, l.ticket_total || 0);
+    const monthStart = parseLocalDate(monthRange.start).getTime();
+    const monthEnd = parseLocalDate(monthRange.end).getTime();
+    const DAY = 86400000;
+    for (const c of clientsForPro) {
+      if (!c.fecha_onboarding || !c.lead_id) continue;
+      const ticket = leadTicketMap.get(c.lead_id) || 0;
+      if (ticket <= 0) continue;
+      const onb = parseLocalDate(c.fecha_onboarding.split("T")[0]).getTime();
+      const programEnd = c.fecha_offboarding
+        ? parseLocalDate(c.fecha_offboarding.split("T")[0]).getTime()
+        : onb + (c.total_dias_programa || 90) * DAY;
+      // Overlap del programa con el mes seleccionado
+      const overlapStart = Math.max(onb, monthStart);
+      const overlapEnd = Math.min(programEnd, monthEnd);
+      if (overlapEnd < overlapStart) continue;
+      const overlapDays = Math.floor((overlapEnd - overlapStart) / DAY) + 1;
+      const totalDays = c.total_dias_programa || 90;
+      const monthRevenue = (overlapDays / totalDays) * ticket;
+      const k = bucketKey(c.programa);
+      revenue[k] += monthRevenue;
+      revenue.total += monthRevenue;
+    }
+
+    return { ventas, cash, revenue };
+  }, [leadsForPro, clientsForPro, payments, monthRange]);
 
   // ────── P&L DATA ──────
   const monthCash = useMemo(
@@ -432,6 +533,91 @@ export default function FinanzasClient({
             )}
           </div>
           <MonthSelector77 value={selectedMonth} onChange={setSelectedMonth} />
+        </div>
+      </div>
+
+      {/* ══════════════ RESUMEN PRO: Ventas / Cash / Revenue Devengado ══════════════ */}
+      <div className="bg-gradient-to-br from-[var(--card-bg)] via-[var(--card-bg)] to-[var(--purple)]/5 border border-[var(--purple)]/30 rounded-xl p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="text-lg font-bold text-white">📊 Resumen del mes — {currentLabel}</h2>
+            <p className="text-xs text-[var(--muted)] mt-1">
+              3 métricas distintas que NO son lo mismo (ver tooltip en cada una)
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <ProMetricCard
+            label="Ventas del mes"
+            help="Suma del ticket total de todos los leads que se cerraron en el mes (estado=cerrado o adentro_seguimiento, fecha_llamada en el mes). Es lo que se VENDIÓ — independiente de si ya cobramos."
+            color="purple"
+            data={proMetrics.ventas}
+          />
+          <ProMetricCard
+            label="Cash Collected"
+            help="Suma de pagos efectivamente cobrados en el mes (estado=pagado, fecha_pago en el mes). Es lo que ENTRÓ a caja — incluye pagos de ventas viejas (cuotas) y excluye ventas nuevas no cobradas."
+            color="green"
+            data={proMetrics.cash}
+          />
+          <ProMetricCard
+            label="Revenue Devengado"
+            help="Porción del servicio efectivamente prestada en el mes. Para cada cliente activo: (días del programa que cayeron en el mes / total días) × ticket. Es lo que GANAMOS contablemente este mes."
+            color="blue"
+            data={proMetrics.revenue}
+          />
+        </div>
+
+        {/* Tabla comparativa por programa */}
+        <div className="mt-5 bg-[var(--background)] border border-[var(--card-border)] rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-white/5">
+              <tr className="text-left text-[10px] uppercase text-[var(--muted)]">
+                <th className="py-2 px-3">Programa</th>
+                <th className="py-2 px-3 text-right">Ventas</th>
+                <th className="py-2 px-3 text-right">Cash Collected</th>
+                <th className="py-2 px-3 text-right">Revenue Devengado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(["omnipresencia", "multicuentas", "consultoria", "roms_7", "otros"] as const).map((k) => {
+                const v = proMetrics.ventas[k];
+                const c = proMetrics.cash[k];
+                const r = proMetrics.revenue[k];
+                if (v === 0 && c === 0 && r === 0) return null;
+                const labels: Record<string, string> = {
+                  omnipresencia: "Omnipresencia", multicuentas: "Multicuentas",
+                  consultoria: "Consultoría", roms_7: "ROMS 7", otros: "Otros / sin programa",
+                };
+                return (
+                  <tr key={k} className="border-t border-[var(--card-border)]/30">
+                    <td className="py-2 px-3 text-white font-medium">{labels[k]}</td>
+                    <td className="py-2 px-3 text-right font-mono text-[var(--purple-light)]">{formatUSD(Math.round(v))}</td>
+                    <td className="py-2 px-3 text-right font-mono text-[var(--green)]">{formatUSD(Math.round(c))}</td>
+                    <td className="py-2 px-3 text-right font-mono text-blue-400">{formatUSD(Math.round(r))}</td>
+                  </tr>
+                );
+              })}
+              <tr className="border-t-2 border-[var(--card-border)] font-bold">
+                <td className="py-2 px-3 text-white">TOTAL</td>
+                <td className="py-2 px-3 text-right font-mono text-[var(--purple-light)]">{formatUSD(Math.round(proMetrics.ventas.total))}</td>
+                <td className="py-2 px-3 text-right font-mono text-[var(--green)]">{formatUSD(Math.round(proMetrics.cash.total))}</td>
+                <td className="py-2 px-3 text-right font-mono text-blue-400">{formatUSD(Math.round(proMetrics.revenue.total))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-[var(--muted)]">
+          <div className="bg-[var(--background)] border border-[var(--purple-light)]/20 rounded-lg p-2.5">
+            <span className="text-[var(--purple-light)] font-semibold">Ventas:</span> ¿Vendimos bien este mes?
+          </div>
+          <div className="bg-[var(--background)] border border-[var(--green)]/20 rounded-lg p-2.5">
+            <span className="text-[var(--green)] font-semibold">Cash:</span> ¿Cuánto entró a caja?
+          </div>
+          <div className="bg-[var(--background)] border border-blue-400/20 rounded-lg p-2.5">
+            <span className="text-blue-400 font-semibold">Devengado:</span> ¿Cuánto ganamos contablemente?
+          </div>
         </div>
       </div>
 
@@ -1172,6 +1358,56 @@ export default function FinanzasClient({
             <Bar dataKey="Gastos" fill="#ef4444" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function ProMetricCard({ label, help, color, data }: {
+  label: string;
+  help: string;
+  color: "purple" | "green" | "blue";
+  data: { omnipresencia: number; multicuentas: number; consultoria: number; roms_7: number; otros: number; total: number };
+}) {
+  const colorMap = {
+    purple: { text: "text-[var(--purple-light)]", border: "border-[var(--purple)]/40", bg: "bg-[var(--purple)]/10" },
+    green: { text: "text-[var(--green)]", border: "border-[var(--green)]/40", bg: "bg-[var(--green)]/10" },
+    blue: { text: "text-blue-400", border: "border-blue-400/40", bg: "bg-blue-400/10" },
+  };
+  const c = colorMap[color];
+  return (
+    <div className={`bg-[var(--background)] border ${c.border} rounded-xl p-5`}>
+      <div className="flex items-start justify-between mb-3">
+        <p className={`text-xs uppercase tracking-wide font-semibold ${c.text}`}>{label}</p>
+        <span className="relative inline-flex group">
+          <span className="cursor-help text-[var(--muted)] hover:text-white text-[10px] border border-[var(--muted)]/50 rounded-full w-4 h-4 inline-flex items-center justify-center leading-none">i</span>
+          <span className="invisible group-hover:visible absolute right-0 top-full mt-1 w-72 z-50 bg-[var(--background)] border border-[var(--card-border)] rounded-md p-2 text-[11px] text-white normal-case font-normal shadow-lg whitespace-pre-line">
+            {help}
+          </span>
+        </span>
+      </div>
+      <p className={`text-3xl font-bold ${c.text}`}>
+        ${Math.round(data.total).toLocaleString("en-US")}
+      </p>
+      <div className="mt-3 pt-3 border-t border-[var(--card-border)] space-y-1 text-xs">
+        {data.omnipresencia > 0 && (
+          <div className="flex justify-between"><span className="text-[var(--muted)]">Omnipresencia</span><span className={`font-mono ${c.text}`}>${Math.round(data.omnipresencia).toLocaleString("en-US")}</span></div>
+        )}
+        {data.multicuentas > 0 && (
+          <div className="flex justify-between"><span className="text-[var(--muted)]">Multicuentas</span><span className={`font-mono ${c.text}`}>${Math.round(data.multicuentas).toLocaleString("en-US")}</span></div>
+        )}
+        {data.consultoria > 0 && (
+          <div className="flex justify-between"><span className="text-[var(--muted)]">Consultoría</span><span className={`font-mono ${c.text}`}>${Math.round(data.consultoria).toLocaleString("en-US")}</span></div>
+        )}
+        {data.roms_7 > 0 && (
+          <div className="flex justify-between"><span className="text-[var(--muted)]">ROMS 7</span><span className={`font-mono ${c.text}`}>${Math.round(data.roms_7).toLocaleString("en-US")}</span></div>
+        )}
+        {data.otros > 0 && (
+          <div className="flex justify-between"><span className="text-[var(--muted)]">Otros</span><span className={`font-mono ${c.text}`}>${Math.round(data.otros).toLocaleString("en-US")}</span></div>
+        )}
+        {data.total === 0 && (
+          <p className="text-[var(--muted)] text-center py-2">Sin datos</p>
+        )}
       </div>
     </div>
   );
