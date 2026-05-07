@@ -95,17 +95,23 @@ export default async function DashboardPage() {
       monthEnd: fiscalMonthEnd,
     });
 
-    // Ventas firmadas del mes (mismo cálculo que /finanzas): leads cerrados con fecha_llamada en mes Y al menos 1 pago
-    const allLeadsForVentas = await supabase
+    // Facturación del mes (criterio contable, mismo que /finanzas y /cierre-mes):
+    // ticket_total de leads cuya cuota#1 se cobró en el mes.
+    const paysRows = (paymentsRes.data ?? []) as Array<{ lead_id: string | null; numero_cuota: number; fecha_pago: string | null; estado: string }>;
+    const leadsCuota1Mes = new Set<string>();
+    for (const p of paysRows) {
+      if (p.estado !== "pagado") continue;
+      if (!p.lead_id || !p.fecha_pago) continue;
+      if (p.numero_cuota !== 1) continue;
+      const f = p.fecha_pago.split("T")[0];
+      if (f < fiscalMonthStart || f > fiscalMonthEnd) continue;
+      leadsCuota1Mes.add(p.lead_id);
+    }
+    const { data: leadsForVentasRows } = await supabase
       .from("leads")
-      .select("id, ticket_total, estado, fecha_llamada")
-      .gte("fecha_llamada", fiscalMonthStart)
-      .lte("fecha_llamada", fiscalMonthEnd + "T23:59:59")
-      .in("estado", ["cerrado", "adentro_seguimiento"]);
-    const allPaymentsRows = (paymentsRes.data ?? []) as Array<{ lead_id: string | null }>;
-    const leadsConPago = new Set(allPaymentsRows.filter((p) => p.lead_id).map((p) => p.lead_id as string));
-    const ventasFirmadas = ((allLeadsForVentas.data ?? []) as Array<{ id: string; ticket_total: number }>)
-      .filter((l) => leadsConPago.has(l.id))
+      .select("id, ticket_total")
+      .in("id", Array.from(leadsCuota1Mes));
+    const ventasFirmadas = ((leadsForVentasRows ?? []) as Array<{ id: string; ticket_total: number }>)
       .reduce((s, l) => s + (l.ticket_total || 0), 0);
 
     return (

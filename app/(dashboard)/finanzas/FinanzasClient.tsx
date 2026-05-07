@@ -31,6 +31,7 @@ interface PaymentRow {
   estado: string;
   metodo_pago: string | null;
   lead_id?: string | null;
+  numero_cuota?: number;
 }
 
 interface LeadForPro {
@@ -260,21 +261,30 @@ export default function FinanzasClient({
       return "otros";
     }
 
-    // 1) VENTAS DEL MES — leads cerrados en el mes Y que tienen al menos 1 pago asociado
-    // (sin pago no es venta concretada; evita inflar el número con leads firmados sin cobro)
-    const leadsWithPayments = new Set<string>();
+    // 1) FACTURACIÓN DEL MES (criterio contable):
+    // Suma el ticket_total de cada lead cuya CUOTA #1 se pagó en el mes.
+    // Esto refleja "ventas concretadas" (la venta arrancó a cobrarse este mes).
+    // No se duplica: si un lead tuvo varias cuota#1 pagadas (raro), solo se cuenta una vez.
+    const leadTicket = new Map<string, number>();
+    for (const l of leadsForPro) leadTicket.set(l.id, l.ticket_total || 0);
+    const leadProgramaForVentas = new Map<string, string | null>();
+    for (const l of leadsForPro) leadProgramaForVentas.set(l.id, l.programa_pitcheado);
+    const leadsContabilizados = new Set<string>();
     for (const p of payments) {
-      if (p.lead_id) leadsWithPayments.add(p.lead_id);
-    }
-    for (const l of leadsForPro) {
-      if (!l.fecha_llamada) continue;
-      const f = l.fecha_llamada.split("T")[0];
+      if (!p.lead_id) continue;
+      if (p.fecha_pago == null) continue;
+      const f = p.fecha_pago.split("T")[0];
       if (f < monthRange.start || f > monthRange.end) continue;
-      if (l.estado !== "cerrado" && l.estado !== "adentro_seguimiento") continue;
-      if (!leadsWithPayments.has(l.id)) continue; // sin pago no es venta real
-      const k = bucketKey(l.programa_pitcheado);
-      ventas[k] += l.ticket_total || 0;
-      ventas.total += l.ticket_total || 0;
+      if (p.numero_cuota !== 1) continue;
+      // Solo cuotas#1 efectivamente cobradas (estado pagado)
+      // payments ya viene filtrado por estado=pagado desde el server, pero validamos
+      if (leadsContabilizados.has(p.lead_id)) continue;
+      const ticket = leadTicket.get(p.lead_id) || 0;
+      if (ticket <= 0) continue;
+      leadsContabilizados.add(p.lead_id);
+      const k = bucketKey(leadProgramaForVentas.get(p.lead_id) || null);
+      ventas[k] += ticket;
+      ventas.total += ticket;
     }
 
     // 2) CASH COLLECTED — payments pagados en el mes, agrupados por programa del lead

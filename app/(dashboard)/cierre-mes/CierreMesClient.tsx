@@ -75,23 +75,26 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
     const cash = initBucket();
     const revenue = initBucket();
 
-    const leadsWithPayments = new Set<string>();
-    for (const p of payments) {
-      if (p.estado === "pagado" && p.lead_id) leadsWithPayments.add(p.lead_id);
-    }
-
-    // Ventas (cerrados con pago, fecha_llamada en mes)
+    // Facturación = suma del ticket_total cuando la cuota#1 del lead se pagó en el mes
+    // (criterio contable: la venta se concretó cuando arrancó a cobrarse)
     const ventasDetalle: Lead[] = [];
-    for (const l of leads) {
-      if (!l.fecha_llamada) continue;
-      const f = l.fecha_llamada.split("T")[0];
+    const leadsContabilizadosVentas = new Set<string>();
+    for (const p of payments) {
+      if (p.estado !== "pagado") continue;
+      if (!p.lead_id || !p.fecha_pago) continue;
+      const f = p.fecha_pago.split("T")[0];
       if (f < start || f > end) continue;
-      if (l.estado !== "cerrado" && l.estado !== "adentro_seguimiento") continue;
-      if (!leadsWithPayments.has(l.id)) continue;
-      const k = programaKey(l.programa_pitcheado);
-      ventas[k] += l.ticket_total || 0;
-      ventas.total += l.ticket_total || 0;
-      ventasDetalle.push(l);
+      if (p.numero_cuota !== 1) continue;
+      if (leadsContabilizadosVentas.has(p.lead_id)) continue;
+      const lead = leadById.get(p.lead_id);
+      if (!lead) continue;
+      const ticket = lead.ticket_total || 0;
+      if (ticket <= 0) continue;
+      leadsContabilizadosVentas.add(p.lead_id);
+      const k = programaKey(lead.programa_pitcheado);
+      ventas[k] += ticket;
+      ventas.total += ticket;
+      ventasDetalle.push(lead);
     }
 
     // Cash collected

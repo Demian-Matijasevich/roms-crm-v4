@@ -38,7 +38,7 @@ export default async function FinanzasPage() {
       supabase.from("gastos").select("*").order("fecha", { ascending: false }),
       supabase
         .from("payments")
-        .select("id, lead_id, monto_usd, monto_ars, receptor, fecha_pago, estado, metodo_pago")
+        .select("id, lead_id, monto_usd, monto_ars, receptor, fecha_pago, estado, metodo_pago, numero_cuota")
         .eq("estado", "pagado"),
       supabase
         .from("payments")
