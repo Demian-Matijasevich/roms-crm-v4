@@ -22,15 +22,16 @@ export async function GET(req: NextRequest) {
   if (!renovs) return NextResponse.json({ error: "no renovs" }, { status: 500 });
 
   const out = [];
-  for (const r of renovs as Array<{ id: string; client_id: string; monto_total: number; fecha_renovacion: string | null; tipo_renovacion: string | null; programa_nuevo: string | null; client: { id: string; nombre: string; lead_id: string | null } | null }>) {
-    if (!r.client) {
+  for (const r of renovs as unknown as Array<{ id: string; client_id: string; monto_total: number; fecha_renovacion: string | null; tipo_renovacion: string | null; programa_nuevo: string | null; client: { id: string; nombre: string; lead_id: string | null } | { id: string; nombre: string; lead_id: string | null }[] | null }>) {
+    const client = Array.isArray(r.client) ? r.client[0] : r.client;
+    if (!client) {
       out.push({ renov_id: r.id, status: "sin_cliente" });
       continue;
     }
 
     // Buscar payments del cliente — directo por client_id O via lead_id
-    const orFilter = r.client.lead_id
-      ? `client_id.eq.${r.client_id},lead_id.eq.${r.client.lead_id}`
+    const orFilter = client.lead_id
+      ? `client_id.eq.${r.client_id},lead_id.eq.${client.lead_id}`
       : `client_id.eq.${r.client_id}`;
     const { data: pays } = await sb
       .from("payments")
@@ -43,8 +44,8 @@ export async function GET(req: NextRequest) {
     const renovPagosTotal = (pays || []).filter((p) => p.es_renovacion && p.estado === "pagado").reduce((s, p) => s + (p.monto_usd || 0), 0);
 
     out.push({
-      cliente: r.client.nombre,
-      lead_id: r.client.lead_id,
+      cliente: client.nombre,
+      lead_id: client.lead_id,
       renov_id: r.id,
       renov_fecha: r.fecha_renovacion,
       renov_tipo: r.tipo_renovacion,
