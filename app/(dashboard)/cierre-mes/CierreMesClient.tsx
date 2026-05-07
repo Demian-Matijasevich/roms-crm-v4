@@ -390,33 +390,14 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
   const cosasAMejorar = useMemo(() => {
     const issues: Array<{ severity: "alta" | "media" | "baja"; titulo: string; detalle: string; cta?: string; href?: string }> = [];
 
-    // Show rate bajo por closer
+    // % Cierre bajo por closer (sobre presentadas, sin involucrar show rate)
     closersStats.forEach((c) => {
-      const showRate = c.agendas > 0 ? c.presentadas / c.agendas : 0;
-      if (c.agendas >= 5 && showRate < 0.5) {
-        issues.push({
-          severity: "alta",
-          titulo: `${c.nombre}: show rate ${pct(showRate)} (${c.presentadas}/${c.agendas})`,
-          detalle: `Más de la mitad no se presenta. Revisar setteo previo: confirmaciones WhatsApp 24h y 1h antes, recordatorios automáticos, calidad de filtrado del setter.`,
-          cta: "Ver setters",
-          href: "/setters",
-        });
-      }
-      if (c.agendas >= 5 && c.pendientes >= 5) {
-        issues.push({
-          severity: "media",
-          titulo: `${c.nombre}: ${c.pendientes} agendas sin resultado cargado`,
-          detalle: `Calls que ya pasaron pero quedaron en estado=pendiente. Distorsiona métricas de show y cierre. Hay que cargar el resultado.`,
-          cta: "Ir a CRM Llamadas",
-          href: "/llamadas",
-        });
-      }
       const cierre = c.presentadas > 0 ? c.cerradas / c.presentadas : 0;
       if (c.presentadas >= 5 && cierre < 0.15) {
         issues.push({
           severity: "alta",
           titulo: `${c.nombre}: % cierre ${pct(cierre)} (${c.cerradas}/${c.presentadas})`,
-          detalle: `Cierre muy bajo. Revisar grabaciones, cierre de call, oferta y manejo de objeciones. Considerar coaching 1a1 o role-plays.`,
+          detalle: `Cierre muy bajo sobre los que efectivamente vinieron a la call. Revisar grabaciones, cierre de call, oferta y manejo de objeciones. Considerar coaching 1a1 o role-plays.`,
         });
       }
     });
@@ -1140,56 +1121,140 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
               style={{ width: `${Math.min(avancePct * 100, 100)}%` }}
             />
           </div>
-          <p className="text-[10px] text-[var(--muted)] mt-2">
-            {avancePct >= 1 ? `Vas $${Math.round(proyeccion.cashProyectado - objetivoMesSig).toLocaleString("en-US")} arriba.` : `Necesitás cerrar/cobrar $${Math.round(gapObjetivo).toLocaleString("en-US")} extra.`}
+        </div>
+
+        {/* Cómo se calcula la proyección — explícito */}
+        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-5 mb-4">
+          <h3 className="text-sm font-semibold text-white mb-3">📐 Cómo se calcula esta proyección</h3>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[10px] uppercase text-[var(--muted)] border-b border-[var(--card-border)]">
+                <th className="py-2 px-2">Componente</th>
+                <th className="py-2 px-2">Fuente de datos</th>
+                <th className="py-2 px-2">Fórmula</th>
+                <th className="py-2 px-2 text-right">Aporta</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-t border-[var(--card-border)]/30">
+                <td className="py-2 px-2 text-[var(--green)] font-medium">💰 Cuotas a cobrar</td>
+                <td className="py-2 px-2 text-xs text-[var(--muted)]">payments con estado=pendiente y fecha_vencimiento en {proyeccion.mes}</td>
+                <td className="py-2 px-2 text-xs text-[var(--muted)]">Suma directa</td>
+                <td className="py-2 px-2 text-right font-mono text-[var(--green)]">{fmt(proyeccion.cuotasPendientes)}</td>
+              </tr>
+              <tr className="border-t border-[var(--card-border)]/30">
+                <td className="py-2 px-2 text-[var(--purple-light)] font-medium">🔄 Renovaciones</td>
+                <td className="py-2 px-2 text-xs text-[var(--muted)]">clients cuyo programa termina en {proyeccion.mes}</td>
+                <td className="py-2 px-2 text-xs text-[var(--muted)]">{proyeccion.vencimientosSiguiente} vencen × {pct(tasaRenovMes || 0.5)} renov × {fmt(proyeccion.ticketRenovProm)}</td>
+                <td className="py-2 px-2 text-right font-mono text-[var(--purple-light)]">{fmt(proyeccion.renovEsperadas)}</td>
+              </tr>
+              <tr className="border-t border-[var(--card-border)]/30">
+                <td className="py-2 px-2 text-blue-400 font-medium">🎯 Pipeline</td>
+                <td className="py-2 px-2 text-xs text-[var(--muted)]">leads en seguimiento, reserva, pendiente</td>
+                <td className="py-2 px-2 text-xs text-[var(--muted)]">{proyeccion.pipelineLeadsCount} × {pct(proyeccion.cierreHistorico)} cierre × ticket prom × 50% (factor confianza)</td>
+                <td className="py-2 px-2 text-right font-mono text-blue-400">{fmt(proyeccion.pipelineEsperado)}</td>
+              </tr>
+              <tr className="border-t border-[var(--card-border)]/30">
+                <td className="py-2 px-2 text-orange-400 font-medium">📅 Cuotas viejas</td>
+                <td className="py-2 px-2 text-xs text-[var(--muted)]">run rate del mes anterior (cuotas#2+)</td>
+                <td className="py-2 px-2 text-xs text-[var(--muted)]">{fmt(proyeccion.cuotasViejasUltMes)} × 70%</td>
+                <td className="py-2 px-2 text-right font-mono text-orange-400">{fmt(proyeccion.cuotasViejasUltMes * 0.7)}</td>
+              </tr>
+              <tr className="border-t-2 border-[var(--card-border)] font-bold">
+                <td colSpan={3} className="py-2 px-2 text-right">Total proyectado</td>
+                <td className="py-2 px-2 text-right font-mono text-[var(--green)]">{fmt(proyeccion.cashProyectado)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="text-[10px] text-[var(--muted)] mt-3">
+            ℹ️ La tasa de cierre y renovación usan los datos históricos del mes seleccionado. Si esos % cambian (mejor o peor), la proyección se ajusta.
           </p>
         </div>
 
-        {/* Desglose proyección */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
-            <p className="text-xs uppercase text-[var(--muted)]">💰 Cuotas pendientes</p>
-            <p className="text-xl font-bold text-[var(--green)]">{fmt(proyeccion.cuotasPendientes)}</p>
-            <p className="text-[10px] text-[var(--muted)] mt-1">{proyeccion.cuotasPendientesCount} cuotas vencen en {proyeccion.mes}</p>
-          </div>
-          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
-            <p className="text-xs uppercase text-[var(--muted)]">🔄 Renovaciones</p>
-            <p className="text-xl font-bold text-[var(--purple-light)]">{fmt(proyeccion.renovEsperadas)}</p>
-            <p className="text-[10px] text-[var(--muted)] mt-1">
-              {proyeccion.vencimientosSiguiente} vencen × {pct(tasaRenovMes || 0.5)} renov × {fmt(proyeccion.ticketRenovProm)}
-            </p>
-          </div>
-          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
-            <p className="text-xs uppercase text-[var(--muted)]">🎯 Pipeline</p>
-            <p className="text-xl font-bold text-blue-400">{fmt(proyeccion.pipelineEsperado)}</p>
-            <p className="text-[10px] text-[var(--muted)] mt-1">
-              {proyeccion.pipelineLeadsCount} leads × {pct(proyeccion.cierreHistorico)} cierre × 50%
-            </p>
-          </div>
-          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
-            <p className="text-xs uppercase text-[var(--muted)]">📅 Cuotas extra</p>
-            <p className="text-xl font-bold text-orange-400">{fmt(proyeccion.cuotasViejasUltMes * 0.7)}</p>
-            <p className="text-[10px] text-[var(--muted)] mt-1">70% del run rate de cuotas</p>
-          </div>
-        </div>
-
-        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-5">
-          <p className="text-sm font-semibold text-white mb-3">💡 Para llegar al objetivo de {fmt(objetivoMesSig)}:</p>
+        {/* QUÉ TIENE QUE PASAR para cumplir el objetivo */}
+        <div className="bg-[var(--card-bg)] border border-[var(--purple)]/40 rounded-xl p-5">
+          <h3 className="text-base font-semibold text-white mb-3">🎯 Qué tiene que pasar para llegar a {fmt(objetivoMesSig)}</h3>
           {avancePct >= 1 ? (
-            <p className="text-sm text-[var(--green)]">✅ Con la proyección actual ya estás por encima del objetivo. Mantener pace.</p>
+            <p className="text-sm text-[var(--green)]">
+              ✅ Con la proyección actual ya estás por encima del objetivo.<br/>
+              <span className="text-xs text-[var(--muted)]">Hay holgura de {fmt(proyeccion.cashProyectado - objetivoMesSig)}. Mantener el pace y enfocarse en calidad de cierres.</span>
+            </p>
           ) : (
-            <ul className="text-sm text-[var(--muted)] space-y-1.5 ml-5 list-disc">
-              <li>Necesitás <b className="text-white">{fmt(gapObjetivo)}</b> extra de cash en {proyeccion.mes}</li>
-              <li>
-                Si el ticket promedio es ~{fmt(6000)}: <b className="text-white">{Math.ceil(gapObjetivo / 6000)} ventas extra</b> (PIF) o el doble en planes con cuotas
-              </li>
-              <li>
-                Recuperar el {proyeccion.cuotasPendientesCount > 0 ? `100% de las cuotas pendientes ($${Math.round(proyeccion.cuotasPendientes).toLocaleString()})` : "cuotas vencidas anteriores"} ayuda
-              </li>
-              <li>
-                Subir tasa renov del {pct(tasaRenovMes || 0)} actual al 70% sumaría aprox <b className="text-white">{fmt((proyeccion.vencimientosSiguiente * 0.7 - proyeccion.vencimientosSiguiente * (tasaRenovMes || 0.5)) * proyeccion.ticketRenovProm)}</b>
-              </li>
-            </ul>
+            <>
+              <p className="text-sm text-white mb-4">
+                Faltan <b className="text-[var(--red)]">{fmt(gapObjetivo)}</b> para llegar al objetivo. Tenés 4 palancas para cerrar la brecha:
+              </p>
+              <div className="space-y-3">
+                {/* Palanca 1: Cobrar todas las cuotas */}
+                <div className="bg-[var(--background)] border border-[var(--card-border)] rounded-lg p-3">
+                  <div className="flex justify-between items-start gap-3 flex-wrap">
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-white">1️⃣ Cobrar el 100% de las cuotas pendientes</p>
+                      <p className="text-xs text-[var(--muted)] mt-1">
+                        Hay {proyeccion.cuotasPendientesCount} cuotas con vencimiento en {proyeccion.mes}. Si recuperás todas → ya están en la proyección.
+                        Recuperar también las {cobranzasStats.vencidasCount} vencidas anteriores: <b className="text-white">{fmt(cobranzasStats.vencidasMonto)}</b>
+                      </p>
+                    </div>
+                    <span className="text-sm font-mono text-[var(--green)] whitespace-nowrap">+{fmt(cobranzasStats.vencidasMonto)}</span>
+                  </div>
+                </div>
+
+                {/* Palanca 2: Renovaciones */}
+                <div className="bg-[var(--background)] border border-[var(--card-border)] rounded-lg p-3">
+                  <div className="flex justify-between items-start gap-3 flex-wrap">
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-white">2️⃣ Subir la tasa de renovación al 70%</p>
+                      <p className="text-xs text-[var(--muted)] mt-1">
+                        Tasa actual: {pct(tasaRenovMes || 0)}. Si subís al 70% sobre los {proyeccion.vencimientosSiguiente} vencimientos de {proyeccion.mes}:
+                      </p>
+                      <p className="text-xs text-[var(--muted)] mt-1">
+                        Acción: Mel debe contactar TODOS los que vencen antes de los últimos 7 días, ofrecer plan personalizado.
+                      </p>
+                    </div>
+                    <span className="text-sm font-mono text-[var(--purple-light)] whitespace-nowrap">+{fmt((proyeccion.vencimientosSiguiente * 0.7 - proyeccion.vencimientosSiguiente * (tasaRenovMes || 0.5)) * proyeccion.ticketRenovProm)}</span>
+                  </div>
+                </div>
+
+                {/* Palanca 3: Ventas nuevas */}
+                <div className="bg-[var(--background)] border border-[var(--card-border)] rounded-lg p-3">
+                  <div className="flex justify-between items-start gap-3 flex-wrap">
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-white">3️⃣ Cerrar ventas nuevas</p>
+                      <p className="text-xs text-[var(--muted)] mt-1">
+                        Si el ticket promedio es ~$6.000 (PIF) o $18.000-30.000 (full Omni/Multi):
+                      </p>
+                      <ul className="text-xs text-[var(--muted)] mt-1 ml-4 list-disc space-y-0.5">
+                        <li><b className="text-white">{Math.ceil(gapObjetivo / 18000)} ventas Omni</b> ($18k c/u PIF) — ó equivalente en Multi</li>
+                        <li>O <b className="text-white">{Math.ceil(gapObjetivo / 6000)} ventas con primera cuota cobrada</b> (~$6k c/u)</li>
+                      </ul>
+                    </div>
+                    <span className="text-sm font-mono text-blue-400 whitespace-nowrap">cubre brecha</span>
+                  </div>
+                </div>
+
+                {/* Palanca 4: Mejorar cierre */}
+                <div className="bg-[var(--background)] border border-[var(--card-border)] rounded-lg p-3">
+                  <div className="flex justify-between items-start gap-3 flex-wrap">
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-white">4️⃣ Subir tasa de cierre del pipeline existente</p>
+                      <p className="text-xs text-[var(--muted)] mt-1">
+                        Hay {proyeccion.pipelineLeadsCount} leads en seguimiento/reserva. Si la tasa de cierre histórica ({pct(proyeccion.cierreHistorico)}) sube +5pp:
+                      </p>
+                      <p className="text-xs text-[var(--muted)] mt-1">
+                        Acción: foco en grabaciones de calls perdidas, role-plays con closers, mejorar cierre de Q3 sales.
+                      </p>
+                    </div>
+                    <span className="text-sm font-mono text-orange-400 whitespace-nowrap">+{fmt(proyeccion.pipelineLeadsCount * 0.05 * 6000 * 0.5)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-[var(--card-border)]/50">
+                <p className="text-xs text-[var(--muted)]">
+                  💡 <b>Plan más realista:</b> combinar las 4 palancas — cobrar las vencidas + 1-2 renovs extra + 3-5 ventas nuevas + 1-2 cierres extra del pipeline = tipicamente alcanza el target.
+                </p>
+              </div>
+            </>
           )}
         </div>
       </section>
