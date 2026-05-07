@@ -1130,13 +1130,11 @@ function AuditoriaCuotasTab({
   const periodLabel = getFiscalMonth(periodStart);
 
   // Filter cuotas by fiscal period and cobrador
+  // Solo cuotas con fecha_pago dentro del rango Y estado=pagado (sin fecha NO cuentan)
   const filteredCuotas = useMemo(() => {
     return cuotas.filter((c) => {
-      // Period filter on fecha_pago
-      if (c.fecha_pago) {
-        if (c.fecha_pago < periodStartStr || c.fecha_pago > periodEndStr) return false;
-      }
-      // Cobrador filter
+      if (!c.fecha_pago) return false;
+      if (c.fecha_pago < periodStartStr || c.fecha_pago > periodEndStr) return false;
       if (cobradorFilter === "mel") {
         return c.cobrador_nombre?.toLowerCase().includes("mel") ?? false;
       }
@@ -1144,12 +1142,10 @@ function AuditoriaCuotasTab({
     });
   }, [cuotas, periodStartStr, periodEndStr, cobradorFilter]);
 
-  // Filter renovaciones by fiscal period and cobrador
   const filteredRenovaciones = useMemo(() => {
     return renovaciones.filter((r) => {
-      if (r.fecha_pago) {
-        if (r.fecha_pago < periodStartStr || r.fecha_pago > periodEndStr) return false;
-      }
+      if (!r.fecha_pago) return false;
+      if (r.fecha_pago < periodStartStr || r.fecha_pago > periodEndStr) return false;
       if (cobradorFilter === "mel") {
         return r.cobrador_nombre?.toLowerCase().includes("mel") ?? false;
       }

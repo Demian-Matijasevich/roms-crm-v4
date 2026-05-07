@@ -260,12 +260,18 @@ export default function FinanzasClient({
       return "otros";
     }
 
-    // 1) VENTAS DEL MES — leads cerrados en el mes (por fecha_llamada)
+    // 1) VENTAS DEL MES — leads cerrados en el mes Y que tienen al menos 1 pago asociado
+    // (sin pago no es venta concretada; evita inflar el número con leads firmados sin cobro)
+    const leadsWithPayments = new Set<string>();
+    for (const p of payments) {
+      if (p.lead_id) leadsWithPayments.add(p.lead_id);
+    }
     for (const l of leadsForPro) {
       if (!l.fecha_llamada) continue;
       const f = l.fecha_llamada.split("T")[0];
       if (f < monthRange.start || f > monthRange.end) continue;
       if (l.estado !== "cerrado" && l.estado !== "adentro_seguimiento") continue;
+      if (!leadsWithPayments.has(l.id)) continue; // sin pago no es venta real
       const k = bucketKey(l.programa_pitcheado);
       ventas[k] += l.ticket_total || 0;
       ventas.total += l.ticket_total || 0;
@@ -373,6 +379,8 @@ export default function FinanzasClient({
   const cashCuotas = monthCash?.cash_cuotas ?? 0;
   const cashRenovaciones = monthCash?.cash_renovaciones ?? 0;
   const totalIngresos = cashVentasNuevas + cashCuotas + cashRenovaciones;
+  // Para el P&L usamos revenue devengado (criterio contable) en vez de cash collected
+  const totalIngresosDevengado = 0; // se calcula desde proMetrics.revenue.total más abajo
 
   // Egresos
   const totalGastosOp = monthGastos.reduce((s, g) => s + (g.monto_usd || 0), 0);
@@ -389,6 +397,7 @@ export default function FinanzasClient({
 
   const resultadoNeto = totalIngresos - totalEgresos;
   const esPositivo = resultadoNeto >= 0;
+  void totalIngresosDevengado;
 
   // ────── GASTOS BY CATEGORY ──────
   const byCat = useMemo(() => {
@@ -712,27 +721,32 @@ export default function FinanzasClient({
           Estado de Resultados
         </h2>
 
-        {/* Ingresos */}
+        {/* Ingresos — uso Revenue Devengado (criterio contable, lo que efectivamente se ganó este mes) */}
         <p className="text-sm font-semibold text-[var(--muted)] uppercase tracking-wider mb-3">
-          Ingresos
+          Ingresos (Revenue Devengado)
         </p>
         <div className="space-y-2 mb-4">
-          <div className="flex justify-between text-sm">
-            <span className="text-white/80">Cash Collected (ventas nuevas)</span>
-            <span className="text-white">{formatUSD(cashVentasNuevas)}</span>
+          {(["omnipresencia", "multicuentas", "consultoria", "roms_7", "otros"] as const).map((k) => {
+            const val = proMetrics.revenue[k];
+            if (!val) return null;
+            const labels: Record<string, string> = {
+              omnipresencia: "Omnipresencia", multicuentas: "Multicuentas",
+              consultoria: "Consultoría", roms_7: "ROMS 7", otros: "Otros",
+            };
+            return (
+              <div key={k} className="flex justify-between text-sm">
+                <span className="text-white/80">{labels[k]}</span>
+                <span className="text-white">{formatUSD(Math.round(val))}</span>
+              </div>
+            );
+          })}
+          <div className="flex justify-between font-bold text-base text-[var(--green)] pt-2 border-t border-[var(--card-border)]/30">
+            <span>Total Ingresos (devengado)</span>
+            <span>{formatUSD(Math.round(proMetrics.revenue.total))}</span>
           </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-white/80">Cash Collected (cuotas)</span>
-            <span className="text-white">{formatUSD(cashCuotas)}</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-white/80">Cash Collected (renovaciones)</span>
-            <span className="text-white">{formatUSD(cashRenovaciones)}</span>
-          </div>
-          <div className="flex justify-between font-bold text-base text-[var(--green)]">
-            <span>Total Ingresos</span>
-            <span>{formatUSD(totalIngresos)}</span>
-          </div>
+          <p className="text-[10px] text-[var(--muted)] mt-1">
+            ℹ️ Cash collected este mes: {formatUSD(Math.round(proMetrics.cash.total))} · Ventas firmadas (con pago): {formatUSD(Math.round(proMetrics.ventas.total))}
+          </p>
         </div>
 
         {/* Egresos */}
@@ -761,15 +775,21 @@ export default function FinanzasClient({
         {/* Separator */}
         <div className="border-t border-[var(--card-border)] my-4" />
 
-        {/* Resultado Neto */}
-        <div
-          className={`flex justify-between text-2xl font-bold ${
-            esPositivo ? "text-[var(--green)]" : "text-[var(--red)]"
-          }`}
-        >
-          <span>Resultado Neto</span>
-          <span>{formatUSD(resultadoNeto)}</span>
-        </div>
+        {/* Resultado Neto — usa devengado como ingreso */}
+        {(() => {
+          const ingresoDevengado = Math.round(proMetrics.revenue.total);
+          const resultado = ingresoDevengado - totalEgresos;
+          const positivo = resultado >= 0;
+          return (
+            <div className={`flex justify-between text-2xl font-bold ${positivo ? "text-[var(--green)]" : "text-[var(--red)]"}`}>
+              <span>Resultado Neto</span>
+              <span>{formatUSD(resultado)}</span>
+            </div>
+          );
+        })()}
+        <p className="text-[10px] text-[var(--muted)] mt-2">
+          ℹ️ Resultado Neto = Revenue Devengado − Egresos. Si querés el cash neto (entró-salió), usá: {formatUSD(resultadoNeto)} ({esPositivo ? "+" : ""}cash).
+        </p>
       </div>
 
       {/* ══════════════ COMISIONES POR EMPLEADO ══════════════ */}

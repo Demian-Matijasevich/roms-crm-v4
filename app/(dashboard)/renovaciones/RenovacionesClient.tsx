@@ -24,6 +24,10 @@ interface Metrics {
   totalRevenue: number;
   renewedCount: number;
   expiredCount: number;
+  tasaRenovacionMes: number;
+  churnRateMes: number;
+  renewedThisMonth: number;
+  expiredThisMonth: number;
 }
 
 interface Props {
@@ -135,34 +139,42 @@ export default function RenovacionesClient({
 
   return (
     <div className="space-y-6">
-      {/* Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
-          <p className="text-sm text-[var(--muted)]">Tasa de renovacion</p>
-          <p className="text-2xl font-bold text-green-400">
-            {metrics.tasaRenovacion}%
-          </p>
-          <p className="text-xs text-[var(--muted)]">
-            {metrics.renewedCount}/{metrics.expiredCount} clientes
-          </p>
+      {/* Metrics — mensual y global separados */}
+      <div>
+        <p className="text-xs uppercase text-[var(--muted)] mb-2 tracking-wide">📅 Este mes</p>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
+            <p className="text-sm text-[var(--muted)]">Tasa renovación (mes)</p>
+            <p className="text-2xl font-bold text-green-400">{metrics.tasaRenovacionMes}%</p>
+            <p className="text-xs text-[var(--muted)]">{metrics.renewedThisMonth}/{metrics.expiredThisMonth} vencen este mes</p>
+          </div>
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
+            <p className="text-sm text-[var(--muted)]">Churn rate (mes)</p>
+            <p className="text-2xl font-bold text-red-400">{metrics.churnRateMes}%</p>
+            <p className="text-xs text-[var(--muted)]">{metrics.expiredThisMonth - metrics.renewedThisMonth} no renovaron</p>
+          </div>
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
+            <p className="text-sm text-[var(--muted)]">Revenue total renovaciones</p>
+            <p className="text-2xl font-bold text-blue-400">${metrics.totalRevenue.toLocaleString()}</p>
+            <p className="text-xs text-[var(--muted)]">acumulado histórico</p>
+          </div>
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
+            <p className="text-sm text-[var(--muted)]">Revenue por renov</p>
+            <p className="text-2xl font-bold text-white">${metrics.revenuePromedio.toLocaleString()}</p>
+            <p className="text-xs text-[var(--muted)]">promedio</p>
+          </div>
         </div>
-        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
-          <p className="text-sm text-[var(--muted)]">Revenue por renovacion</p>
-          <p className="text-2xl font-bold text-white">
-            ${metrics.revenuePromedio.toLocaleString()}
-          </p>
-        </div>
-        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
-          <p className="text-sm text-[var(--muted)]">Revenue total renovaciones</p>
-          <p className="text-2xl font-bold text-blue-400">
-            ${metrics.totalRevenue.toLocaleString()}
-          </p>
-        </div>
-        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
-          <p className="text-sm text-[var(--muted)]">Churn rate</p>
-          <p className="text-2xl font-bold text-red-400">
-            {metrics.churnRate}%
-          </p>
+        <p className="text-xs uppercase text-[var(--muted)] mb-2 tracking-wide">📊 Global (histórico)</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)]/50 rounded-xl p-4">
+            <p className="text-sm text-[var(--muted)]">Tasa renovación global</p>
+            <p className="text-xl font-bold text-green-400">{metrics.tasaRenovacion}%</p>
+            <p className="text-xs text-[var(--muted)]">{metrics.renewedCount}/{metrics.expiredCount} históricos</p>
+          </div>
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)]/50 rounded-xl p-4">
+            <p className="text-sm text-[var(--muted)]">Churn rate global</p>
+            <p className="text-xl font-bold text-red-400">{metrics.churnRate}%</p>
+          </div>
         </div>
       </div>
 
