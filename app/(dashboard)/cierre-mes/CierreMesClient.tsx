@@ -137,8 +137,10 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
 
   // ── Closers performance ──
   const closersStats = useMemo(() => {
-    const map = new Map<string, { id: string; nombre: string; agendas: number; presentadas: number; calificadas: number; cerradas: number; cash: number; comision: number; pays: { monto_usd: number; programa: string | null }[] }>();
-    for (const t of team) if (t.is_closer) map.set(t.id, { id: t.id, nombre: t.nombre, agendas: 0, presentadas: 0, calificadas: 0, cerradas: 0, cash: 0, comision: 0, pays: [] });
+    const map = new Map<string, { id: string; nombre: string; agendas: number; presentadas: number; calificadas: number; cerradas: number; canceladas: number; pendientes: number; noShow: number; cash: number; comision: number; pays: { monto_usd: number; programa: string | null }[] }>();
+    for (const t of team) if (t.is_closer) map.set(t.id, { id: t.id, nombre: t.nombre, agendas: 0, presentadas: 0, calificadas: 0, cerradas: 0, canceladas: 0, pendientes: 0, noShow: 0, cash: 0, comision: 0, pays: [] });
+
+    const ESTADOS_NO_AGENDA = ["cancelada", "reprogramada", "broke_cancelado"];
 
     // Agendas (leads con fecha_llamada en mes)
     for (const l of leads) {
@@ -147,11 +149,19 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
       if (f < monthRange.start || f > monthRange.end) continue;
       const entry = map.get(l.closer_id);
       if (!entry) continue;
-      if (l.estado !== "cancelada" && l.estado !== "reprogramada") entry.agendas++;
-      const presentada = !["pendiente", "cancelada", "no_show", "reprogramada"].includes(l.estado || "");
+      const estado = l.estado || "";
+      // Cancelaciones (no cuentan como agenda)
+      if (ESTADOS_NO_AGENDA.includes(estado)) {
+        entry.canceladas++;
+        continue;
+      }
+      entry.agendas++;
+      if (estado === "no_show") entry.noShow++;
+      else if (estado === "pendiente") entry.pendientes++;
+      const presentada = !["pendiente", "no_show"].includes(estado);
       if (presentada) entry.presentadas++;
       if (l.lead_calificado === "calificado") entry.calificadas++;
-      if (l.estado === "cerrado" || l.estado === "adentro_seguimiento") entry.cerradas++;
+      if (estado === "cerrado" || estado === "adentro_seguimiento") entry.cerradas++;
     }
 
     // Cash + comisión
@@ -651,28 +661,32 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
             <thead className="bg-white/5">
               <tr className="text-left text-[10px] uppercase text-[var(--muted)]">
                 <th className="py-2 px-3">Closer</th>
-                <th className="py-2 px-3 text-right" title="Total de calls agendadas (excluye canceladas y reprogramadas)">Agendas</th>
-                <th className="py-2 px-3 text-right" title="Leads que efectivamente fueron a la call (no cancelaron, ni no_show)">Presentadas</th>
+                <th className="py-2 px-3 text-right" title="Calls agendadas reales (excluye canceladas, reprogramadas y broke_cancelado)">Agendas</th>
+                <th className="py-2 px-3 text-right" title="Excluidas: cancelada / reprogramada / broke_cancelado">Cancel.</th>
+                <th className="py-2 px-3 text-right" title="Calls aún pendientes de cargar resultado (data sucia o futuras)">Pend.</th>
+                <th className="py-2 px-3 text-right" title="No-shows del mes">No-show</th>
+                <th className="py-2 px-3 text-right" title="Leads que fueron a la call (no son pendiente ni no_show)">Presentadas</th>
                 <th className="py-2 px-3 text-right" title="% Show Up = presentadas / agendas">% Show</th>
-                <th className="py-2 px-3 text-right" title="Calls que terminaron en cerrado o adentro_seguimiento">Cerradas</th>
+                <th className="py-2 px-3 text-right" title="Calls cerradas (cerrado o adentro_seguimiento)">Cerradas</th>
                 <th className="py-2 px-3 text-right" title="% Cierre sobre presentadas = cerradas / presentadas">% Cierre</th>
-                <th className="py-2 px-3 text-right" title="% Cierre sobre agendas totales = cerradas / agendas">% Total</th>
                 <th className="py-2 px-3 text-right">Cash</th>
                 <th className="py-2 px-3 text-right">Comisión</th>
               </tr>
             </thead>
             <tbody>
               {closersStats.length === 0 ? (
-                <tr><td colSpan={9} className="py-6 text-center text-[var(--muted)]">Sin datos</td></tr>
+                <tr><td colSpan={11} className="py-6 text-center text-[var(--muted)]">Sin datos</td></tr>
               ) : closersStats.map((c) => (
                 <tr key={c.id} className="border-t border-[var(--card-border)]/30">
                   <td className="py-2 px-3 text-white font-medium">{c.nombre}</td>
-                  <td className="py-2 px-3 text-right">{c.agendas}</td>
+                  <td className="py-2 px-3 text-right font-bold">{c.agendas}</td>
+                  <td className="py-2 px-3 text-right text-[var(--red)]">{c.canceladas}</td>
+                  <td className="py-2 px-3 text-right text-yellow-400">{c.pendientes}</td>
+                  <td className="py-2 px-3 text-right text-orange-400">{c.noShow}</td>
                   <td className="py-2 px-3 text-right text-[var(--green)]">{c.presentadas}</td>
                   <td className="py-2 px-3 text-right text-[var(--muted)]">{c.agendas > 0 ? pct(c.presentadas / c.agendas) : "—"}</td>
                   <td className="py-2 px-3 text-right text-[var(--purple-light)]">{c.cerradas}</td>
                   <td className="py-2 px-3 text-right text-[var(--muted)]">{c.presentadas > 0 ? pct(c.cerradas / c.presentadas) : "—"}</td>
-                  <td className="py-2 px-3 text-right text-[var(--muted)]">{c.agendas > 0 ? pct(c.cerradas / c.agendas) : "—"}</td>
                   <td className="py-2 px-3 text-right font-mono text-[var(--green)]">{fmt(c.cash)}</td>
                   <td className="py-2 px-3 text-right font-mono text-[var(--purple-light)]">{fmt(c.comision)}</td>
                 </tr>
@@ -681,7 +695,7 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
           </table>
         </div>
         <p className="text-[10px] text-[var(--muted)] mt-2">
-          ℹ️ <b>% Show</b> = presentadas/agendas · <b>% Cierre</b> = cerradas/presentadas (estándar) · <b>% Total</b> = cerradas/agendas (incluye no-shows)
+          ℹ️ <b>Agendas</b> excluye <b>Cancel.</b> (cancelada/reprogramada/broke_cancelado) · <b>Pend.</b> = sin resultado cargado (data sucia si fecha pasó) · <b>% Show</b> = presentadas/agendas · <b>% Cierre</b> = cerradas/presentadas
         </p>
       </section>
 
