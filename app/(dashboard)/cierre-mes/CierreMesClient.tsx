@@ -651,24 +651,28 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
             <thead className="bg-white/5">
               <tr className="text-left text-[10px] uppercase text-[var(--muted)]">
                 <th className="py-2 px-3">Closer</th>
-                <th className="py-2 px-3 text-right">Agendas</th>
-                <th className="py-2 px-3 text-right">Show</th>
-                <th className="py-2 px-3 text-right">Cerradas</th>
-                <th className="py-2 px-3 text-right">% Cierre</th>
+                <th className="py-2 px-3 text-right" title="Total de calls agendadas (excluye canceladas y reprogramadas)">Agendas</th>
+                <th className="py-2 px-3 text-right" title="Leads que efectivamente fueron a la call (no cancelaron, ni no_show)">Presentadas</th>
+                <th className="py-2 px-3 text-right" title="% Show Up = presentadas / agendas">% Show</th>
+                <th className="py-2 px-3 text-right" title="Calls que terminaron en cerrado o adentro_seguimiento">Cerradas</th>
+                <th className="py-2 px-3 text-right" title="% Cierre sobre presentadas = cerradas / presentadas">% Cierre</th>
+                <th className="py-2 px-3 text-right" title="% Cierre sobre agendas totales = cerradas / agendas">% Total</th>
                 <th className="py-2 px-3 text-right">Cash</th>
                 <th className="py-2 px-3 text-right">Comisión</th>
               </tr>
             </thead>
             <tbody>
               {closersStats.length === 0 ? (
-                <tr><td colSpan={7} className="py-6 text-center text-[var(--muted)]">Sin datos</td></tr>
+                <tr><td colSpan={9} className="py-6 text-center text-[var(--muted)]">Sin datos</td></tr>
               ) : closersStats.map((c) => (
                 <tr key={c.id} className="border-t border-[var(--card-border)]/30">
                   <td className="py-2 px-3 text-white font-medium">{c.nombre}</td>
                   <td className="py-2 px-3 text-right">{c.agendas}</td>
                   <td className="py-2 px-3 text-right text-[var(--green)]">{c.presentadas}</td>
+                  <td className="py-2 px-3 text-right text-[var(--muted)]">{c.agendas > 0 ? pct(c.presentadas / c.agendas) : "—"}</td>
                   <td className="py-2 px-3 text-right text-[var(--purple-light)]">{c.cerradas}</td>
                   <td className="py-2 px-3 text-right text-[var(--muted)]">{c.presentadas > 0 ? pct(c.cerradas / c.presentadas) : "—"}</td>
+                  <td className="py-2 px-3 text-right text-[var(--muted)]">{c.agendas > 0 ? pct(c.cerradas / c.agendas) : "—"}</td>
                   <td className="py-2 px-3 text-right font-mono text-[var(--green)]">{fmt(c.cash)}</td>
                   <td className="py-2 px-3 text-right font-mono text-[var(--purple-light)]">{fmt(c.comision)}</td>
                 </tr>
@@ -676,6 +680,9 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
             </tbody>
           </table>
         </div>
+        <p className="text-[10px] text-[var(--muted)] mt-2">
+          ℹ️ <b>% Show</b> = presentadas/agendas · <b>% Cierre</b> = cerradas/presentadas (estándar) · <b>% Total</b> = cerradas/agendas (incluye no-shows)
+        </p>
       </section>
 
       {/* 6) Setters */}
