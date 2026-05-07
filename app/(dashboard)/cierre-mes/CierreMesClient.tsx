@@ -7,7 +7,7 @@ interface Lead { id: string; nombre: string; programa_pitcheado: string | null; 
 interface Payment { id: string; lead_id: string | null; monto_usd: number; monto_ars: number; fecha_pago: string | null; fecha_vencimiento: string | null; estado: string; numero_cuota: number; metodo_pago: string | null; receptor: string | null; es_renovacion: boolean }
 interface Client { id: string; lead_id: string | null; nombre: string; programa: string | null; fecha_onboarding: string | null; fecha_offboarding: string | null; total_dias_programa: number; estado: string }
 interface RenewalRow { id: string; client_id: string; tipo_renovacion: string | null; programa_anterior: string | null; programa_nuevo: string | null; monto_total: number; plan_pago: string | null; estado: string | null; fecha_renovacion: string | null; client?: { nombre: string; programa: string | null } | null }
-interface Gasto { id: string; fecha: string; concepto: string; categoria: string; billetera: string; monto_usd: number; monto_ars: number; usd_rate_aplicado: number | null; estado: string }
+interface Gasto { id: string; fecha: string; concepto: string; categoria: string; billetera: string; monto_usd: number; monto_ars: number; usd_rate_aplicado: number | null; estado: string; pagado_por: string | null; pagado_a: string | null }
 interface TeamMember { id: string; nombre: string; is_closer: boolean; is_setter: boolean }
 interface Campaign { medium: string | null; setter_id: string | null }
 
@@ -310,14 +310,15 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
     };
   }, [cur.paymentsInRange, leadById]);
 
-  // ── Cash collected detalle por método y receptor ──
+  // ── Cash collected detalle por método y receptor (normalizado: trim + uppercase para receptor) ──
   const cashDetail = useMemo(() => {
     const byMethod: Record<string, number> = {};
     const byReceptor: Record<string, number> = {};
     let renovaciones = 0, ventasNuevas = 0, cuotas = 0;
     for (const p of cur.paymentsInRange) {
-      const m = p.metodo_pago || "—";
-      const r = p.receptor || "—";
+      const m = (p.metodo_pago || "—").trim().toLowerCase();
+      const rRaw = (p.receptor || "—").trim();
+      const r = rRaw === "—" ? "—" : rRaw.toUpperCase();
       byMethod[m] = (byMethod[m] || 0) + p.monto_usd;
       byReceptor[r] = (byReceptor[r] || 0) + p.monto_usd;
       if (p.es_renovacion) renovaciones += p.monto_usd;
@@ -356,23 +357,28 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
   const renovsPagas = renovsValidas.length;
   const tasaRenovMes = vencimientosMes > 0 ? renovsPagas / vencimientosMes : 0;
 
-  // ── Gastos del mes ──
+  // ── Gastos del mes (normalizado: pagado_por uppercase + trim) ──
   const gastosStats = useMemo(() => {
     const inMonth = gastos.filter((g) => g.fecha?.startsWith(selectedMonth));
     let totalUsd = 0;
     const byCategoria: Record<string, number> = {};
     const byCaja: Record<string, number> = {};
+    const byPagadoPor: Record<string, number> = {};
     for (const g of inMonth) {
       const usd = g.monto_usd || 0;
       totalUsd += usd;
-      byCategoria[g.categoria] = (byCategoria[g.categoria] || 0) + usd;
-      byCaja[g.billetera] = (byCaja[g.billetera] || 0) + usd;
+      byCategoria[(g.categoria || "—").trim().toLowerCase()] = (byCategoria[(g.categoria || "—").trim().toLowerCase()] || 0) + usd;
+      byCaja[(g.billetera || "—").trim().toLowerCase()] = (byCaja[(g.billetera || "—").trim().toLowerCase()] || 0) + usd;
+      const ppRaw = (g.pagado_por || "—").trim();
+      const pp = ppRaw === "—" ? "—" : ppRaw.toUpperCase();
+      byPagadoPor[pp] = (byPagadoPor[pp] || 0) + usd;
     }
     return {
       total: totalUsd,
       count: inMonth.length,
       byCategoria: Object.entries(byCategoria).sort((a, b) => b[1] - a[1]),
       byCaja: Object.entries(byCaja).sort((a, b) => b[1] - a[1]),
+      byPagadoPor: Object.entries(byPagadoPor).sort((a, b) => b[1] - a[1]),
       detalle: inMonth.sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "")),
     };
   }, [gastos, selectedMonth]);
@@ -977,9 +983,10 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
           <Stat label="Cantidad" value={String(gastosStats.count)} />
           <Stat label="Comisiones equipo" value={fmt(totalComisiones)} color="purple" />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <SmallTable title="Por categoría" rows={gastosStats.byCategoria} />
           <SmallTable title="Por caja" rows={gastosStats.byCaja} />
+          <SmallTable title="Por quién gastó" rows={gastosStats.byPagadoPor} />
         </div>
         {gastosStats.detalle.length > 0 && (
           <details className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
@@ -991,6 +998,7 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
                   <th className="py-2 px-3">Concepto</th>
                   <th className="py-2 px-3">Categoría</th>
                   <th className="py-2 px-3">Caja</th>
+                  <th className="py-2 px-3">Pagó</th>
                   <th className="py-2 px-3 text-right">USD</th>
                   <th className="py-2 px-3 text-right">ARS</th>
                 </tr>
@@ -1000,8 +1008,9 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
                   <tr key={g.id} className="border-t border-[var(--card-border)]/30">
                     <td className="py-2 px-3 text-[var(--muted)] text-xs">{g.fecha}</td>
                     <td className="py-2 px-3 text-white text-xs">{g.concepto}</td>
-                    <td className="py-2 px-3 text-[var(--muted)] text-xs">{g.categoria}</td>
-                    <td className="py-2 px-3 text-[var(--muted)] text-xs">{g.billetera}</td>
+                    <td className="py-2 px-3 text-[var(--muted)] text-xs">{(g.categoria || "—").toLowerCase()}</td>
+                    <td className="py-2 px-3 text-[var(--muted)] text-xs">{(g.billetera || "—").toLowerCase()}</td>
+                    <td className="py-2 px-3 text-[var(--muted)] text-xs">{g.pagado_por ? g.pagado_por.toUpperCase().trim() : "—"}</td>
                     <td className="py-2 px-3 text-right font-mono text-xs text-[var(--red)]">{fmt(g.monto_usd || 0)}</td>
                     <td className="py-2 px-3 text-right font-mono text-xs text-[var(--muted)]">{(g.monto_ars || 0) > 0 ? Math.round(g.monto_ars).toLocaleString("en-US") : "—"}</td>
                   </tr>

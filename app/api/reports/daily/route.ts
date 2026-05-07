@@ -197,10 +197,11 @@ export async function GET(req: NextRequest) {
     cerradasCallByCloser.set(name, cur);
   }
 
-  // Cash por receptor
+  // Cash por receptor (normalizado: trim + uppercase)
   const cashByReceptor = new Map<string, number>();
   for (const p of payments || []) {
-    const key = p.receptor || "sin_receptor";
+    const raw = (p.receptor || "sin_receptor").trim();
+    const key = raw === "sin_receptor" ? "sin_receptor" : raw.toUpperCase();
     cashByReceptor.set(key, (cashByReceptor.get(key) || 0) + Number(p.monto_usd || 0));
   }
 
@@ -332,22 +333,31 @@ export async function GET(req: NextRequest) {
       lines.push("");
     }
 
-    // Gastos del mes
+    // Gastos del mes (normalizado)
     const { data: gastos } = await sb
       .from("gastos")
-      .select("monto_usd, categoria")
+      .select("monto_usd, categoria, pagado_por")
       .gte("fecha", desde)
       .lte("fecha", hasta);
     const totalGastos = (gastos || []).reduce((s, g) => s + Number(g.monto_usd || 0), 0);
     const gastosPorCat = new Map<string, number>();
+    const gastosPorPersona = new Map<string, number>();
     for (const g of gastos || []) {
-      const k = g.categoria || "otros";
+      const k = (g.categoria || "otros").trim().toLowerCase();
       gastosPorCat.set(k, (gastosPorCat.get(k) || 0) + Number(g.monto_usd || 0));
+      const ppRaw = (g.pagado_por || "sin_asignar").trim();
+      const pp = ppRaw === "sin_asignar" ? "sin_asignar" : ppRaw.toUpperCase();
+      gastosPorPersona.set(pp, (gastosPorPersona.get(pp) || 0) + Number(g.monto_usd || 0));
     }
     lines.push(`📉 *Gastos del mes:* ${fmtUSD(totalGastos)} (${gastos?.length || 0} items)`);
     if (gastosPorCat.size > 0) {
       const arr = [...gastosPorCat.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
       for (const [k, v] of arr) lines.push(`   • ${k}: ${fmtUSD(v)}`);
+    }
+    if (gastosPorPersona.size > 0) {
+      lines.push(`   👤 Por quién gastó:`);
+      const arr = [...gastosPorPersona.entries()].sort((a, b) => b[1] - a[1]);
+      for (const [k, v] of arr) lines.push(`      • ${k}: ${fmtUSD(v)}`);
     }
     lines.push("");
 

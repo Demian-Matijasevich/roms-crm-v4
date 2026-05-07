@@ -17,7 +17,7 @@ export default async function CierreMesPage() {
     sb.from("payments").select("id, lead_id, monto_usd, monto_ars, fecha_pago, fecha_vencimiento, estado, numero_cuota, metodo_pago, receptor, es_renovacion").range(0, 9999),
     sb.from("clients").select("id, lead_id, nombre, programa, fecha_onboarding, fecha_offboarding, total_dias_programa, estado").range(0, 4999),
     sb.from("renewal_history").select("id, client_id, tipo_renovacion, programa_anterior, programa_nuevo, monto_total, plan_pago, estado, fecha_renovacion, client:clients(nombre, programa)").range(0, 999),
-    sb.from("gastos").select("id, fecha, concepto, categoria, billetera, monto_usd, monto_ars, usd_rate_aplicado, estado").range(0, 4999),
+    sb.from("gastos").select("id, fecha, concepto, categoria, billetera, monto_usd, monto_ars, usd_rate_aplicado, estado, pagado_por, pagado_a").range(0, 4999),
     sb.from("team_members").select("id, nombre, is_closer, is_setter").eq("activo", true),
     sb.from("utm_campaigns").select("medium, setter_id"),
     sb.from("usd_rate_history").select("mes, rate"),
