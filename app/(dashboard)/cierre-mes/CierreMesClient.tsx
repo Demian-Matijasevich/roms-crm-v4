@@ -386,6 +386,187 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
     });
   }, [leads, payments, team, campaigns, monthRange]);
 
+  // ── COSAS A MEJORAR (insights automáticos) ──
+  const cosasAMejorar = useMemo(() => {
+    const issues: Array<{ severity: "alta" | "media" | "baja"; titulo: string; detalle: string; cta?: string; href?: string }> = [];
+
+    // Show rate bajo por closer
+    closersStats.forEach((c) => {
+      const showRate = c.agendas > 0 ? c.presentadas / c.agendas : 0;
+      if (c.agendas >= 5 && showRate < 0.5) {
+        issues.push({
+          severity: "alta",
+          titulo: `${c.nombre}: show rate ${pct(showRate)} (${c.presentadas}/${c.agendas})`,
+          detalle: `Más de la mitad no se presenta. Revisar setteo previo: confirmaciones WhatsApp 24h y 1h antes, recordatorios automáticos, calidad de filtrado del setter.`,
+          cta: "Ver setters",
+          href: "/setters",
+        });
+      }
+      if (c.agendas >= 5 && c.pendientes >= 5) {
+        issues.push({
+          severity: "media",
+          titulo: `${c.nombre}: ${c.pendientes} agendas sin resultado cargado`,
+          detalle: `Calls que ya pasaron pero quedaron en estado=pendiente. Distorsiona métricas de show y cierre. Hay que cargar el resultado.`,
+          cta: "Ir a CRM Llamadas",
+          href: "/llamadas",
+        });
+      }
+      const cierre = c.presentadas > 0 ? c.cerradas / c.presentadas : 0;
+      if (c.presentadas >= 5 && cierre < 0.15) {
+        issues.push({
+          severity: "alta",
+          titulo: `${c.nombre}: % cierre ${pct(cierre)} (${c.cerradas}/${c.presentadas})`,
+          detalle: `Cierre muy bajo. Revisar grabaciones, cierre de call, oferta y manejo de objeciones. Considerar coaching 1a1 o role-plays.`,
+        });
+      }
+    });
+
+    // Setters con muchos leads cancelados
+    if (settersStats.landing > settersStats.rows.reduce((s, r) => s + r.total, 0)) {
+      issues.push({
+        severity: "media",
+        titulo: `${settersStats.landing} agendas como Landing (sin setter atribuido)`,
+        detalle: `La mayoría de las agendas vienen sin atribución a un setter. Configurar UTM Builder con utm_medium por setter para trackear quién genera qué.`,
+        cta: "Ir a UTM Builder",
+        href: "/utm",
+      });
+    }
+
+    // Renovaciones del mes muy bajas
+    if (vencimientosMes >= 5 && tasaRenovMes < 0.4) {
+      issues.push({
+        severity: "alta",
+        titulo: `Tasa de renovación ${pct(tasaRenovMes)} (${renovsPagas} de ${vencimientosMes})`,
+        detalle: `Más del 60% de los clientes que vencieron no renovaron. Mel debería enfocarse en estos antes del próximo mes. Revisar /mel-update y /metricas-clientes.`,
+        cta: "Ir a Mel Update",
+        href: "/mel-update",
+      });
+    }
+
+    // Pagos vencidos
+    if (cobranzasStats.vencidasMonto > 5000) {
+      issues.push({
+        severity: "alta",
+        titulo: `${fmt(cobranzasStats.vencidasMonto)} en cuotas vencidas (${cobranzasStats.vencidasCount})`,
+        detalle: `Hay cuotas vencidas sin cobrar. Riesgo de churn / pérdida de revenue. Priorizar contacto con esos clientes esta semana.`,
+        cta: "Ir a Cobranzas",
+        href: "/cobranzas",
+      });
+    }
+
+    // Pagos huérfanos
+    if (auditoria.huerfanos.length > 0) {
+      issues.push({
+        severity: "media",
+        titulo: `${auditoria.huerfanos.length} pagos sin lead asociado (${fmt(auditoria.huerfanosTotal)})`,
+        detalle: `Pagos cargados sin vincular al lead. Distorsionan atribución de ventas y comisiones. Hay que asociarlos manualmente.`,
+        cta: "Ir a Finanzas",
+        href: "/finanzas",
+      });
+    }
+
+    // Posibles duplicados sin limpiar
+    if (auditoria.dupGroups.length > 0) {
+      issues.push({
+        severity: "alta",
+        titulo: `${auditoria.dupGroups.length} grupos de pagos posiblemente duplicados`,
+        detalle: `Inflan el cash collected. Limpiar con el botón "🧹 Limpiar duplicados" en la sección de auditoría.`,
+      });
+    }
+
+    // Gastos con categoría "otros"
+    const gastosOtros = gastosStats.byCategoria.find(([k]) => k === "otros");
+    if (gastosOtros && gastosOtros[1] > gastosStats.total * 0.2) {
+      issues.push({
+        severity: "baja",
+        titulo: `${fmt(gastosOtros[1])} en gastos sin clasificar (categoría=otros)`,
+        detalle: `Más del 20% de los gastos están en "otros". Reclasificarlos para tener visibilidad real de dónde se va la plata.`,
+        cta: "Ir a Finanzas",
+        href: "/finanzas",
+      });
+    }
+
+    return issues.sort((a, b) => {
+      const order = { alta: 0, media: 1, baja: 2 };
+      return order[a.severity] - order[b.severity];
+    });
+  }, [closersStats, settersStats, vencimientosMes, tasaRenovMes, renovsPagas, cobranzasStats, auditoria, gastosStats]);
+
+  // ── PROYECCIÓN MES SIGUIENTE (default $500k objetivo, editable) ──
+  const [objetivoMesSig, setObjetivoMesSig] = useState<number>(500000);
+  const proyeccion = useMemo(() => {
+    // Mes siguiente
+    const [y, m] = selectedMonth.split("-").map(Number);
+    const nextDate = new Date(y, m, 1);
+    const ny = nextDate.getFullYear();
+    const nm = nextDate.getMonth() + 1;
+    const nextMes = `${ny}-${String(nm).padStart(2, "0")}`;
+    const nextStart = `${nextMes}-01`;
+    const lastDay = new Date(ny, nm, 0).getDate();
+    const nextEnd = `${nextMes}-${String(lastDay).padStart(2, "0")}`;
+
+    // 1) Cuotas pendientes que vencen en el mes siguiente
+    let cuotasPendientesSiguiente = 0;
+    let cuotasPendientesCount = 0;
+    for (const p of payments) {
+      if (p.estado !== "pendiente") continue;
+      if (!p.fecha_vencimiento) continue;
+      const f = p.fecha_vencimiento.split("T")[0];
+      if (f >= nextStart && f <= nextEnd) {
+        cuotasPendientesSiguiente += p.monto_usd || 0;
+        cuotasPendientesCount++;
+      }
+    }
+
+    // 2) Renovaciones esperadas: clientes que vencen en el mes siguiente × tasa renov histórica
+    let vencimientosSiguiente = 0;
+    const DAY = 86400000;
+    for (const c of clients) {
+      if (!c.fecha_onboarding) continue;
+      const onb = new Date(c.fecha_onboarding.split("T")[0]).getTime();
+      const venc = new Date(onb + (c.total_dias_programa || 90) * DAY);
+      const v = venc.toISOString().slice(0, 10);
+      if (v >= nextStart && v <= nextEnd) vencimientosSiguiente++;
+    }
+    const ticketRenovProm = renewals.length > 0
+      ? renewals.filter((r) => r.estado === "pago").reduce((s, r) => s + (r.monto_total || 0), 0) /
+        Math.max(1, renewals.filter((r) => r.estado === "pago").length)
+      : 5000;
+    const renovEsperadas = vencimientosSiguiente * (tasaRenovMes || 0.5) * ticketRenovProm;
+
+    // 3) Pipeline: leads en seguimiento/reserva × % cierre histórico × ticket promedio
+    const pipelineLeads = leads.filter((l) => l.estado === "seguimiento" || l.estado === "reserva" || l.estado === "pendiente");
+    const ticketProm = leads.filter((l) => (l.estado === "cerrado" || l.estado === "adentro_seguimiento") && l.ticket_total > 0)
+      .reduce((s, l, _, arr) => s + l.ticket_total / arr.length, 0);
+    // Tasa de cierre histórica del mes actual
+    const totalPresentadasMes = closersStats.reduce((s, c) => s + c.presentadas, 0);
+    const totalCerradasMes = closersStats.reduce((s, c) => s + c.cerradas, 0);
+    const cierreHistorico = totalPresentadasMes > 0 ? totalCerradasMes / totalPresentadasMes : 0.2;
+    const pipelineEsperado = pipelineLeads.length * cierreHistorico * (ticketProm || 6000) * 0.5; // 50% chance del pipeline cierra
+
+    // 4) Cash de cuotas pasadas que cobramos en mes próximo (tendencia: avg últimos 2 meses de cuotas#2+)
+    const cuotasViejasUltMes = cur.paymentsInRange.filter((p) => p.numero_cuota > 1).reduce((s, p) => s + p.monto_usd, 0);
+
+    const cashProyectado = cuotasPendientesSiguiente + renovEsperadas + pipelineEsperado + cuotasViejasUltMes * 0.7;
+
+    return {
+      mes: nextMes,
+      cuotasPendientes: cuotasPendientesSiguiente,
+      cuotasPendientesCount,
+      vencimientosSiguiente,
+      renovEsperadas,
+      pipelineLeadsCount: pipelineLeads.length,
+      pipelineEsperado,
+      cuotasViejasUltMes,
+      cashProyectado,
+      ticketRenovProm,
+      cierreHistorico,
+    };
+  }, [selectedMonth, payments, clients, leads, renewals, closersStats, cur.paymentsInRange, tasaRenovMes]);
+
+  const avancePct = objetivoMesSig > 0 ? proyeccion.cashProyectado / objetivoMesSig : 0;
+  const gapObjetivo = objetivoMesSig - proyeccion.cashProyectado;
+
   // ── P&L ──
   const ingresoDevengado = cur.revenue.total;
   const totalComisiones = teamCommissions.reduce((s, r) => s + r.comision_total, 0);
@@ -882,6 +1063,134 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
               </tr>
             </tbody>
           </table>
+        </div>
+      </section>
+
+      {/* 11) COSAS A MEJORAR */}
+      <section className="slide-section">
+        <h2 className="text-xl font-bold text-white mb-4">1️⃣1️⃣ Cosas a mejorar</h2>
+        {cosasAMejorar.length === 0 ? (
+          <div className="bg-[var(--green)]/10 border border-[var(--green)]/40 rounded-xl p-5">
+            <p className="text-sm text-[var(--green)]">✅ No detecté problemas significativos este mes. Buen trabajo.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {cosasAMejorar.map((iss, i) => {
+              const colorMap = {
+                alta: { border: "border-[var(--red)]/40", bg: "bg-[var(--red)]/5", icon: "🔴", text: "text-[var(--red)]" },
+                media: { border: "border-yellow-400/40", bg: "bg-yellow-400/5", icon: "🟡", text: "text-yellow-400" },
+                baja: { border: "border-blue-400/40", bg: "bg-blue-400/5", icon: "🔵", text: "text-blue-400" },
+              };
+              const c = colorMap[iss.severity];
+              return (
+                <div key={i} className={`${c.bg} border ${c.border} rounded-xl p-4`}>
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex-1 min-w-[200px]">
+                      <p className={`text-sm font-semibold ${c.text} flex items-center gap-2`}>
+                        <span>{c.icon}</span>
+                        <span className="text-[10px] uppercase tracking-wider">{iss.severity}</span>
+                        <span className="text-white">— {iss.titulo}</span>
+                      </p>
+                      <p className="text-xs text-[var(--muted)] mt-1.5 ml-7">{iss.detalle}</p>
+                    </div>
+                    {iss.cta && iss.href && (
+                      <a href={iss.href}
+                        className="text-xs bg-[var(--card-bg)] border border-[var(--card-border)] hover:border-[var(--purple)] text-white px-3 py-1.5 rounded-lg whitespace-nowrap no-print">
+                        {iss.cta} →
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* 12) PROYECCIÓN MES SIGUIENTE */}
+      <section className="slide-section">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <h2 className="text-xl font-bold text-white">1️⃣2️⃣ Proyección {proyeccion.mes}</h2>
+          <div className="flex items-center gap-2 no-print">
+            <span className="text-xs text-[var(--muted)]">Objetivo:</span>
+            <input type="number" value={objetivoMesSig} onChange={(e) => setObjetivoMesSig(Number(e.target.value) || 0)}
+              step={10000} min={0}
+              className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded px-3 py-1.5 text-sm text-white w-32" />
+          </div>
+        </div>
+
+        {/* Barra de progreso */}
+        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-5 mb-4">
+          <div className="flex justify-between items-baseline mb-3">
+            <div>
+              <p className="text-xs uppercase text-[var(--muted)]">Cash proyectado</p>
+              <p className="text-3xl font-bold text-[var(--green)]">{fmt(proyeccion.cashProyectado)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs uppercase text-[var(--muted)]">Objetivo</p>
+              <p className="text-2xl font-bold text-white">{fmt(objetivoMesSig)}</p>
+              <p className="text-xs text-[var(--muted)] mt-0.5">
+                {avancePct >= 1 ? "✅ Por encima" : `⚠️ Falta ${fmt(gapObjetivo)}`} ({pct(avancePct)})
+              </p>
+            </div>
+          </div>
+          <div className="bg-white/5 rounded-full h-3 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${avancePct >= 1 ? "bg-[var(--green)]" : avancePct >= 0.7 ? "bg-yellow-400" : "bg-[var(--red)]"}`}
+              style={{ width: `${Math.min(avancePct * 100, 100)}%` }}
+            />
+          </div>
+          <p className="text-[10px] text-[var(--muted)] mt-2">
+            {avancePct >= 1 ? `Vas $${Math.round(proyeccion.cashProyectado - objetivoMesSig).toLocaleString("en-US")} arriba.` : `Necesitás cerrar/cobrar $${Math.round(gapObjetivo).toLocaleString("en-US")} extra.`}
+          </p>
+        </div>
+
+        {/* Desglose proyección */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
+            <p className="text-xs uppercase text-[var(--muted)]">💰 Cuotas pendientes</p>
+            <p className="text-xl font-bold text-[var(--green)]">{fmt(proyeccion.cuotasPendientes)}</p>
+            <p className="text-[10px] text-[var(--muted)] mt-1">{proyeccion.cuotasPendientesCount} cuotas vencen en {proyeccion.mes}</p>
+          </div>
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
+            <p className="text-xs uppercase text-[var(--muted)]">🔄 Renovaciones</p>
+            <p className="text-xl font-bold text-[var(--purple-light)]">{fmt(proyeccion.renovEsperadas)}</p>
+            <p className="text-[10px] text-[var(--muted)] mt-1">
+              {proyeccion.vencimientosSiguiente} vencen × {pct(tasaRenovMes || 0.5)} renov × {fmt(proyeccion.ticketRenovProm)}
+            </p>
+          </div>
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
+            <p className="text-xs uppercase text-[var(--muted)]">🎯 Pipeline</p>
+            <p className="text-xl font-bold text-blue-400">{fmt(proyeccion.pipelineEsperado)}</p>
+            <p className="text-[10px] text-[var(--muted)] mt-1">
+              {proyeccion.pipelineLeadsCount} leads × {pct(proyeccion.cierreHistorico)} cierre × 50%
+            </p>
+          </div>
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
+            <p className="text-xs uppercase text-[var(--muted)]">📅 Cuotas extra</p>
+            <p className="text-xl font-bold text-orange-400">{fmt(proyeccion.cuotasViejasUltMes * 0.7)}</p>
+            <p className="text-[10px] text-[var(--muted)] mt-1">70% del run rate de cuotas</p>
+          </div>
+        </div>
+
+        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-5">
+          <p className="text-sm font-semibold text-white mb-3">💡 Para llegar al objetivo de {fmt(objetivoMesSig)}:</p>
+          {avancePct >= 1 ? (
+            <p className="text-sm text-[var(--green)]">✅ Con la proyección actual ya estás por encima del objetivo. Mantener pace.</p>
+          ) : (
+            <ul className="text-sm text-[var(--muted)] space-y-1.5 ml-5 list-disc">
+              <li>Necesitás <b className="text-white">{fmt(gapObjetivo)}</b> extra de cash en {proyeccion.mes}</li>
+              <li>
+                Si el ticket promedio es ~{fmt(6000)}: <b className="text-white">{Math.ceil(gapObjetivo / 6000)} ventas extra</b> (PIF) o el doble en planes con cuotas
+              </li>
+              <li>
+                Recuperar el {proyeccion.cuotasPendientesCount > 0 ? `100% de las cuotas pendientes ($${Math.round(proyeccion.cuotasPendientes).toLocaleString()})` : "cuotas vencidas anteriores"} ayuda
+              </li>
+              <li>
+                Subir tasa renov del {pct(tasaRenovMes || 0)} actual al 70% sumaría aprox <b className="text-white">{fmt((proyeccion.vencimientosSiguiente * 0.7 - proyeccion.vencimientosSiguiente * (tasaRenovMes || 0.5)) * proyeccion.ticketRenovProm)}</b>
+              </li>
+            </ul>
+          )}
         </div>
       </section>
 
