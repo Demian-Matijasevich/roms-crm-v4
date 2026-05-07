@@ -4,7 +4,7 @@ import { useState } from "react";
 
 function todayISO() { return new Date().toISOString().split("T")[0]; }
 
-type Tipo = "diario" | "semanal";
+type Tipo = "diario" | "semanal" | "mensual";
 
 export default function ReporteDiarioClient() {
   const [tipo, setTipo] = useState<Tipo>("diario");
@@ -33,6 +33,8 @@ export default function ReporteDiarioClient() {
 
   const fechaLabel = tipo === "semanal"
     ? "Cualquier día de la semana"
+    : tipo === "mensual"
+    ? "Cualquier día del mes"
     : "Fecha";
 
   const rangoLabel = rango
@@ -68,6 +70,16 @@ export default function ReporteDiarioClient() {
           >
             📆 Semanal
           </button>
+          <button
+            onClick={() => setTipo("mensual")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              tipo === "mensual"
+                ? "bg-[var(--purple)] text-white"
+                : "bg-[var(--background)] border border-[var(--card-border)] text-[var(--muted)] hover:text-white"
+            }`}
+          >
+            🗓️ Mensual
+          </button>
         </div>
 
         <div className="flex gap-3 items-end">
@@ -77,6 +89,9 @@ export default function ReporteDiarioClient() {
               className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm" />
             {tipo === "semanal" && (
               <p className="text-xs text-[var(--muted)] mt-1">Toma la semana (lun→dom) que contiene esta fecha.</p>
+            )}
+            {tipo === "mensual" && (
+              <p className="text-xs text-[var(--muted)] mt-1">Toma todo el mes calendario que contiene esta fecha. Incluye facturación, renovaciones, gastos y resultado neto.</p>
             )}
           </div>
           <button onClick={generate} disabled={loading}

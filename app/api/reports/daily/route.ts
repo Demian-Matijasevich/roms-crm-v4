@@ -30,17 +30,17 @@ export async function GET(req: NextRequest) {
 
   const url = new URL(req.url);
   const fecha = url.searchParams.get("fecha");
-  const tipo = url.searchParams.get("tipo") || "diario"; // diario | semanal
+  const tipo = url.searchParams.get("tipo") || "diario"; // diario | semanal | mensual
   if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
     return NextResponse.json({ error: "fecha inválida (YYYY-MM-DD)" }, { status: 400 });
   }
 
   // Calcular rango
   let desde: string, hasta: string, titulo: string;
+  const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
   if (tipo === "semanal") {
-    // Semana ISO (lunes a domingo) que contiene la fecha
     const d = parseDate(fecha);
-    const dow = d.getDay(); // 0=dom, 1=lun...
+    const dow = d.getDay();
     const offsetToMon = dow === 0 ? -6 : 1 - dow;
     const mon = new Date(d);
     mon.setDate(d.getDate() + offsetToMon);
@@ -49,6 +49,13 @@ export async function GET(req: NextRequest) {
     desde = toISO(mon);
     hasta = toISO(sun);
     titulo = `SEMANA ${fmtFecha(desde)} — ${fmtFecha(hasta)}`;
+  } else if (tipo === "mensual") {
+    const d = parseDate(fecha);
+    const first = new Date(d.getFullYear(), d.getMonth(), 1);
+    const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    desde = toISO(first);
+    hasta = toISO(last);
+    titulo = `MES ${MONTH_NAMES[d.getMonth()].toUpperCase()} ${d.getFullYear()}`;
   } else {
     desde = fecha;
     hasta = fecha;
@@ -248,6 +255,109 @@ export async function GET(req: NextRequest) {
   if (cashByReceptor.size > 0) {
     const arr = [...cashByReceptor.entries()].sort((a, b) => b[1] - a[1]);
     for (const [name, usd] of arr) lines.push(`   • ${name}: ${fmtUSD(usd)}`);
+  }
+
+  // ───── EXTRAS MENSUALES ─────
+  if (tipo === "mensual") {
+    lines.push("");
+    lines.push(`━━━━━━━━━━━━━━━━━━━━`);
+    lines.push("");
+
+    // Facturación = ticket de leads cuya cuota#1 se pagó en el mes
+    const cuota1Pays = (payments || []).filter((p) => p.numero_cuota === 1);
+    const leadsCuota1 = new Set(cuota1Pays.map((p) => p.lead_id).filter(Boolean) as string[]);
+    let facturacion = 0;
+    for (const id of leadsCuota1) facturacion += leadTickets.get(id) || 0;
+    lines.push(`💼 *Facturación (ventas concretadas):* ${fmtUSD(facturacion)} (${leadsCuota1.size} ventas)`);
+
+    // Por programa
+    const ventasPorPrograma = new Map<string, { count: number; cash: number; ticket: number }>();
+    if (leadsCuota1.size > 0) {
+      const { data: lprog } = await sb
+        .from("leads")
+        .select("id, programa_pitcheado, ticket_total")
+        .in("id", [...leadsCuota1]);
+      for (const l of lprog || []) {
+        const p = (l.programa_pitcheado || "otros").toLowerCase();
+        const k = p.includes("multi") ? "Multicuentas" : p.includes("consult") ? "Consultoría" : p.includes("omni") ? "Omnipresencia" : p.includes("roms_7") ? "ROMS 7" : "Otros";
+        const cur = ventasPorPrograma.get(k) || { count: 0, cash: 0, ticket: 0 };
+        cur.count++;
+        cur.ticket += Number(l.ticket_total || 0);
+        ventasPorPrograma.set(k, cur);
+      }
+    }
+    if (ventasPorPrograma.size > 0) {
+      lines.push(`   📦 Por programa:`);
+      const arr = [...ventasPorPrograma.entries()].sort((a, b) => b[1].ticket - a[1].ticket);
+      for (const [name, v] of arr) lines.push(`      • ${name}: ${v.count} ventas · ${fmtUSD(v.ticket)}`);
+    }
+    lines.push("");
+
+    // Renovaciones del mes
+    const { data: renovs } = await sb
+      .from("renewal_history")
+      .select("id, monto_total, estado, client:clients(nombre, programa)")
+      .gte("fecha_renovacion", desde)
+      .lte("fecha_renovacion", hasta);
+    const renovsValidas = (renovs || []).filter((r) => r.estado === "pago" && (r.monto_total || 0) > 0);
+    const renovsRevenue = renovsValidas.reduce((s, r) => s + Number(r.monto_total || 0), 0);
+
+    // Vencimientos del mes (clients que cumplen)
+    const { data: clients } = await sb.from("clients").select("fecha_onboarding, total_dias_programa");
+    let vencimientos = 0;
+    const DAY = 86400000;
+    for (const c of clients || []) {
+      if (!c.fecha_onboarding) continue;
+      const onb = new Date(String(c.fecha_onboarding).split("T")[0]).getTime();
+      const venc = new Date(onb + (c.total_dias_programa || 90) * DAY);
+      const v = toISO(venc);
+      if (v >= desde && v <= hasta) vencimientos++;
+    }
+    const tasaRenov = vencimientos > 0 ? renovsValidas.length / vencimientos : 0;
+
+    lines.push(`🔄 *Renovaciones:* ${renovsValidas.length} de ${vencimientos} vencimientos (${(tasaRenov * 100).toFixed(0)}%)`);
+    lines.push(`   💰 Revenue de renovaciones: ${fmtUSD(renovsRevenue)}`);
+    lines.push("");
+
+    // Cobranzas pendientes (vencidas)
+    const today = toISO(new Date());
+    const { data: vencidas } = await sb
+      .from("payments")
+      .select("monto_usd")
+      .eq("estado", "pendiente")
+      .lte("fecha_vencimiento", today);
+    const totalVencidas = (vencidas || []).reduce((s, p) => s + Number(p.monto_usd || 0), 0);
+    if (totalVencidas > 0) {
+      lines.push(`⚠️ *Cuotas vencidas (a hoy):* ${fmtUSD(totalVencidas)} (${vencidas?.length || 0} cuotas)`);
+      lines.push("");
+    }
+
+    // Gastos del mes
+    const { data: gastos } = await sb
+      .from("gastos")
+      .select("monto_usd, categoria")
+      .gte("fecha", desde)
+      .lte("fecha", hasta);
+    const totalGastos = (gastos || []).reduce((s, g) => s + Number(g.monto_usd || 0), 0);
+    const gastosPorCat = new Map<string, number>();
+    for (const g of gastos || []) {
+      const k = g.categoria || "otros";
+      gastosPorCat.set(k, (gastosPorCat.get(k) || 0) + Number(g.monto_usd || 0));
+    }
+    lines.push(`📉 *Gastos del mes:* ${fmtUSD(totalGastos)} (${gastos?.length || 0} items)`);
+    if (gastosPorCat.size > 0) {
+      const arr = [...gastosPorCat.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+      for (const [k, v] of arr) lines.push(`   • ${k}: ${fmtUSD(v)}`);
+    }
+    lines.push("");
+
+    // Resultado neto aproximado (cash - gastos)
+    const resultadoNetoCash = cashTotal - totalGastos;
+    lines.push(`💎 *Resultado neto (cash):* ${fmtUSD(resultadoNetoCash)}`);
+    lines.push(`   = Cash ${fmtUSD(cashTotal)} − Gastos ${fmtUSD(totalGastos)}`);
+    lines.push("");
+    lines.push(`━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`Reporte generado ${new Date().toLocaleString("es-AR")}`);
   }
 
   return NextResponse.json({ text: lines.join("\n"), rango: { desde, hasta } });
