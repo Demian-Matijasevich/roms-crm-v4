@@ -350,7 +350,10 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
     return count;
   }, [clients, monthRange]);
 
-  const renovsPagas = renovsMes.filter((r) => r.estado === "pago").length;
+  // Renovaciones VÁLIDAS: estado=pago Y monto > 0 (las de monto=0 son data sucia)
+  const renovsValidas = renovsMes.filter((r) => r.estado === "pago" && (r.monto_total || 0) > 0);
+  const renovsIncompletas = renovsMes.filter((r) => r.estado === "pago" && (r.monto_total || 0) === 0);
+  const renovsPagas = renovsValidas.length;
   const tasaRenovMes = vencimientosMes > 0 ? renovsPagas / vencimientosMes : 0;
 
   // ── Gastos del mes ──
@@ -424,6 +427,17 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
       });
     }
 
+    // Renovaciones marcadas como pago pero con monto $0 (data incompleta)
+    if (renovsIncompletas.length > 0) {
+      issues.push({
+        severity: "media",
+        titulo: `${renovsIncompletas.length} renovaciones con estado "pago" pero monto $0`,
+        detalle: `${renovsIncompletas.map((r) => r.client?.nombre || "?").join(", ")} — fueron cargadas sin importe. No cuentan como renovación real. Cargar el monto en /renovaciones → Historial.`,
+        cta: "Ir a Renovaciones",
+        href: "/renovaciones",
+      });
+    }
+
     // Pagos vencidos
     if (cobranzasStats.vencidasMonto > 5000) {
       issues.push({
@@ -471,7 +485,7 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
       const order = { alta: 0, media: 1, baja: 2 };
       return order[a.severity] - order[b.severity];
     });
-  }, [closersStats, settersStats, vencimientosMes, tasaRenovMes, renovsPagas, cobranzasStats, auditoria, gastosStats]);
+  }, [closersStats, settersStats, vencimientosMes, tasaRenovMes, renovsPagas, renovsIncompletas, cobranzasStats, auditoria, gastosStats]);
 
   // ── PROYECCIÓN MES SIGUIENTE (default $500k objetivo, editable) ──
   const [objetivoMesSig, setObjetivoMesSig] = useState<number>(500000);
@@ -902,10 +916,20 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
         <h2 className="text-xl font-bold text-white mb-4">7️⃣ Renovaciones del mes</h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
           <Stat label="Vencimientos" value={String(vencimientosMes)} />
-          <Stat label="Renovaron" value={String(renovsPagas)} color="green" />
+          <Stat label="Renovaron (válidas)" value={String(renovsPagas)} color="green" sub={renovsIncompletas.length > 0 ? `${renovsIncompletas.length} incompletas (sin monto)` : undefined} />
           <Stat label="Tasa renovación" value={pct(tasaRenovMes)} color="purple" />
-          <Stat label="Revenue renov" value={fmt(renovsMes.reduce((s, r) => s + (r.monto_total || 0), 0))} color="blue" />
+          <Stat label="Revenue renov" value={fmt(renovsValidas.reduce((s, r) => s + (r.monto_total || 0), 0))} color="blue" />
         </div>
+        {renovsIncompletas.length > 0 && (
+          <div className="bg-yellow-500/10 border border-yellow-500/40 rounded-lg p-3 mb-4">
+            <p className="text-sm text-yellow-400 font-semibold">
+              ⚠️ {renovsIncompletas.length} renovaciones marcadas &quot;pago&quot; pero con monto $0
+            </p>
+            <p className="text-xs text-[var(--muted)] mt-1">
+              No cuentan en tasa de renovación. Cargá el monto real desde <a href="/renovaciones" className="text-[var(--purple-light)] underline">/renovaciones</a> → tab Historial → click en el monto para editar.
+            </p>
+          </div>
+        )}
         {renovsMes.length > 0 && (
           <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
             <table className="w-full text-sm">
@@ -920,16 +944,25 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
                 </tr>
               </thead>
               <tbody>
-                {renovsMes.map((r) => (
-                  <tr key={r.id} className="border-t border-[var(--card-border)]/30">
-                    <td className="py-2 px-3 text-white font-medium">{r.client?.nombre || "—"}</td>
-                    <td className="py-2 px-3 text-[var(--muted)]">{r.tipo_renovacion || "—"}</td>
-                    <td className="py-2 px-3 text-[var(--muted)]">{r.plan_pago || "—"}</td>
-                    <td className="py-2 px-3 text-[var(--muted)]">{r.programa_nuevo || r.programa_anterior || "—"}</td>
-                    <td className="py-2 px-3 text-right font-mono">{fmt(r.monto_total || 0)}</td>
-                    <td className="py-2 px-3 text-[var(--muted)]">{r.estado || "—"}</td>
-                  </tr>
-                ))}
+                {renovsMes.map((r) => {
+                  const incompleta = r.estado === "pago" && (r.monto_total || 0) === 0;
+                  return (
+                    <tr key={r.id} className={`border-t border-[var(--card-border)]/30 ${incompleta ? "bg-yellow-500/5" : ""}`}>
+                      <td className="py-2 px-3 text-white font-medium">{r.client?.nombre || "—"}</td>
+                      <td className="py-2 px-3 text-[var(--muted)]">{r.tipo_renovacion || "—"}</td>
+                      <td className="py-2 px-3 text-[var(--muted)]">{r.plan_pago || "—"}</td>
+                      <td className="py-2 px-3 text-[var(--muted)]">{r.programa_nuevo || r.programa_anterior || "—"}</td>
+                      <td className="py-2 px-3 text-right font-mono">{fmt(r.monto_total || 0)}</td>
+                      <td className="py-2 px-3">
+                        {incompleta ? (
+                          <span className="text-[10px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">🟡 Incompleta</span>
+                        ) : (
+                          <span className="text-[var(--muted)] text-xs">{r.estado || "—"}</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
