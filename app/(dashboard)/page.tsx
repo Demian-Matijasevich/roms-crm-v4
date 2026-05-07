@@ -95,6 +95,19 @@ export default async function DashboardPage() {
       monthEnd: fiscalMonthEnd,
     });
 
+    // Ventas firmadas del mes (mismo cálculo que /finanzas): leads cerrados con fecha_llamada en mes Y al menos 1 pago
+    const allLeadsForVentas = await supabase
+      .from("leads")
+      .select("id, ticket_total, estado, fecha_llamada")
+      .gte("fecha_llamada", fiscalMonthStart)
+      .lte("fecha_llamada", fiscalMonthEnd + "T23:59:59")
+      .in("estado", ["cerrado", "adentro_seguimiento"]);
+    const allPaymentsRows = (paymentsRes.data ?? []) as Array<{ lead_id: string | null }>;
+    const leadsConPago = new Set(allPaymentsRows.filter((p) => p.lead_id).map((p) => p.lead_id as string));
+    const ventasFirmadas = ((allLeadsForVentas.data ?? []) as Array<{ id: string; ticket_total: number }>)
+      .filter((l) => leadsConPago.has(l.id))
+      .reduce((s, l) => s + (l.ticket_total || 0), 0);
+
     return (
       <HomeAdmin
         monthlyCash={(cashRes.data as MonthlyCash[]) ?? []}
@@ -103,6 +116,7 @@ export default async function DashboardPage() {
         atRiskClients={(atRiskRes.data as Client[]) ?? []}
         commissions={(commissionsRes.data as Commission[]) ?? []}
         teamCommissions={currentCommissions}
+        ventasFirmadasOverride={ventasFirmadas}
         revPrediction={{
           cashCollected,
           cuotasPendientes: pendingPaymentsTotal,

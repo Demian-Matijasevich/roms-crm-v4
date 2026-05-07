@@ -48,6 +48,7 @@ interface Props {
   commissions: Commission[];
   teamCommissions: TeamCommission[];
   revPrediction: RevPrediction;
+  ventasFirmadasOverride?: number;
 }
 
 function EditableTitle({ defaultLabel, storageKey }: { defaultLabel: string; storageKey: string }) {
@@ -147,6 +148,7 @@ export default function HomeAdmin({
   commissions,
   teamCommissions,
   revPrediction,
+  ventasFirmadasOverride,
 }: Props) {
   const [selectedMonth, setSelectedMonth] = useState(
     getFiscalStart().toISOString().split("T")[0]
@@ -184,7 +186,8 @@ export default function HomeAdmin({
     return ((curr - previous) / previous) * 100;
   }
 
-  const facturacion = current?.facturacion ?? 0;
+  // Si recibimos override (mes actual real), usar eso; sino el viejo de v_monthly_cash
+  const facturacion = ventasFirmadasOverride ?? (current?.facturacion ?? 0);
   const cashTotal = current?.cash_total ?? 0;
   const cashVentasNuevas = current?.cash_ventas_nuevas ?? 0;
   const cashRenovaciones = current?.cash_renovaciones ?? 0;
@@ -277,7 +280,7 @@ export default function HomeAdmin({
       {/* KPI Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICardEditable
-          label="Facturaci\u00f3n"
+          label="Ventas firmadas"
           storageKey="kpi_title_facturacion"
           value={facturacion}
           format="usd"
