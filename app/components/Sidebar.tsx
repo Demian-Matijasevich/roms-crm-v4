@@ -53,6 +53,7 @@ function getNav(session: AuthSession): NavSection[] {
       {
         title: "ANALYTICS",
         items: [
+          { href: "/cierre-mes", label: "📅 Cierre de Mes", icon: "\u{1F4C5}" },
           { href: "/comisiones", label: "Comisiones (detalle)", icon: "\u{1F4B8}" },
           { href: "/closers", label: "Closers Analytics", icon: "\u{1F3C6}" },
           { href: "/setters", label: "Setters Analytics", icon: "\u{1F4AC}" },

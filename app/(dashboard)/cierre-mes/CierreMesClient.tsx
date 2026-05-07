@@ -1,0 +1,718 @@
+"use client";
+
+import { useState, useMemo } from "react";
+import { computeTeamCommissions, computeValenCommission } from "@/lib/commissions";
+
+interface Lead { id: string; nombre: string; programa_pitcheado: string | null; ticket_total: number; estado: string | null; fecha_llamada: string | null; fecha_agendado: string | null; closer_id: string | null; setter_id: string | null; utm_medium: string | null; utm_source: string | null; plan_pago: string | null; lead_calificado: string | null }
+interface Payment { id: string; lead_id: string | null; monto_usd: number; monto_ars: number; fecha_pago: string | null; fecha_vencimiento: string | null; estado: string; numero_cuota: number; metodo_pago: string | null; receptor: string | null; es_renovacion: boolean }
+interface Client { id: string; lead_id: string | null; nombre: string; programa: string | null; fecha_onboarding: string | null; fecha_offboarding: string | null; total_dias_programa: number; estado: string }
+interface RenewalRow { id: string; client_id: string; tipo_renovacion: string | null; programa_anterior: string | null; programa_nuevo: string | null; monto_total: number; plan_pago: string | null; estado: string | null; fecha_renovacion: string | null; client?: { nombre: string; programa: string | null } | null }
+interface Gasto { id: string; fecha: string; concepto: string; categoria: string; billetera: string; monto_usd: number; monto_ars: number; usd_rate_aplicado: number | null; estado: string }
+interface TeamMember { id: string; nombre: string; is_closer: boolean; is_setter: boolean }
+interface Campaign { medium: string | null; setter_id: string | null }
+
+interface Props {
+  leads: Lead[];
+  payments: Payment[];
+  clients: Client[];
+  renewals: RenewalRow[];
+  gastos: Gasto[];
+  team: TeamMember[];
+  campaigns: Campaign[];
+  rates: Array<{ mes: string; rate: number }>;
+  usdRate: number;
+}
+
+const fmt = (n: number) => "$" + Math.round(n).toLocaleString("en-US");
+const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+
+function programaKey(p: string | null): "omnipresencia" | "multicuentas" | "consultoria" | "roms_7" | "otros" {
+  const x = (p || "").toLowerCase();
+  if (x.includes("multi")) return "multicuentas";
+  if (x.includes("consult")) return "consultoria";
+  if (x.includes("omni")) return "omnipresencia";
+  if (x === "roms_7" || x.includes("roms_7")) return "roms_7";
+  return "otros";
+}
+
+const PROGRAMA_LABELS: Record<string, string> = {
+  omnipresencia: "Omnipresencia", multicuentas: "Multicuentas",
+  consultoria: "Consultoría", roms_7: "ROMS 7", otros: "Otros",
+};
+
+export default function CierreMesClient({ leads, payments, clients, renewals, gastos, team, campaigns, rates, usdRate }: Props) {
+  const today = new Date();
+  const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonth);
+
+  const monthRange = useMemo(() => {
+    const [y, m] = selectedMonth.split("-").map(Number);
+    const start = `${selectedMonth}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const end = `${selectedMonth}-${String(lastDay).padStart(2, "0")}`;
+    return { start, end, y, m, lastDay };
+  }, [selectedMonth]);
+
+  const prevRange = useMemo(() => {
+    const [y, m] = selectedMonth.split("-").map(Number);
+    const prevDate = new Date(y, m - 2, 1);
+    const py = prevDate.getFullYear();
+    const pm = prevDate.getMonth() + 1;
+    const pmStr = `${py}-${String(pm).padStart(2, "0")}`;
+    const lastDay = new Date(py, pm, 0).getDate();
+    return { start: `${pmStr}-01`, end: `${pmStr}-${String(lastDay).padStart(2, "0")}`, label: pmStr };
+  }, [selectedMonth]);
+
+  const teamById = useMemo(() => new Map(team.map((t) => [t.id, t])), [team]);
+  const programaByLead = useMemo(() => new Map(leads.map((l) => [l.id, l.programa_pitcheado])), [leads]);
+  const ticketByLead = useMemo(() => new Map(leads.map((l) => [l.id, l.ticket_total || 0])), [leads]);
+  const leadById = useMemo(() => new Map(leads.map((l) => [l.id, l])), [leads]);
+
+  // ── Cómputo del mes seleccionado y mes anterior ──
+  function computeForRange(start: string, end: string) {
+    const initBucket = () => ({ omnipresencia: 0, multicuentas: 0, consultoria: 0, roms_7: 0, otros: 0, total: 0 });
+    const ventas = initBucket();
+    const cash = initBucket();
+    const revenue = initBucket();
+
+    const leadsWithPayments = new Set<string>();
+    for (const p of payments) {
+      if (p.estado === "pagado" && p.lead_id) leadsWithPayments.add(p.lead_id);
+    }
+
+    // Ventas (cerrados con pago, fecha_llamada en mes)
+    const ventasDetalle: Lead[] = [];
+    for (const l of leads) {
+      if (!l.fecha_llamada) continue;
+      const f = l.fecha_llamada.split("T")[0];
+      if (f < start || f > end) continue;
+      if (l.estado !== "cerrado" && l.estado !== "adentro_seguimiento") continue;
+      if (!leadsWithPayments.has(l.id)) continue;
+      const k = programaKey(l.programa_pitcheado);
+      ventas[k] += l.ticket_total || 0;
+      ventas.total += l.ticket_total || 0;
+      ventasDetalle.push(l);
+    }
+
+    // Cash collected
+    const paymentsInRange = payments.filter((p) => p.estado === "pagado" && p.fecha_pago && p.fecha_pago.split("T")[0] >= start && p.fecha_pago.split("T")[0] <= end);
+    for (const p of paymentsInRange) {
+      const programa = p.lead_id ? programaByLead.get(p.lead_id) : null;
+      const k = programaKey(programa || null);
+      cash[k] += p.monto_usd || 0;
+      cash.total += p.monto_usd || 0;
+    }
+
+    // Revenue devengado
+    const DAY = 86400000;
+    const monthStartT = new Date(start).getTime();
+    const monthEndT = new Date(end).getTime();
+    for (const c of clients) {
+      if (!c.fecha_onboarding || !c.lead_id) continue;
+      const ticket = ticketByLead.get(c.lead_id) || 0;
+      if (ticket <= 0) continue;
+      const onb = new Date(c.fecha_onboarding.split("T")[0]).getTime();
+      const programEnd = c.fecha_offboarding
+        ? new Date(c.fecha_offboarding.split("T")[0]).getTime()
+        : onb + (c.total_dias_programa || 90) * DAY;
+      const overlapStart = Math.max(onb, monthStartT);
+      const overlapEnd = Math.min(programEnd, monthEndT);
+      if (overlapEnd < overlapStart) continue;
+      const overlapDays = Math.floor((overlapEnd - overlapStart) / DAY) + 1;
+      const totalDays = c.total_dias_programa || 90;
+      const monthRev = (overlapDays / totalDays) * ticket;
+      const k = programaKey(c.programa);
+      revenue[k] += monthRev;
+      revenue.total += monthRev;
+    }
+
+    return { ventas, cash, revenue, paymentsInRange, ventasDetalle };
+  }
+
+  const cur = useMemo(() => computeForRange(monthRange.start, monthRange.end), [monthRange]);
+  const prev = useMemo(() => computeForRange(prevRange.start, prevRange.end), [prevRange]);
+
+  // ── Closers performance ──
+  const closersStats = useMemo(() => {
+    const map = new Map<string, { id: string; nombre: string; agendas: number; presentadas: number; calificadas: number; cerradas: number; cash: number; comision: number; pays: { monto_usd: number; programa: string | null }[] }>();
+    for (const t of team) if (t.is_closer) map.set(t.id, { id: t.id, nombre: t.nombre, agendas: 0, presentadas: 0, calificadas: 0, cerradas: 0, cash: 0, comision: 0, pays: [] });
+
+    // Agendas (leads con fecha_llamada en mes)
+    for (const l of leads) {
+      if (!l.closer_id || !l.fecha_llamada) continue;
+      const f = l.fecha_llamada.split("T")[0];
+      if (f < monthRange.start || f > monthRange.end) continue;
+      const entry = map.get(l.closer_id);
+      if (!entry) continue;
+      if (l.estado !== "cancelada" && l.estado !== "reprogramada") entry.agendas++;
+      const presentada = !["pendiente", "cancelada", "no_show", "reprogramada"].includes(l.estado || "");
+      if (presentada) entry.presentadas++;
+      if (l.lead_calificado === "calificado") entry.calificadas++;
+      if (l.estado === "cerrado" || l.estado === "adentro_seguimiento") entry.cerradas++;
+    }
+
+    // Cash + comisión
+    for (const p of cur.paymentsInRange) {
+      if (!p.lead_id) continue;
+      const lead = leadById.get(p.lead_id);
+      if (!lead || !lead.closer_id) continue;
+      const entry = map.get(lead.closer_id);
+      if (!entry) continue;
+      entry.cash += p.monto_usd || 0;
+      entry.pays.push({ monto_usd: p.monto_usd, programa: lead.programa_pitcheado });
+    }
+    for (const e of map.values()) {
+      if (e.cash > 0) e.comision = computeValenCommission(e.pays, e.cash).total;
+    }
+    return Array.from(map.values()).filter((e) => e.agendas > 0 || e.cash > 0).sort((a, b) => b.cash - a.cash);
+  }, [leads, team, cur.paymentsInRange, leadById, monthRange]);
+
+  // ── Setters performance (out / in / landing) ──
+  const settersStats = useMemo(() => {
+    const mediumToSetter = new Map<string, string>();
+    for (const c of campaigns) if (c.setter_id && c.medium) mediumToSetter.set(c.medium.toLowerCase().trim(), c.setter_id);
+    function resolve(l: Lead): { sid: string | null; via: "direct" | "utm" | "landing" } {
+      if (l.utm_medium) {
+        const sid = mediumToSetter.get(l.utm_medium.toLowerCase().trim());
+        if (sid) return { sid, via: "utm" };
+      }
+      if (l.setter_id) return { sid: l.setter_id, via: "direct" };
+      return { sid: null, via: "landing" };
+    }
+    const map = new Map<string, { id: string; nombre: string; outbound: number; inbound: number; total: number; cerradas: number; cash: number; comision: number }>();
+    for (const t of team) if (t.is_setter) map.set(t.id, { id: t.id, nombre: t.nombre, outbound: 0, inbound: 0, total: 0, cerradas: 0, cash: 0, comision: 0 });
+    let landing = 0;
+
+    for (const l of leads) {
+      const f = l.fecha_agendado?.split("T")[0] || l.fecha_llamada?.split("T")[0];
+      if (!f || f < monthRange.start || f > monthRange.end) continue;
+      if (l.estado === "cancelada" || l.estado === "reprogramada") continue;
+      const r = resolve(l);
+      if (r.via === "landing") { landing++; continue; }
+      const e = r.sid ? map.get(r.sid) : null;
+      if (!e) continue;
+      e.total++;
+      if (r.via === "direct") e.outbound++;
+      else e.inbound++;
+      if (l.estado === "cerrado" || l.estado === "adentro_seguimiento") e.cerradas++;
+    }
+
+    // Cash + comisión 3% (sobre pagos cuyo lead.setter_id mapea o utm)
+    for (const p of cur.paymentsInRange) {
+      if (!p.lead_id) continue;
+      const l = leadById.get(p.lead_id);
+      if (!l) continue;
+      const r = resolve(l);
+      if (!r.sid) continue;
+      const e = map.get(r.sid);
+      if (!e) continue;
+      e.cash += p.monto_usd || 0;
+    }
+    for (const e of map.values()) e.comision = e.cash * 0.03;
+
+    return { rows: Array.from(map.values()).filter((e) => e.total > 0 || e.cash > 0).sort((a, b) => b.total - a.total), landing };
+  }, [leads, team, campaigns, cur.paymentsInRange, leadById, monthRange]);
+
+  // ── Cobranzas ──
+  const cobranzasStats = useMemo(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const cobradoMes = cur.paymentsInRange.reduce((s, p) => s + p.monto_usd, 0);
+    const pendientes = payments.filter((p) => p.estado === "pendiente");
+    const vencidasGlobal = pendientes.filter((p) => p.fecha_vencimiento && p.fecha_vencimiento <= todayStr);
+    const proximas = pendientes.filter((p) => p.fecha_vencimiento && p.fecha_vencimiento > todayStr);
+    const porCobrarMes = pendientes
+      .filter((p) => p.fecha_vencimiento && p.fecha_vencimiento >= monthRange.start && p.fecha_vencimiento <= monthRange.end)
+      .reduce((s, p) => s + p.monto_usd, 0);
+    return {
+      cobradoMes,
+      pendientesCount: pendientes.length,
+      vencidasMonto: vencidasGlobal.reduce((s, p) => s + p.monto_usd, 0),
+      vencidasCount: vencidasGlobal.length,
+      proximasMonto: proximas.reduce((s, p) => s + p.monto_usd, 0),
+      proximasCount: proximas.length,
+      porCobrarMes,
+    };
+  }, [payments, cur.paymentsInRange, monthRange]);
+
+  // ── Cash collected detalle por método y receptor ──
+  const cashDetail = useMemo(() => {
+    const byMethod: Record<string, number> = {};
+    const byReceptor: Record<string, number> = {};
+    let renovaciones = 0, ventasNuevas = 0, cuotas = 0;
+    for (const p of cur.paymentsInRange) {
+      const m = p.metodo_pago || "—";
+      const r = p.receptor || "—";
+      byMethod[m] = (byMethod[m] || 0) + p.monto_usd;
+      byReceptor[r] = (byReceptor[r] || 0) + p.monto_usd;
+      if (p.es_renovacion) renovaciones += p.monto_usd;
+      else if (p.numero_cuota === 1) ventasNuevas += p.monto_usd;
+      else cuotas += p.monto_usd;
+    }
+    return {
+      byMethod: Object.entries(byMethod).sort((a, b) => b[1] - a[1]),
+      byReceptor: Object.entries(byReceptor).sort((a, b) => b[1] - a[1]),
+      ventasNuevas, cuotas, renovaciones,
+    };
+  }, [cur.paymentsInRange]);
+
+  // ── Renovaciones del mes ──
+  const renovsMes = useMemo(() => {
+    return renewals.filter((r) => r.fecha_renovacion && r.fecha_renovacion.startsWith(selectedMonth));
+  }, [renewals, selectedMonth]);
+
+  // Vencimientos del mes (clientes que cumplen programa este mes)
+  const vencimientosMes = useMemo(() => {
+    let count = 0;
+    const DAY = 86400000;
+    for (const c of clients) {
+      if (!c.fecha_onboarding) continue;
+      const onb = new Date(c.fecha_onboarding.split("T")[0]).getTime();
+      const venc = new Date(onb + (c.total_dias_programa || 90) * DAY);
+      const v = venc.toISOString().slice(0, 10);
+      if (v >= monthRange.start && v <= monthRange.end) count++;
+    }
+    return count;
+  }, [clients, monthRange]);
+
+  const renovsPagas = renovsMes.filter((r) => r.estado === "pago").length;
+  const tasaRenovMes = vencimientosMes > 0 ? renovsPagas / vencimientosMes : 0;
+
+  // ── Gastos del mes ──
+  const gastosStats = useMemo(() => {
+    const inMonth = gastos.filter((g) => g.fecha?.startsWith(selectedMonth));
+    let totalUsd = 0;
+    const byCategoria: Record<string, number> = {};
+    const byCaja: Record<string, number> = {};
+    for (const g of inMonth) {
+      const usd = g.monto_usd || 0;
+      totalUsd += usd;
+      byCategoria[g.categoria] = (byCategoria[g.categoria] || 0) + usd;
+      byCaja[g.billetera] = (byCaja[g.billetera] || 0) + usd;
+    }
+    return {
+      total: totalUsd,
+      count: inMonth.length,
+      byCategoria: Object.entries(byCategoria).sort((a, b) => b[1] - a[1]),
+      byCaja: Object.entries(byCaja).sort((a, b) => b[1] - a[1]),
+      detalle: inMonth.sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "")),
+    };
+  }, [gastos, selectedMonth]);
+
+  // ── Comisiones totales del mes ──
+  const teamCommissions = useMemo(() => {
+    return computeTeamCommissions({
+      leads: leads,
+      payments: payments,
+      team: team,
+      campaigns: campaigns,
+      monthStart: monthRange.start,
+      monthEnd: monthRange.end,
+    });
+  }, [leads, payments, team, campaigns, monthRange]);
+
+  // ── P&L ──
+  const ingresoDevengado = cur.revenue.total;
+  const totalComisiones = teamCommissions.reduce((s, r) => s + r.comision_total, 0);
+  const totalEgresos = gastosStats.total + totalComisiones;
+  const resultadoNeto = ingresoDevengado - totalEgresos;
+
+  // ── Comparación con mes anterior ──
+  function delta(curVal: number, prevVal: number): { abs: number; pct: number; positive: boolean } {
+    const abs = curVal - prevVal;
+    const pctChange = prevVal > 0 ? abs / prevVal : 0;
+    return { abs, pct: pctChange, positive: abs >= 0 };
+  }
+  const dVentas = delta(cur.ventas.total, prev.ventas.total);
+  const dCash = delta(cur.cash.total, prev.cash.total);
+  const dRev = delta(cur.revenue.total, prev.revenue.total);
+
+  const usedRate = rates.find((r) => r.mes === selectedMonth)?.rate || usdRate;
+
+  return (
+    <div className="max-w-6xl mx-auto px-6 py-8 space-y-10 print:space-y-6">
+      <style>{`
+        @media print {
+          body { background: white !important; }
+          .no-print { display: none !important; }
+          h1, h2, h3 { color: black !important; }
+          .text-white { color: black !important; }
+          .text-\\[var\\(--muted\\)\\] { color: #555 !important; }
+          .slide-section { page-break-inside: avoid; }
+        }
+      `}</style>
+
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3 border-b border-[var(--card-border)] pb-4 print:border-b-2 print:border-black">
+        <div>
+          <p className="text-xs uppercase text-[var(--purple-light)] tracking-widest">📅 Cierre de mes — ROMS Consultora</p>
+          <h1 className="text-3xl font-bold text-white mt-1">Reporte {selectedMonth}</h1>
+          <p className="text-xs text-[var(--muted)] mt-1">USD/ARS aplicado: {usedRate.toLocaleString("en-US")} · Generado {new Date().toLocaleString("es-AR")}</p>
+        </div>
+        <div className="flex items-center gap-2 no-print">
+          <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}
+            className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm text-white" />
+          <button onClick={() => window.print()}
+            className="bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white px-4 py-2 rounded-lg text-sm">
+            🖨️ Exportar PDF
+          </button>
+        </div>
+      </div>
+
+      {/* 1) KPIs principales con delta vs mes anterior */}
+      <section className="slide-section">
+        <h2 className="text-xl font-bold text-white mb-4">1️⃣ Resumen ejecutivo</h2>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <BigKpi label="Ventas firmadas" value={fmt(cur.ventas.total)} delta={dVentas} prevLabel={prevRange.label} color="purple" />
+          <BigKpi label="Cash Collected" value={fmt(cur.cash.total)} delta={dCash} prevLabel={prevRange.label} color="green" />
+          <BigKpi label="Revenue Devengado" value={fmt(cur.revenue.total)} delta={dRev} prevLabel={prevRange.label} color="blue" />
+          <div className={`bg-[var(--card-bg)] border ${resultadoNeto >= 0 ? "border-[var(--green)]/40" : "border-[var(--red)]/40"} rounded-xl p-4`}>
+            <p className="text-xs text-[var(--muted)] uppercase">Resultado Neto</p>
+            <p className={`text-2xl font-bold ${resultadoNeto >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}`}>{fmt(resultadoNeto)}</p>
+            <p className="text-[10px] text-[var(--muted)] mt-1">Devengado − Egresos</p>
+          </div>
+        </div>
+      </section>
+
+      {/* 2) Por programa */}
+      <section className="slide-section">
+        <h2 className="text-xl font-bold text-white mb-4">2️⃣ Ingresos por programa</h2>
+        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-white/5">
+              <tr className="text-left text-[10px] uppercase text-[var(--muted)]">
+                <th className="py-2 px-3">Programa</th>
+                <th className="py-2 px-3 text-right">Ventas firmadas</th>
+                <th className="py-2 px-3 text-right">Cash collected</th>
+                <th className="py-2 px-3 text-right">Revenue devengado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(["omnipresencia", "multicuentas", "consultoria", "roms_7", "otros"] as const).map((k) => {
+                const v = cur.ventas[k]; const c = cur.cash[k]; const r = cur.revenue[k];
+                if (v === 0 && c === 0 && r === 0) return null;
+                return (
+                  <tr key={k} className="border-t border-[var(--card-border)]/30">
+                    <td className="py-2 px-3 text-white font-medium">{PROGRAMA_LABELS[k]}</td>
+                    <td className="py-2 px-3 text-right font-mono text-[var(--purple-light)]">{fmt(v)}</td>
+                    <td className="py-2 px-3 text-right font-mono text-[var(--green)]">{fmt(c)}</td>
+                    <td className="py-2 px-3 text-right font-mono text-blue-400">{fmt(r)}</td>
+                  </tr>
+                );
+              })}
+              <tr className="border-t-2 border-[var(--card-border)] font-bold">
+                <td className="py-2 px-3">TOTAL</td>
+                <td className="py-2 px-3 text-right font-mono">{fmt(cur.ventas.total)}</td>
+                <td className="py-2 px-3 text-right font-mono">{fmt(cur.cash.total)}</td>
+                <td className="py-2 px-3 text-right font-mono">{fmt(cur.revenue.total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* 3) Cash collected detalle */}
+      <section className="slide-section">
+        <h2 className="text-xl font-bold text-white mb-4">3️⃣ Cash collected — desglose</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <Stat label="Ventas nuevas (cuota 1)" value={fmt(cashDetail.ventasNuevas)} />
+          <Stat label="Cuotas (2 en adelante)" value={fmt(cashDetail.cuotas)} />
+          <Stat label="Renovaciones" value={fmt(cashDetail.renovaciones)} />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <SmallTable title="Por método de pago" rows={cashDetail.byMethod} />
+          <SmallTable title="Por receptor" rows={cashDetail.byReceptor} />
+        </div>
+      </section>
+
+      {/* 4) Cobranzas */}
+      <section className="slide-section">
+        <h2 className="text-xl font-bold text-white mb-4">4️⃣ Cobranzas</h2>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <Stat label="Cobrado en el mes" value={fmt(cobranzasStats.cobradoMes)} color="green" />
+          <Stat label={`Vence en ${selectedMonth}`} value={fmt(cobranzasStats.porCobrarMes)} color="purple" />
+          <Stat label="Vencidas (todas)" value={fmt(cobranzasStats.vencidasMonto)} sub={`${cobranzasStats.vencidasCount} cuotas`} color="red" />
+          <Stat label="Próximas (a futuro)" value={fmt(cobranzasStats.proximasMonto)} sub={`${cobranzasStats.proximasCount} cuotas`} color="muted" />
+        </div>
+      </section>
+
+      {/* 5) Closers */}
+      <section className="slide-section">
+        <h2 className="text-xl font-bold text-white mb-4">5️⃣ Performance Closers</h2>
+        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-white/5">
+              <tr className="text-left text-[10px] uppercase text-[var(--muted)]">
+                <th className="py-2 px-3">Closer</th>
+                <th className="py-2 px-3 text-right">Agendas</th>
+                <th className="py-2 px-3 text-right">Show</th>
+                <th className="py-2 px-3 text-right">Cerradas</th>
+                <th className="py-2 px-3 text-right">% Cierre</th>
+                <th className="py-2 px-3 text-right">Cash</th>
+                <th className="py-2 px-3 text-right">Comisión</th>
+              </tr>
+            </thead>
+            <tbody>
+              {closersStats.length === 0 ? (
+                <tr><td colSpan={7} className="py-6 text-center text-[var(--muted)]">Sin datos</td></tr>
+              ) : closersStats.map((c) => (
+                <tr key={c.id} className="border-t border-[var(--card-border)]/30">
+                  <td className="py-2 px-3 text-white font-medium">{c.nombre}</td>
+                  <td className="py-2 px-3 text-right">{c.agendas}</td>
+                  <td className="py-2 px-3 text-right text-[var(--green)]">{c.presentadas}</td>
+                  <td className="py-2 px-3 text-right text-[var(--purple-light)]">{c.cerradas}</td>
+                  <td className="py-2 px-3 text-right text-[var(--muted)]">{c.presentadas > 0 ? pct(c.cerradas / c.presentadas) : "—"}</td>
+                  <td className="py-2 px-3 text-right font-mono text-[var(--green)]">{fmt(c.cash)}</td>
+                  <td className="py-2 px-3 text-right font-mono text-[var(--purple-light)]">{fmt(c.comision)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* 6) Setters */}
+      <section className="slide-section">
+        <h2 className="text-xl font-bold text-white mb-4">6️⃣ Performance Setters</h2>
+        <p className="text-xs text-[var(--muted)] mb-3">Landing del mes (sin atribución): <b>{settersStats.landing}</b></p>
+        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-white/5">
+              <tr className="text-left text-[10px] uppercase text-[var(--muted)]">
+                <th className="py-2 px-3">Setter</th>
+                <th className="py-2 px-3 text-right">Outbound</th>
+                <th className="py-2 px-3 text-right">Inbound</th>
+                <th className="py-2 px-3 text-right">Total</th>
+                <th className="py-2 px-3 text-right">Cerradas</th>
+                <th className="py-2 px-3 text-right">Cash atribuido</th>
+                <th className="py-2 px-3 text-right">Comisión 3%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {settersStats.rows.length === 0 ? (
+                <tr><td colSpan={7} className="py-6 text-center text-[var(--muted)]">Sin datos</td></tr>
+              ) : settersStats.rows.map((s) => (
+                <tr key={s.id} className="border-t border-[var(--card-border)]/30">
+                  <td className="py-2 px-3 text-white font-medium">{s.nombre}</td>
+                  <td className="py-2 px-3 text-right text-orange-400">{s.outbound}</td>
+                  <td className="py-2 px-3 text-right text-blue-400">{s.inbound}</td>
+                  <td className="py-2 px-3 text-right font-bold">{s.total}</td>
+                  <td className="py-2 px-3 text-right text-[var(--purple-light)]">{s.cerradas}</td>
+                  <td className="py-2 px-3 text-right font-mono text-[var(--green)]">{fmt(s.cash)}</td>
+                  <td className="py-2 px-3 text-right font-mono text-[var(--purple-light)]">{fmt(s.comision)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* 7) Renovaciones del mes */}
+      <section className="slide-section">
+        <h2 className="text-xl font-bold text-white mb-4">7️⃣ Renovaciones del mes</h2>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+          <Stat label="Vencimientos" value={String(vencimientosMes)} />
+          <Stat label="Renovaron" value={String(renovsPagas)} color="green" />
+          <Stat label="Tasa renovación" value={pct(tasaRenovMes)} color="purple" />
+          <Stat label="Revenue renov" value={fmt(renovsMes.reduce((s, r) => s + (r.monto_total || 0), 0))} color="blue" />
+        </div>
+        {renovsMes.length > 0 && (
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-white/5">
+                <tr className="text-left text-[10px] uppercase text-[var(--muted)]">
+                  <th className="py-2 px-3">Cliente</th>
+                  <th className="py-2 px-3">Tipo</th>
+                  <th className="py-2 px-3">Plan</th>
+                  <th className="py-2 px-3">Programa</th>
+                  <th className="py-2 px-3 text-right">Monto</th>
+                  <th className="py-2 px-3">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {renovsMes.map((r) => (
+                  <tr key={r.id} className="border-t border-[var(--card-border)]/30">
+                    <td className="py-2 px-3 text-white font-medium">{r.client?.nombre || "—"}</td>
+                    <td className="py-2 px-3 text-[var(--muted)]">{r.tipo_renovacion || "—"}</td>
+                    <td className="py-2 px-3 text-[var(--muted)]">{r.plan_pago || "—"}</td>
+                    <td className="py-2 px-3 text-[var(--muted)]">{r.programa_nuevo || r.programa_anterior || "—"}</td>
+                    <td className="py-2 px-3 text-right font-mono">{fmt(r.monto_total || 0)}</td>
+                    <td className="py-2 px-3 text-[var(--muted)]">{r.estado || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* 8) Gastos */}
+      <section className="slide-section">
+        <h2 className="text-xl font-bold text-white mb-4">8️⃣ Gastos del mes</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <Stat label="Total gastos" value={fmt(gastosStats.total)} color="red" />
+          <Stat label="Cantidad" value={String(gastosStats.count)} />
+          <Stat label="Comisiones equipo" value={fmt(totalComisiones)} color="purple" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <SmallTable title="Por categoría" rows={gastosStats.byCategoria} />
+          <SmallTable title="Por caja" rows={gastosStats.byCaja} />
+        </div>
+        {gastosStats.detalle.length > 0 && (
+          <details className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
+            <summary className="cursor-pointer p-3 text-sm text-white hover:bg-white/5">📋 Ver detalle de los {gastosStats.count} gastos</summary>
+            <table className="w-full text-sm">
+              <thead className="bg-white/5">
+                <tr className="text-left text-[10px] uppercase text-[var(--muted)]">
+                  <th className="py-2 px-3">Fecha</th>
+                  <th className="py-2 px-3">Concepto</th>
+                  <th className="py-2 px-3">Categoría</th>
+                  <th className="py-2 px-3">Caja</th>
+                  <th className="py-2 px-3 text-right">USD</th>
+                  <th className="py-2 px-3 text-right">ARS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {gastosStats.detalle.map((g) => (
+                  <tr key={g.id} className="border-t border-[var(--card-border)]/30">
+                    <td className="py-2 px-3 text-[var(--muted)] text-xs">{g.fecha}</td>
+                    <td className="py-2 px-3 text-white text-xs">{g.concepto}</td>
+                    <td className="py-2 px-3 text-[var(--muted)] text-xs">{g.categoria}</td>
+                    <td className="py-2 px-3 text-[var(--muted)] text-xs">{g.billetera}</td>
+                    <td className="py-2 px-3 text-right font-mono text-xs text-[var(--red)]">{fmt(g.monto_usd || 0)}</td>
+                    <td className="py-2 px-3 text-right font-mono text-xs text-[var(--muted)]">{(g.monto_ars || 0) > 0 ? Math.round(g.monto_ars).toLocaleString("en-US") : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+        )}
+      </section>
+
+      {/* 9) P&L */}
+      <section className="slide-section">
+        <h2 className="text-xl font-bold text-white mb-4">9️⃣ Estado de Resultados</h2>
+        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6 space-y-3">
+          <div className="flex justify-between text-sm">
+            <span className="text-[var(--muted)]">Revenue Devengado (ingresos)</span>
+            <span className="font-mono text-[var(--green)]">{fmt(ingresoDevengado)}</span>
+          </div>
+          <div className="border-t border-[var(--card-border)] pt-3 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-[var(--muted)]">Gastos operativos</span>
+              <span className="font-mono">{fmt(gastosStats.total)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-[var(--muted)]">Comisiones equipo</span>
+              <span className="font-mono">{fmt(totalComisiones)}</span>
+            </div>
+            <div className="flex justify-between text-sm font-bold">
+              <span className="text-[var(--red)]">Total egresos</span>
+              <span className="font-mono text-[var(--red)]">{fmt(totalEgresos)}</span>
+            </div>
+          </div>
+          <div className="border-t-2 border-[var(--card-border)] pt-3 flex justify-between text-2xl font-bold">
+            <span>Resultado Neto</span>
+            <span className={resultadoNeto >= 0 ? "text-[var(--green)]" : "text-[var(--red)]"}>{fmt(resultadoNeto)}</span>
+          </div>
+          {ingresoDevengado > 0 && (
+            <p className="text-xs text-[var(--muted)] text-right">
+              Margen: {pct(resultadoNeto / ingresoDevengado)}
+            </p>
+          )}
+        </div>
+      </section>
+
+      {/* 10) Comisiones individuales */}
+      <section className="slide-section">
+        <h2 className="text-xl font-bold text-white mb-4">🔟 Comisiones por persona</h2>
+        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-white/5">
+              <tr className="text-left text-[10px] uppercase text-[var(--muted)]">
+                <th className="py-2 px-3">Persona</th>
+                <th className="py-2 px-3 text-right">Closer</th>
+                <th className="py-2 px-3 text-right">Setter</th>
+                <th className="py-2 px-3 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {teamCommissions.length === 0 ? (
+                <tr><td colSpan={4} className="py-6 text-center text-[var(--muted)]">Sin comisiones</td></tr>
+              ) : teamCommissions.map((c) => (
+                <tr key={c.id} className="border-t border-[var(--card-border)]/30">
+                  <td className="py-2 px-3 text-white font-medium">{c.nombre}</td>
+                  <td className="py-2 px-3 text-right font-mono text-[var(--purple-light)]">{fmt(c.comision_closer)}</td>
+                  <td className="py-2 px-3 text-right font-mono text-[var(--green)]">{fmt(c.comision_setter)}</td>
+                  <td className="py-2 px-3 text-right font-mono font-bold">{fmt(c.comision_total)}</td>
+                </tr>
+              ))}
+              <tr className="border-t-2 border-[var(--card-border)] font-bold">
+                <td className="py-2 px-3">TOTAL A PAGAR</td>
+                <td colSpan={2}></td>
+                <td className="py-2 px-3 text-right font-mono text-[var(--green)]">{fmt(totalComisiones)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <div className="text-center text-xs text-[var(--muted)] pt-6 border-t border-[var(--card-border)]">
+        Reporte generado automáticamente · ROMS CRM · {new Date().toLocaleString("es-AR")}
+      </div>
+    </div>
+  );
+}
+
+function BigKpi({ label, value, delta, prevLabel, color }: { label: string; value: string; delta: { abs: number; pct: number; positive: boolean }; prevLabel: string; color: "purple" | "green" | "blue" }) {
+  const colorMap = {
+    purple: "text-[var(--purple-light)] border-[var(--purple)]/40",
+    green: "text-[var(--green)] border-[var(--green)]/40",
+    blue: "text-blue-400 border-blue-400/40",
+  };
+  return (
+    <div className={`bg-[var(--card-bg)] border ${colorMap[color].split(" ")[1]} rounded-xl p-4`}>
+      <p className="text-xs text-[var(--muted)] uppercase">{label}</p>
+      <p className={`text-2xl font-bold ${colorMap[color].split(" ")[0]}`}>{value}</p>
+      <p className={`text-[10px] mt-1 ${delta.positive ? "text-[var(--green)]" : "text-[var(--red)]"}`}>
+        {delta.positive ? "▲" : "▼"} {fmt(Math.abs(delta.abs))} ({(delta.pct * 100).toFixed(0)}%) vs {prevLabel}
+      </p>
+    </div>
+  );
+}
+
+function Stat({ label, value, sub, color = "white" }: { label: string; value: string; sub?: string; color?: "white" | "green" | "red" | "purple" | "blue" | "muted" }) {
+  const colorMap: Record<string, string> = {
+    white: "text-white", green: "text-[var(--green)]", red: "text-[var(--red)]",
+    purple: "text-[var(--purple-light)]", blue: "text-blue-400", muted: "text-[var(--muted)]",
+  };
+  return (
+    <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
+      <p className="text-xs text-[var(--muted)] uppercase">{label}</p>
+      <p className={`text-xl font-bold ${colorMap[color]} mt-1`}>{value}</p>
+      {sub && <p className="text-[10px] text-[var(--muted)] mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+function SmallTable({ title, rows }: { title: string; rows: Array<[string, number]> }) {
+  return (
+    <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
+      <p className="text-xs uppercase text-[var(--muted)] p-3 border-b border-[var(--card-border)]">{title}</p>
+      {rows.length === 0 ? (
+        <p className="text-sm text-[var(--muted)] p-3">Sin datos</p>
+      ) : (
+        <table className="w-full text-sm">
+          <tbody>
+            {rows.map(([k, v]) => (
+              <tr key={k} className="border-t border-[var(--card-border)]/30">
+                <td className="py-1.5 px-3 text-white">{k}</td>
+                <td className="py-1.5 px-3 text-right font-mono">{fmt(v)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
