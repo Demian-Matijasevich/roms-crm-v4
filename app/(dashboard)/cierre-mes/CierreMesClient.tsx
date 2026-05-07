@@ -234,6 +234,69 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
     };
   }, [payments, cur.paymentsInRange, monthRange]);
 
+  // ── Auditoría: detectar anomalías que inflen cash collected ──
+  const auditoria = useMemo(() => {
+    const inMonth = cur.paymentsInRange;
+    // Top payments del mes (ordenados desc) — para que el usuario vea los más grandes
+    const topPayments = [...inMonth]
+      .sort((a, b) => b.monto_usd - a.monto_usd)
+      .slice(0, 15)
+      .map((p) => {
+        const l = p.lead_id ? leadById.get(p.lead_id) : null;
+        return {
+          ...p,
+          leadNombre: l?.nombre || "(sin lead)",
+          programa: l?.programa_pitcheado || null,
+        };
+      });
+
+    // Posibles duplicados: mismo lead + mismo monto en ±3 días
+    const dupGroups: Array<{ leadId: string | null; nombre: string; monto: number; payments: typeof inMonth }> = [];
+    const usedIds = new Set<string>();
+    for (let i = 0; i < inMonth.length; i++) {
+      const a = inMonth[i];
+      if (usedIds.has(a.id)) continue;
+      const matches = inMonth.filter((b, j) => {
+        if (i === j || usedIds.has(b.id)) return false;
+        if (a.lead_id !== b.lead_id) return false;
+        if (Math.abs(a.monto_usd - b.monto_usd) > 1) return false;
+        const daysDiff = Math.abs(new Date(a.fecha_pago!).getTime() - new Date(b.fecha_pago!).getTime()) / 86400000;
+        return daysDiff <= 3;
+      });
+      if (matches.length > 0) {
+        const all = [a, ...matches];
+        all.forEach((m) => usedIds.add(m.id));
+        dupGroups.push({
+          leadId: a.lead_id,
+          nombre: a.lead_id ? leadById.get(a.lead_id)?.nombre || "—" : "(sin lead)",
+          monto: a.monto_usd,
+          payments: all,
+        });
+      }
+    }
+
+    // Payments sin lead_id (huérfanos) — cuentan en cash pero no se asocian a venta
+    const huerfanos = inMonth.filter((p) => !p.lead_id);
+    const huerfanosTotal = huerfanos.reduce((s, p) => s + p.monto_usd, 0);
+
+    // Payments con receptor null
+    const sinReceptor = inMonth.filter((p) => !p.receptor);
+
+    // Renovaciones (es_renovacion=true) — cuentan en cash y se ven aparte
+    const renovacionesPays = inMonth.filter((p) => p.es_renovacion);
+    const renovacionesTotal = renovacionesPays.reduce((s, p) => s + p.monto_usd, 0);
+
+    return {
+      topPayments,
+      dupGroups,
+      huerfanos,
+      huerfanosTotal,
+      sinReceptor: sinReceptor.length,
+      renovacionesTotal,
+      renovacionesCount: renovacionesPays.length,
+    };
+  }, [cur.paymentsInRange, leadById]);
+
   // ── Cash collected detalle por método y receptor ──
   const cashDetail = useMemo(() => {
     const byMethod: Record<string, number> = {};
@@ -423,6 +486,148 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
           <SmallTable title="Por receptor" rows={cashDetail.byReceptor} />
         </div>
       </section>
+
+      {/* 3.5) AUDITORÍA — anomalías que inflan cash */}
+      <section className="slide-section">
+        <div className="bg-[var(--card-bg)] border border-yellow-500/40 rounded-xl p-6">
+          <h2 className="text-xl font-bold text-yellow-400 mb-2">🔍 Auditoría del mes (¿el cash es real?)</h2>
+          <p className="text-xs text-[var(--muted)] mb-4">
+            Si Cash Collected te parece muy alto vs Ventas, mirá acá si hay duplicados, montos raros o pagos huérfanos.
+          </p>
+
+          {/* Resumen rápido */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <Stat label="Posibles duplicados" value={String(auditoria.dupGroups.length)} color={auditoria.dupGroups.length > 0 ? "red" : "muted"} />
+            <Stat label="Pagos huérfanos (sin lead)" value={String(auditoria.huerfanos.length)} sub={fmt(auditoria.huerfanosTotal)} color={auditoria.huerfanos.length > 0 ? "red" : "muted"} />
+            <Stat label="Pagos sin receptor" value={String(auditoria.sinReceptor)} color={auditoria.sinReceptor > 0 ? "red" : "muted"} />
+            <Stat label="Renovaciones cash" value={fmt(auditoria.renovacionesTotal)} sub={`${auditoria.renovacionesCount} pagos`} color="purple" />
+          </div>
+
+          {/* Posibles duplicados */}
+          {auditoria.dupGroups.length > 0 && (
+            <div className="mb-4 bg-[var(--red)]/10 border border-[var(--red)]/30 rounded-lg p-4">
+              <p className="text-sm font-semibold text-[var(--red)] mb-2">⚠️ Posibles duplicados detectados ({auditoria.dupGroups.length})</p>
+              <p className="text-[10px] text-[var(--muted)] mb-3">Mismo lead + mismo monto cargado 2+ veces en ±3 días. Revisalos y borrá los duplicados.</p>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-[10px] uppercase text-[var(--muted)] border-b border-[var(--card-border)]">
+                    <th className="py-1.5 px-2">Lead</th>
+                    <th className="py-1.5 px-2 text-right">Monto</th>
+                    <th className="py-1.5 px-2 text-right">Cantidad</th>
+                    <th className="py-1.5 px-2 text-right">Total inflado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditoria.dupGroups.map((g, i) => (
+                    <tr key={i} className="border-t border-[var(--card-border)]/30">
+                      <td className="py-1.5 px-2 text-white">{g.nombre}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{fmt(g.monto)}</td>
+                      <td className="py-1.5 px-2 text-right text-[var(--red)]">{g.payments.length}×</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-[var(--red)]">{fmt(g.monto * (g.payments.length - 1))}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t border-[var(--card-border)] font-bold">
+                    <td colSpan={3} className="py-1.5 px-2 text-right">Total inflado por duplicados</td>
+                    <td className="py-1.5 px-2 text-right font-mono text-[var(--red)]">
+                      {fmt(auditoria.dupGroups.reduce((s, g) => s + g.monto * (g.payments.length - 1), 0))}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Top 15 pagos del mes (para spot anomalías) */}
+          <details className="bg-[var(--background)] border border-[var(--card-border)] rounded-lg">
+            <summary className="cursor-pointer p-3 text-sm text-white hover:bg-white/5">
+              📊 Ver top 15 pagos más grandes del mes
+            </summary>
+            <table className="w-full text-xs">
+              <thead className="bg-white/5">
+                <tr className="text-left text-[10px] uppercase text-[var(--muted)]">
+                  <th className="py-1.5 px-2">Fecha</th>
+                  <th className="py-1.5 px-2">Lead</th>
+                  <th className="py-1.5 px-2">Programa</th>
+                  <th className="py-1.5 px-2 text-center">Cuota</th>
+                  <th className="py-1.5 px-2">Receptor</th>
+                  <th className="py-1.5 px-2">Método</th>
+                  <th className="py-1.5 px-2 text-right">Monto USD</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditoria.topPayments.map((p) => (
+                  <tr key={p.id} className="border-t border-[var(--card-border)]/30">
+                    <td className="py-1.5 px-2 text-[var(--muted)]">{p.fecha_pago?.split("T")[0]}</td>
+                    <td className="py-1.5 px-2 text-white">{p.leadNombre}{p.es_renovacion && <span className="ml-1 text-[9px] text-[var(--purple-light)]">[renov]</span>}</td>
+                    <td className="py-1.5 px-2 text-[var(--muted)]">{p.programa || "—"}</td>
+                    <td className="py-1.5 px-2 text-center text-[var(--muted)]">#{p.numero_cuota}</td>
+                    <td className="py-1.5 px-2 text-[var(--muted)]">{p.receptor || "—"}</td>
+                    <td className="py-1.5 px-2 text-[var(--muted)]">{p.metodo_pago || "—"}</td>
+                    <td className="py-1.5 px-2 text-right font-mono text-[var(--green)]">{fmt(p.monto_usd)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+
+          {auditoria.huerfanos.length > 0 && (
+            <details className="bg-[var(--background)] border border-[var(--red)]/30 rounded-lg mt-3">
+              <summary className="cursor-pointer p-3 text-sm text-[var(--red)] hover:bg-white/5">
+                ⚠️ Ver {auditoria.huerfanos.length} pagos huérfanos (sin lead asociado) — total {fmt(auditoria.huerfanosTotal)}
+              </summary>
+              <table className="w-full text-xs">
+                <tbody>
+                  {auditoria.huerfanos.map((p) => (
+                    <tr key={p.id} className="border-t border-[var(--card-border)]/30">
+                      <td className="py-1.5 px-2 text-[var(--muted)]">{p.fecha_pago?.split("T")[0]}</td>
+                      <td className="py-1.5 px-2 text-[var(--muted)]">{p.metodo_pago || "—"}</td>
+                      <td className="py-1.5 px-2 text-[var(--muted)]">{p.receptor || "—"}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-[var(--red)]">{fmt(p.monto_usd)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
+
+          {/* Acciones de dedup */}
+          {auditoria.dupGroups.length > 0 && (
+            <div className="mt-4 flex flex-wrap items-center gap-2 no-print">
+              <button
+                onClick={async () => {
+                  const dryRes = await fetch(`/api/admin/dedupe-payments?s=roms-iclosed-2026&dry=1&mes=${selectedMonth}`, { method: "POST" });
+                  const dry = await dryRes.json();
+                  const ok = window.confirm(
+                    `Detectados ${dry.total_groups} grupos de duplicados.\n` +
+                    `Voy a marcar ${dry.total_duplicates_to_mark} payments como 'perdido' (NO se borran).\n` +
+                    `Total inflado a remover: $${Math.round(dry.total_amount_inflated || 0).toLocaleString()}\n\n` +
+                    `Para cada grupo se queda el pago con MÁS DATA (receptor, método, comprobante). Los demás se marcan duplicados.\n\n` +
+                    `¿Confirmás?`
+                  );
+                  if (!ok) return;
+                  const res = await fetch(`/api/admin/dedupe-payments?s=roms-iclosed-2026&mes=${selectedMonth}`, { method: "POST" });
+                  const json = await res.json();
+                  if (json.ok) {
+                    alert(`✅ ${json.marked} duplicados marcados. Recargando.`);
+                    location.reload();
+                  } else {
+                    alert("Error: " + (json.error || ""));
+                  }
+                }}
+                className="text-sm bg-[var(--red)]/15 hover:bg-[var(--red)]/35 text-[var(--red)] border border-[var(--red)]/40 px-4 py-2 rounded-lg"
+              >
+                🧹 Limpiar duplicados de este mes
+              </button>
+              <span className="text-xs text-[var(--muted)]">
+                Marca como &quot;perdido&quot; los duplicados (no se borran, se pueden revisar).
+              </span>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Duplicados marcados (vista permanente) */}
+      <DuplicadosMarcadosSection mes={selectedMonth} />
 
       {/* 4) Cobranzas */}
       <section className="slide-section">
@@ -692,6 +897,106 @@ function Stat({ label, value, sub, color = "white" }: { label: string; value: st
       <p className={`text-xl font-bold ${colorMap[color]} mt-1`}>{value}</p>
       {sub && <p className="text-[10px] text-[var(--muted)] mt-0.5">{sub}</p>}
     </div>
+  );
+}
+
+function DuplicadosMarcadosSection({ mes }: { mes: string }) {
+  const [data, setData] = useState<{ count: number; rows: Array<{ id: string; lead?: { nombre: string } | null; lead_nombre?: string; monto_usd: number; fecha_pago: string | null; numero_cuota: number; receptor: string | null; metodo_pago: string | null; notas: string | null }> } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/dedupe-payments?s=roms-iclosed-2026`);
+      const json = await res.json();
+      if (json.ok) setData({ count: json.count, rows: json.duplicados });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Filter by month
+  const filtered = data?.rows.filter((r) => r.fecha_pago?.startsWith(mes)) || [];
+
+  async function unmark(id: string) {
+    if (!confirm("¿Restaurar este pago como pagado? Volverá a sumar al cash collected.")) return;
+    const res = await fetch("/api/pagos", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, estado: "pagado" }),
+    });
+    const json = await res.json();
+    if (json.ok) {
+      alert("Restaurado. Recargando.");
+      location.reload();
+    } else {
+      alert("Error: " + (json.error || ""));
+    }
+  }
+
+  return (
+    <section className="slide-section">
+      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <h2 className="text-xl font-bold text-white">📁 Duplicados archivados</h2>
+            <p className="text-xs text-[var(--muted)] mt-1">
+              Pagos marcados como duplicados (estado=perdido, NO suman al cash). Conservados para auditoría.
+            </p>
+          </div>
+          <button onClick={load} disabled={loading}
+            className="text-sm bg-[var(--card-bg)] border border-[var(--card-border)] hover:border-[var(--purple)] text-white px-3 py-1.5 rounded-lg disabled:opacity-50">
+            {loading ? "Cargando..." : data ? "🔄 Recargar" : "📥 Cargar lista"}
+          </button>
+        </div>
+
+        {!data ? (
+          <p className="text-sm text-[var(--muted)]">Cliqueá &quot;Cargar lista&quot; para ver los duplicados archivados.</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm text-[var(--muted)]">Sin duplicados archivados en {mes}. Total global: {data.count}.</p>
+        ) : (
+          <>
+            <p className="text-xs text-[var(--muted)] mb-2">{filtered.length} duplicados archivados en {mes} de {data.count} totales:</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-white/5">
+                  <tr className="text-left text-[10px] uppercase text-[var(--muted)]">
+                    <th className="py-1.5 px-2">Fecha</th>
+                    <th className="py-1.5 px-2">Lead</th>
+                    <th className="py-1.5 px-2 text-center">Cuota</th>
+                    <th className="py-1.5 px-2">Receptor</th>
+                    <th className="py-1.5 px-2 text-right">Monto</th>
+                    <th className="py-1.5 px-2">Marcado como dup de</th>
+                    <th className="py-1.5 px-2 text-center">Acción</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((r) => {
+                    const dupOf = r.notas?.match(/DUPLICATE_OF=([0-9a-f-]+)/)?.[1] || "?";
+                    return (
+                      <tr key={r.id} className="border-t border-[var(--card-border)]/30">
+                        <td className="py-1.5 px-2 text-[var(--muted)]">{r.fecha_pago?.split("T")[0]}</td>
+                        <td className="py-1.5 px-2 text-white">{r.lead?.nombre || "—"}</td>
+                        <td className="py-1.5 px-2 text-center text-[var(--muted)]">#{r.numero_cuota}</td>
+                        <td className="py-1.5 px-2 text-[var(--muted)]">{r.receptor || "—"}</td>
+                        <td className="py-1.5 px-2 text-right font-mono text-[var(--muted)] line-through">{fmt(r.monto_usd)}</td>
+                        <td className="py-1.5 px-2 text-[var(--muted)] font-mono text-[10px]">{dupOf.slice(0, 8)}</td>
+                        <td className="py-1.5 px-2 text-center">
+                          <button onClick={() => unmark(r.id)}
+                            className="text-[10px] bg-[var(--green)]/15 hover:bg-[var(--green)]/35 text-[var(--green)] px-2 py-0.5 rounded">
+                            ↶ Restaurar
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 
