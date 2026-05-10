@@ -7,9 +7,9 @@ const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
 
 // Sueldo fijo + quien lo paga (default: Juanma)
 const SUELDO_MEL_USD = 650;
-const SUELDO_MEL_PAGADO_POR = "JUANMA";
+const SUELDO_MEL_PAGADO_POR: string = "JUANMA";
 // Quien paga las comisiones del equipo (default: Juanma)
-const COMISIONES_PAGADAS_POR = "JUANMA";
+const COMISIONES_PAGADAS_POR: string = "JUANMA";
 
 function fmtUSD(n: number): string {
   return "$" + Math.round(n).toLocaleString("es-AR");
@@ -94,32 +94,36 @@ export async function GET(req: NextRequest) {
   const totalComisiones = comisRows.reduce((s, r) => s + r.comision_total, 0);
 
   // ── SETTLE Juanma ↔ Fran ──
-  // Pagos del mes a settlear:
-  //   - Gastos operativos (cada uno con su pagado_por)
-  //   - Comisiones del equipo (las paga Juanma por default)
-  //   - Sueldo Mel (lo paga Juanma por default)
-  // Total pagable se split 50/50 entre los socios
+  // Lógica: cada socio recibe cash en SU billetera, de ahí paga sus gastos y aportes a equipo.
+  // La utilidad NETA del negocio se reparte 50/50.
+  // Si uno tiene más saldo del que le toca → le transfiere a otro la diferencia.
+  const cashJuanma = cashByReceptor.get("JUANMA") || 0;
+  const cashFran = cashByReceptor.get("FRAN") || 0;
+  const cashOtros = cashTotal - cashJuanma - cashFran;
+
   const gastosJuanma = byPagadoPor.get("JUANMA") || 0;
   const gastosFran = byPagadoPor.get("FRAN") || 0;
   const gastosOtros = totalGastos - gastosJuanma - gastosFran;
-  // Sumar lo que paga cada uno (gastos + comisiones + sueldo Mel)
-  const pagaJuanma = gastosJuanma + (COMISIONES_PAGADAS_POR === "JUANMA" ? totalComisiones : 0) + (SUELDO_MEL_PAGADO_POR === "JUANMA" ? SUELDO_MEL_USD : 0);
-  const pagaFran = gastosFran + (COMISIONES_PAGADAS_POR === "FRAN" ? totalComisiones : 0) + (SUELDO_MEL_PAGADO_POR === "FRAN" ? SUELDO_MEL_USD : 0);
-  // Re-asignar para que el cálculo siguiente use los totales completos
-  const _gastosJuanma_orig = gastosJuanma;
-  const _gastosFran_orig = gastosFran;
-  const totalCompartido = pagaJuanma + pagaFran; // total a settlear entre socios
-  const cuotaCadaUno = totalCompartido / 2;
-  // Si Juanma puso más que cuotaCadaUno → Fran le debe
+
+  // Pagos al equipo (comisiones + sueldo Mel) — los paga uno de los socios
+  const pagosEquipoJuanma = (COMISIONES_PAGADAS_POR === "JUANMA" ? totalComisiones : 0) + (SUELDO_MEL_PAGADO_POR === "JUANMA" ? SUELDO_MEL_USD : 0);
+  const pagosEquipoFran = (COMISIONES_PAGADAS_POR === "FRAN" ? totalComisiones : 0) + (SUELDO_MEL_PAGADO_POR === "FRAN" ? SUELDO_MEL_USD : 0);
+
+  // Saldo en billetera de cada socio (lo que efectivamente le quedó del mes)
+  const saldoJuanma = cashJuanma - gastosJuanma - pagosEquipoJuanma;
+  const saldoFran = cashFran - gastosFran - pagosEquipoFran;
+  const utilidadNeta = saldoJuanma + saldoFran; // = lo que cada uno se queda al final
+  const cuotaCadaUno = utilidadNeta / 2;
+
+  // Transfer: el que tiene más le pasa al otro la diferencia
   let debe: { quien: string; aQuien: string; monto: number };
-  if (pagaJuanma > cuotaCadaUno) {
-    debe = { quien: "FRAN", aQuien: "JUANMA", monto: pagaJuanma - cuotaCadaUno };
-  } else if (pagaFran > cuotaCadaUno) {
-    debe = { quien: "JUANMA", aQuien: "FRAN", monto: pagaFran - cuotaCadaUno };
+  if (saldoJuanma > cuotaCadaUno) {
+    debe = { quien: "JUANMA", aQuien: "FRAN", monto: saldoJuanma - cuotaCadaUno };
+  } else if (saldoFran > cuotaCadaUno) {
+    debe = { quien: "FRAN", aQuien: "JUANMA", monto: saldoFran - cuotaCadaUno };
   } else {
     debe = { quien: "—", aQuien: "—", monto: 0 };
   }
-  void _gastosJuanma_orig; void _gastosFran_orig;
 
   // ── PAYMENTS / CASH del mes (para totales) ──
   const { data: payments } = await sb
@@ -194,23 +198,33 @@ export async function GET(req: NextRequest) {
   lines.push(`━━━━━━━━━━━━━━━━━━━━`);
   lines.push(`💸 *SETTLE JUANMA ↔ FRAN (50/50)*`);
   lines.push(``);
-  lines.push(`Gastos operativos:`);
-  lines.push(`   Juanma puso: ${fmtUSD(gastosJuanma)}`);
-  lines.push(`   Fran puso:   ${fmtUSD(gastosFran)}`);
-  if (gastosOtros > 0) lines.push(`   Otros: ${fmtUSD(gastosOtros)}`);
+  lines.push(`💰 Cash recibido por cada uno (su billetera):`);
+  lines.push(`   Juanma: ${fmtUSD(cashJuanma)}`);
+  lines.push(`   Fran:   ${fmtUSD(cashFran)}`);
+  if (cashOtros > 0) lines.push(`   Otros receptores: ${fmtUSD(cashOtros)}`);
   lines.push(``);
-  lines.push(`Pagos al equipo (paga ${COMISIONES_PAGADAS_POR}):`);
-  lines.push(`   Comisiones: ${fmtUSD(totalComisiones)}`);
-  lines.push(`   Sueldo Mel: ${fmtUSD(SUELDO_MEL_USD)}`);
+  lines.push(`📤 Egresos pagados de cada billetera:`);
+  lines.push(`   Juanma:`);
+  lines.push(`      − Gastos operativos: ${fmtUSD(gastosJuanma)}`);
+  if (pagosEquipoJuanma > 0) {
+    if (COMISIONES_PAGADAS_POR === "JUANMA") lines.push(`      − Comisiones equipo: ${fmtUSD(totalComisiones)}`);
+    if (SUELDO_MEL_PAGADO_POR === "JUANMA") lines.push(`      − Sueldo Mel: ${fmtUSD(SUELDO_MEL_USD)}`);
+  }
+  lines.push(`      = Saldo Juanma: ${fmtUSD(saldoJuanma)}`);
+  lines.push(`   Fran:`);
+  lines.push(`      − Gastos operativos: ${fmtUSD(gastosFran)}`);
+  if (pagosEquipoFran > 0) {
+    if (COMISIONES_PAGADAS_POR === "FRAN") lines.push(`      − Comisiones equipo: ${fmtUSD(totalComisiones)}`);
+    if (SUELDO_MEL_PAGADO_POR === "FRAN") lines.push(`      − Sueldo Mel: ${fmtUSD(SUELDO_MEL_USD)}`);
+  }
+  lines.push(`      = Saldo Fran: ${fmtUSD(saldoFran)}`);
   lines.push(``);
-  lines.push(`📊 Total puesto por cada uno:`);
-  lines.push(`   Juanma: ${fmtUSD(pagaJuanma)}`);
-  lines.push(`   Fran:   ${fmtUSD(pagaFran)}`);
-  lines.push(`   Total a settlear: ${fmtUSD(totalCompartido)}`);
+  lines.push(`📊 Utilidad neta del mes: ${fmtUSD(utilidadNeta)}`);
   lines.push(`   Cuota cada uno (50%): ${fmtUSD(cuotaCadaUno)}`);
   lines.push(``);
   if (debe.monto > 0) {
     lines.push(`   👉 *${debe.quien} le tiene que pasar ${fmtUSD(debe.monto)} a ${debe.aQuien}*`);
+    lines.push(`   (después del transfer cada uno queda con ${fmtUSD(cuotaCadaUno)})`);
   } else {
     lines.push(`   ✅ Están parejos.`);
   }
@@ -228,9 +242,12 @@ export async function GET(req: NextRequest) {
       gastosOtros,
       totalComisiones,
       sueldoMel: SUELDO_MEL_USD,
-      pagaJuanma,
-      pagaFran,
-      totalCompartido,
+      cashJuanma,
+      cashFran,
+      cashOtros,
+      saldoJuanma,
+      saldoFran,
+      utilidadNeta,
       cuotaCadaUno,
       cashTotal,
       facturacion,
