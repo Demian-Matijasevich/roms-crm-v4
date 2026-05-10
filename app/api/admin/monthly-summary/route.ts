@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase-server";
+import { computeTeamCommissions } from "@/lib/commissions";
 
 export const dynamic = "force-dynamic";
 const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+
+// Sueldo fijo + quien lo paga (default: Juanma)
+const SUELDO_MEL_USD = 650;
+const SUELDO_MEL_PAGADO_POR = "JUANMA";
+// Quien paga las comisiones del equipo (default: Juanma)
+const COMISIONES_PAGADAS_POR = "JUANMA";
 
 function fmtUSD(n: number): string {
   return "$" + Math.round(n).toLocaleString("es-AR");
@@ -61,23 +68,58 @@ export async function GET(req: NextRequest) {
     byPagadoPor.set(k, (byPagadoPor.get(k) || 0) + Number(g.monto_usd || 0));
   }
 
+  // ── COMISIONES DEL MES (a pagar) ──
+  const { data: leadsForComm } = await sb
+    .from("leads")
+    .select("id, closer_id, setter_id, utm_medium, programa_pitcheado")
+    .range(0, 9999);
+  const { data: paymentsAll } = await sb
+    .from("payments")
+    .select("lead_id, monto_usd, fecha_pago, estado")
+    .eq("estado", "pagado");
+  const { data: team } = await sb
+    .from("team_members")
+    .select("id, nombre, is_closer, is_setter")
+    .eq("activo", true);
+  const { data: campaigns } = await sb.from("utm_campaigns").select("medium, setter_id");
+
+  const comisRows = computeTeamCommissions({
+    leads: (leadsForComm ?? []) as Array<{ id: string; closer_id: string | null; setter_id: string | null; utm_medium: string | null; programa_pitcheado: string | null }>,
+    payments: (paymentsAll ?? []) as Array<{ lead_id: string | null; monto_usd: number; fecha_pago: string | null; estado: string }>,
+    team: (team ?? []) as Array<{ id: string; nombre: string; is_closer: boolean; is_setter: boolean }>,
+    campaigns: (campaigns ?? []) as Array<{ medium: string | null; setter_id: string | null }>,
+    monthStart: start,
+    monthEnd: end,
+  });
+  const totalComisiones = comisRows.reduce((s, r) => s + r.comision_total, 0);
+
   // ── SETTLE Juanma ↔ Fran ──
-  // Asumo split 50/50 sobre gastos del mes.
+  // Pagos del mes a settlear:
+  //   - Gastos operativos (cada uno con su pagado_por)
+  //   - Comisiones del equipo (las paga Juanma por default)
+  //   - Sueldo Mel (lo paga Juanma por default)
+  // Total pagable se split 50/50 entre los socios
   const gastosJuanma = byPagadoPor.get("JUANMA") || 0;
   const gastosFran = byPagadoPor.get("FRAN") || 0;
   const gastosOtros = totalGastos - gastosJuanma - gastosFran;
-  const totalCompartido = gastosJuanma + gastosFran; // sólo lo que pagaron los socios
+  // Sumar lo que paga cada uno (gastos + comisiones + sueldo Mel)
+  const pagaJuanma = gastosJuanma + (COMISIONES_PAGADAS_POR === "JUANMA" ? totalComisiones : 0) + (SUELDO_MEL_PAGADO_POR === "JUANMA" ? SUELDO_MEL_USD : 0);
+  const pagaFran = gastosFran + (COMISIONES_PAGADAS_POR === "FRAN" ? totalComisiones : 0) + (SUELDO_MEL_PAGADO_POR === "FRAN" ? SUELDO_MEL_USD : 0);
+  // Re-asignar para que el cálculo siguiente use los totales completos
+  const _gastosJuanma_orig = gastosJuanma;
+  const _gastosFran_orig = gastosFran;
+  const totalCompartido = pagaJuanma + pagaFran; // total a settlear entre socios
   const cuotaCadaUno = totalCompartido / 2;
-  // Si Juanma puso más que cuotaCadaUno → Fran le debe (Juanma puso de más)
-  // Si Fran puso más → Juanma le debe
+  // Si Juanma puso más que cuotaCadaUno → Fran le debe
   let debe: { quien: string; aQuien: string; monto: number };
-  if (gastosJuanma > cuotaCadaUno) {
-    debe = { quien: "FRAN", aQuien: "JUANMA", monto: gastosJuanma - cuotaCadaUno };
-  } else if (gastosFran > cuotaCadaUno) {
-    debe = { quien: "JUANMA", aQuien: "FRAN", monto: gastosFran - cuotaCadaUno };
+  if (pagaJuanma > cuotaCadaUno) {
+    debe = { quien: "FRAN", aQuien: "JUANMA", monto: pagaJuanma - cuotaCadaUno };
+  } else if (pagaFran > cuotaCadaUno) {
+    debe = { quien: "JUANMA", aQuien: "FRAN", monto: pagaFran - cuotaCadaUno };
   } else {
     debe = { quien: "—", aQuien: "—", monto: 0 };
   }
+  void _gastosJuanma_orig; void _gastosFran_orig;
 
   // ── PAYMENTS / CASH del mes (para totales) ──
   const { data: payments } = await sb
@@ -121,7 +163,7 @@ export async function GET(req: NextRequest) {
     for (const [k, v] of arr) lines.push(`   • ${k}: ${fmtUSD(v)}`);
   }
   lines.push("");
-  lines.push(`📉 *Gastos del mes:* ${fmtUSD(totalGastos)} (${gastos?.length || 0} items)`);
+  lines.push(`📉 *Gastos operativos del mes:* ${fmtUSD(totalGastos)} (${gastos?.length || 0} items)`);
   lines.push(`   📂 Por categoría:`);
   const arrCat = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
   for (const [k, v] of arrCat) lines.push(`      • ${k}: ${fmtUSD(v)}`);
@@ -129,20 +171,48 @@ export async function GET(req: NextRequest) {
   const arrPP = [...byPagadoPor.entries()].sort((a, b) => b[1] - a[1]);
   for (const [k, v] of arrPP) lines.push(`      • ${k}: ${fmtUSD(v)}`);
   lines.push("");
-  lines.push(`💎 *Resultado neto cash:* ${fmtUSD(cashTotal - totalGastos)} (cash - gastos)`);
+
+  // ── PAGOS DEL MES (a pagar este mes, aparte de gastos operativos) ──
+  lines.push(`💼 *Pagos a equipo este mes (aparte de gastos):*`);
+  lines.push(`   🎯 Comisiones equipo: ${fmtUSD(totalComisiones)}`);
+  if (comisRows.length > 0) {
+    for (const r of comisRows) {
+      lines.push(`      • ${r.nombre.toUpperCase()}: ${fmtUSD(r.comision_total)} (closer ${fmtUSD(r.comision_closer)} + setter ${fmtUSD(r.comision_setter)})`);
+    }
+  }
+  lines.push(`   💵 Sueldo Mel (fijo): ${fmtUSD(SUELDO_MEL_USD)}`);
+  const totalPagosEquipo = totalComisiones + SUELDO_MEL_USD;
+  lines.push(`   ▸ Total pagos equipo: ${fmtUSD(totalPagosEquipo)} (asume paga ${COMISIONES_PAGADAS_POR})`);
   lines.push("");
+
+  // Resultado neto = cash - gastos operativos - comisiones - sueldo
+  const totalEgresosCompletos = totalGastos + totalPagosEquipo;
+  lines.push(`💎 *Resultado neto del mes:* ${fmtUSD(cashTotal - totalEgresosCompletos)}`);
+  lines.push(`   = Cash ${fmtUSD(cashTotal)} − Gastos ${fmtUSD(totalGastos)} − Comisiones ${fmtUSD(totalComisiones)} − Sueldo Mel ${fmtUSD(SUELDO_MEL_USD)}`);
+  lines.push("");
+
   lines.push(`━━━━━━━━━━━━━━━━━━━━`);
   lines.push(`💸 *SETTLE JUANMA ↔ FRAN (50/50)*`);
-  lines.push(`   Juanma pagó: ${fmtUSD(gastosJuanma)}`);
-  lines.push(`   Fran pagó:   ${fmtUSD(gastosFran)}`);
-  if (gastosOtros > 0) lines.push(`   Otros (no socios): ${fmtUSD(gastosOtros)}`);
-  lines.push(`   Total compartido (Juanma+Fran): ${fmtUSD(totalCompartido)}`);
+  lines.push(``);
+  lines.push(`Gastos operativos:`);
+  lines.push(`   Juanma puso: ${fmtUSD(gastosJuanma)}`);
+  lines.push(`   Fran puso:   ${fmtUSD(gastosFran)}`);
+  if (gastosOtros > 0) lines.push(`   Otros: ${fmtUSD(gastosOtros)}`);
+  lines.push(``);
+  lines.push(`Pagos al equipo (paga ${COMISIONES_PAGADAS_POR}):`);
+  lines.push(`   Comisiones: ${fmtUSD(totalComisiones)}`);
+  lines.push(`   Sueldo Mel: ${fmtUSD(SUELDO_MEL_USD)}`);
+  lines.push(``);
+  lines.push(`📊 Total puesto por cada uno:`);
+  lines.push(`   Juanma: ${fmtUSD(pagaJuanma)}`);
+  lines.push(`   Fran:   ${fmtUSD(pagaFran)}`);
+  lines.push(`   Total a settlear: ${fmtUSD(totalCompartido)}`);
   lines.push(`   Cuota cada uno (50%): ${fmtUSD(cuotaCadaUno)}`);
   lines.push(``);
   if (debe.monto > 0) {
     lines.push(`   👉 *${debe.quien} le tiene que pasar ${fmtUSD(debe.monto)} a ${debe.aQuien}*`);
   } else {
-    lines.push(`   ✅ Están parejos, no hay nada que transferir.`);
+    lines.push(`   ✅ Están parejos.`);
   }
   lines.push(`━━━━━━━━━━━━━━━━━━━━`);
 
@@ -156,11 +226,16 @@ export async function GET(req: NextRequest) {
       gastosJuanma,
       gastosFran,
       gastosOtros,
+      totalComisiones,
+      sueldoMel: SUELDO_MEL_USD,
+      pagaJuanma,
+      pagaFran,
       totalCompartido,
       cuotaCadaUno,
       cashTotal,
       facturacion,
     },
+    comisiones: comisRows,
     settle: debe,
   });
 }
