@@ -93,38 +93,6 @@ export async function GET(req: NextRequest) {
   });
   const totalComisiones = comisRows.reduce((s, r) => s + r.comision_total, 0);
 
-  // ── SETTLE Juanma ↔ Fran ──
-  // Lógica: cada socio recibe cash en SU billetera, de ahí paga sus gastos y aportes a equipo.
-  // La utilidad NETA del negocio se reparte 50/50.
-  // Si uno tiene más saldo del que le toca → le transfiere a otro la diferencia.
-  const cashJuanma = cashByReceptor.get("JUANMA") || 0;
-  const cashFran = cashByReceptor.get("FRAN") || 0;
-  const cashOtros = cashTotal - cashJuanma - cashFran;
-
-  const gastosJuanma = byPagadoPor.get("JUANMA") || 0;
-  const gastosFran = byPagadoPor.get("FRAN") || 0;
-  const gastosOtros = totalGastos - gastosJuanma - gastosFran;
-
-  // Pagos al equipo (comisiones + sueldo Mel) — los paga uno de los socios
-  const pagosEquipoJuanma = (COMISIONES_PAGADAS_POR === "JUANMA" ? totalComisiones : 0) + (SUELDO_MEL_PAGADO_POR === "JUANMA" ? SUELDO_MEL_USD : 0);
-  const pagosEquipoFran = (COMISIONES_PAGADAS_POR === "FRAN" ? totalComisiones : 0) + (SUELDO_MEL_PAGADO_POR === "FRAN" ? SUELDO_MEL_USD : 0);
-
-  // Saldo en billetera de cada socio (lo que efectivamente le quedó del mes)
-  const saldoJuanma = cashJuanma - gastosJuanma - pagosEquipoJuanma;
-  const saldoFran = cashFran - gastosFran - pagosEquipoFran;
-  const utilidadNeta = saldoJuanma + saldoFran; // = lo que cada uno se queda al final
-  const cuotaCadaUno = utilidadNeta / 2;
-
-  // Transfer: el que tiene más le pasa al otro la diferencia
-  let debe: { quien: string; aQuien: string; monto: number };
-  if (saldoJuanma > cuotaCadaUno) {
-    debe = { quien: "JUANMA", aQuien: "FRAN", monto: saldoJuanma - cuotaCadaUno };
-  } else if (saldoFran > cuotaCadaUno) {
-    debe = { quien: "FRAN", aQuien: "JUANMA", monto: saldoFran - cuotaCadaUno };
-  } else {
-    debe = { quien: "—", aQuien: "—", monto: 0 };
-  }
-
   // ── PAYMENTS / CASH del mes (para totales) ──
   const { data: payments } = await sb
     .from("payments")
@@ -140,6 +108,34 @@ export async function GET(req: NextRequest) {
     const raw = norm(p.receptor);
     const k = raw === "—" ? "—" : raw.toUpperCase();
     cashByReceptor.set(k, (cashByReceptor.get(k) || 0) + Number(p.monto_usd || 0));
+  }
+
+  // ── SETTLE Juanma ↔ Fran ──
+  // Cada socio recibe cash en SU billetera, de ahí paga sus gastos y aportes a equipo.
+  // La utilidad NETA se reparte 50/50.
+  const cashJuanma = cashByReceptor.get("JUANMA") || 0;
+  const cashFran = cashByReceptor.get("FRAN") || 0;
+  const cashOtros = cashTotal - cashJuanma - cashFran;
+
+  const gastosJuanma = byPagadoPor.get("JUANMA") || 0;
+  const gastosFran = byPagadoPor.get("FRAN") || 0;
+  const gastosOtros = totalGastos - gastosJuanma - gastosFran;
+
+  const pagosEquipoJuanma = (COMISIONES_PAGADAS_POR === "JUANMA" ? totalComisiones : 0) + (SUELDO_MEL_PAGADO_POR === "JUANMA" ? SUELDO_MEL_USD : 0);
+  const pagosEquipoFran = (COMISIONES_PAGADAS_POR === "FRAN" ? totalComisiones : 0) + (SUELDO_MEL_PAGADO_POR === "FRAN" ? SUELDO_MEL_USD : 0);
+
+  const saldoJuanma = cashJuanma - gastosJuanma - pagosEquipoJuanma;
+  const saldoFran = cashFran - gastosFran - pagosEquipoFran;
+  const utilidadNeta = saldoJuanma + saldoFran;
+  const cuotaCadaUno = utilidadNeta / 2;
+
+  let debe: { quien: string; aQuien: string; monto: number };
+  if (saldoJuanma > cuotaCadaUno) {
+    debe = { quien: "JUANMA", aQuien: "FRAN", monto: saldoJuanma - cuotaCadaUno };
+  } else if (saldoFran > cuotaCadaUno) {
+    debe = { quien: "FRAN", aQuien: "JUANMA", monto: saldoFran - cuotaCadaUno };
+  } else {
+    debe = { quien: "—", aQuien: "—", monto: 0 };
   }
 
   // Facturación = ticket de leads cuya cuota#1 fue pagada en el mes
