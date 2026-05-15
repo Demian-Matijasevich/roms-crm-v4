@@ -301,7 +301,7 @@ export default function QuickCallLog({ session }: QuickCallLogProps) {
                         </p>
                       </div>
                     </div>
-                  ) : creatingNew ? (
+                  ) : !selectedLead && creatingNew ? (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between mb-1">
                         <label className="text-sm font-semibold text-[var(--green)]">➕ Nuevo lead</label>
