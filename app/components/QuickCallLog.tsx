@@ -59,6 +59,56 @@ export default function QuickCallLog({ session }: QuickCallLogProps) {
   const [error, setError] = useState("");
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  // Nuevo lead inline
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newInstagram, setNewInstagram] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  async function createNewLead() {
+    if (!newName.trim()) {
+      setError("Nombre requerido");
+      return;
+    }
+    setCreating(true);
+    setError("");
+    try {
+      const body: Record<string, unknown> = {
+        nombre: newName.trim(),
+        estado: "pendiente",
+        closer_id: session.team_member_id, // auto-asigna al que carga
+      };
+      if (newInstagram.trim()) body.instagram = newInstagram.trim();
+      if (newPhone.trim()) body.telefono = newPhone.trim();
+      const res = await fetch("/api/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!json.ok || !json.lead) {
+        setError("Error: " + (json.error || "no se pudo crear"));
+        return;
+      }
+      // Auto-seleccionar el lead recién creado
+      setSelectedLead({
+        id: json.lead.id,
+        nombre: json.lead.nombre,
+        instagram: json.lead.instagram || null,
+        estado: json.lead.estado || "pendiente",
+      });
+      setCreatingNew(false);
+      setNewName("");
+      setNewInstagram("");
+      setNewPhone("");
+    } catch (err) {
+      setError("Error de red: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setCreating(false);
+    }
+  }
+
   const isCloser = session.roles.includes("closer") || session.is_admin;
   const isCerrado = estado === "cerrado" || estado === "reserva" || estado === "adentro_seguimiento";
 
@@ -205,10 +255,10 @@ export default function QuickCallLog({ session }: QuickCallLogProps) {
                 </div>
               ) : (
                 <>
-                  {/* Step 1: Search lead */}
-                  {!selectedLead ? (
+                  {/* Step 1: Search lead OR create new */}
+                  {!selectedLead && !creatingNew ? (
                     <div className="space-y-3">
-                      <label className="text-sm text-[var(--muted)] block">Buscar lead</label>
+                      <label className="text-sm text-[var(--muted)] block">Buscar lead existente</label>
                       <input
                         type="text"
                         placeholder="Nombre o Instagram..."
@@ -234,6 +284,59 @@ export default function QuickCallLog({ session }: QuickCallLogProps) {
                           ))}
                         </div>
                       )}
+                      {search.length >= 2 && !searching && results.length === 0 && (
+                        <p className="text-xs text-[var(--muted)]">Sin resultados para &quot;{search}&quot;</p>
+                      )}
+
+                      {/* Botón crear lead nuevo — siempre visible */}
+                      <div className="pt-3 border-t border-[var(--card-border)]">
+                        <button
+                          onClick={() => { setCreatingNew(true); setError(""); setNewName(search); }}
+                          className="w-full bg-[var(--green)]/10 hover:bg-[var(--green)]/20 border border-[var(--green)]/40 text-[var(--green)] py-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
+                        >
+                          ➕ Crear lead nuevo
+                        </button>
+                        <p className="text-[10px] text-[var(--muted)] text-center mt-2">
+                          Si el lead no apareció en la búsqueda, cargalo desde acá
+                        </p>
+                      </div>
+                    </div>
+                  ) : creatingNew ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-sm font-semibold text-[var(--green)]">➕ Nuevo lead</label>
+                        <button
+                          onClick={() => { setCreatingNew(false); setError(""); }}
+                          className="text-xs text-[var(--muted)] hover:text-white"
+                        >
+                          ← Volver a buscar
+                        </button>
+                      </div>
+                      <div>
+                        <label className="text-xs text-[var(--muted)] block mb-1">Nombre completo *</label>
+                        <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} className={inputClass} autoFocus />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-[var(--muted)] block mb-1">Instagram</label>
+                          <input type="text" value={newInstagram} onChange={(e) => setNewInstagram(e.target.value)} className={inputClass} placeholder="@usuario" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-[var(--muted)] block mb-1">Teléfono</label>
+                          <input type="tel" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} className={inputClass} />
+                        </div>
+                      </div>
+                      {error && <p className="text-sm text-red-400">{error}</p>}
+                      <button
+                        onClick={createNewLead}
+                        disabled={creating || !newName.trim()}
+                        className="w-full bg-[var(--green)] hover:bg-[var(--green)]/80 disabled:opacity-50 text-white py-3 rounded-lg text-sm font-semibold"
+                      >
+                        {creating ? "Creando..." : "Crear y continuar →"}
+                      </button>
+                      <p className="text-[10px] text-[var(--muted)] text-center">
+                        Se asigna automáticamente como tu closer. Después del crear seguís con el resultado de la call.
+                      </p>
                     </div>
                   ) : (
                     <>
