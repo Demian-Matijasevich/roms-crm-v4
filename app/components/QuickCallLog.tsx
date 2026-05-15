@@ -343,9 +343,9 @@ export default function QuickCallLog({ session }: QuickCallLogProps) {
                       {/* Selected lead header */}
                       <div className="flex items-center justify-between bg-[var(--purple)]/10 border border-[var(--purple)]/20 rounded-lg px-4 py-3">
                         <div>
-                          <p className="text-sm font-medium">{selectedLead.nombre}</p>
-                          {selectedLead.instagram && (
-                            <p className="text-xs text-[var(--muted)]">@{selectedLead.instagram.replace(/^@/, "")}</p>
+                          <p className="text-sm font-medium">{selectedLead!.nombre}</p>
+                          {selectedLead!.instagram && (
+                            <p className="text-xs text-[var(--muted)]">@{selectedLead!.instagram.replace(/^@/, "")}</p>
                           )}
                         </div>
                         <button
