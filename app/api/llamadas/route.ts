@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
 import { llamadaSchema } from "@/lib/schemas";
 import { updateLead, updateLeadVerbose } from "@/lib/queries/leads";
-import { createPayment } from "@/lib/queries/payments";
+import { createPayment, createPaymentVerbose } from "@/lib/queries/payments";
 import { getToday, toDateString } from "@/lib/date-utils";
 import { syncLeadToSheet } from "@/lib/sheet-sync";
 import type { LeadEstado, LeadCalificacion, Programa, MetodoPago } from "@/lib/types";
@@ -44,6 +44,8 @@ export async function POST(req: NextRequest) {
 
     // If cerrado/reserva and has payment data, create payment
     const isCerrado = estado === "cerrado" || estado === "reserva" || estado === "adentro_seguimiento";
+    let paymentCreated: unknown = null;
+    let paymentError: string | null = null;
     if (isCerrado && body.payment) {
       const paymentData = body.payment as {
         monto_usd?: number;
@@ -54,7 +56,7 @@ export async function POST(req: NextRequest) {
       };
 
       if (paymentData.monto_usd && paymentData.monto_usd > 0) {
-        await createPayment({
+        const payRes = await createPaymentVerbose({
           lead_id,
           client_id: null,
           renewal_id: null,
@@ -71,11 +73,21 @@ export async function POST(req: NextRequest) {
           verificado: false,
           es_renovacion: false,
         });
+        if (payRes.ok) {
+          paymentCreated = payRes.payment;
+        } else {
+          paymentError = `Lead guardado, pero pago falló: ${payRes.error}`;
+        }
       }
     }
 
     await syncLeadToSheet(lead_id);
-    return NextResponse.json({ ok: true, lead: updatedLead });
+    return NextResponse.json({
+      ok: !paymentError,
+      lead: updatedLead,
+      payment: paymentCreated,
+      paymentError,
+    });
   } catch (err) {
     console.error("[POST /api/llamadas]", err);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });

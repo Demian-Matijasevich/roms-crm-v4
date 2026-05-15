@@ -69,10 +69,22 @@ export async function createPayment(
     .single();
 
   if (error) {
-    console.error("[createPayment]", error.message);
+    console.error("[createPayment]", error.message, "payment:", JSON.stringify(payment));
     return null;
   }
   return data as Payment;
+}
+
+export async function createPaymentVerbose(
+  payment: Omit<Payment, "id" | "created_at">
+): Promise<{ ok: boolean; payment?: Payment; error?: string }> {
+  const supabase = createServerClient();
+  const { data, error } = await supabase.from("payments").insert(payment).select().single();
+  if (error) {
+    console.error("[createPaymentVerbose]", error.message, "payment:", JSON.stringify(payment));
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, payment: data as Payment };
 }
 
 /**

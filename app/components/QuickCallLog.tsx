@@ -169,9 +169,14 @@ export default function QuickCallLog({ session }: QuickCallLogProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Error al guardar");
+      }
+      // Si hay paymentError, mostrar warning aunque el lead se guardó
+      if (data.paymentError) {
+        setError(`⚠️ ${data.paymentError}`);
+        return; // no marca success, así el user ve el error
       }
       setSuccess(true);
       setTimeout(() => {
