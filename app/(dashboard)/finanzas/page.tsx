@@ -49,7 +49,7 @@ export default async function FinanzasPage() {
         .range(0, 4999),
       supabase
         .from("leads")
-        .select("id, closer_id, setter_id, utm_medium, programa_pitcheado, ticket_total, estado, fecha_llamada")
+        .select("id, nombre, closer_id, setter_id, utm_medium, programa_pitcheado, ticket_total, estado, fecha_llamada")
         .range(0, 9999),
       supabase
         .from("team_members")
@@ -68,6 +68,27 @@ export default async function FinanzasPage() {
 
   // USD rate history para mostrar/editar en finanzas
   const usdRatesRes = await supabase.from("usd_rate_history").select("*").order("mes", { ascending: false });
+
+  // Refunds — punto 7 audit Iñaki: payments con estado refund + ticket inicial del lead
+  const refundsRes = await supabase
+    .from("payments")
+    .select("id, lead_id, monto_usd, fecha_pago, numero_cuota, receptor, lead:leads!payments_lead_id_fkey(nombre, ticket_total)")
+    .eq("estado", "refund")
+    .order("fecha_pago", { ascending: false });
+
+  const refunds: RefundRow[] = ((refundsRes.data as unknown[]) ?? []).map((r) => {
+    const p = r as Record<string, unknown>;
+    const lead = p.lead as Record<string, unknown> | null;
+    return {
+      id: p.id as string,
+      lead_id: (p.lead_id as string) || null,
+      lead_nombre: (lead?.nombre as string) || null,
+      ticket_inicial: (lead?.ticket_total as number) || 0,
+      monto: (p.monto_usd as number) || 0,
+      fecha: (p.fecha_pago as string) || "",
+      receptor: (p.receptor as string) || null,
+    };
+  });
 
   // Compute commissions per month using Valen scheme (7/5/7 × multiplicador, cap 10%) + setter 3%
   const allPayments = (paymentsRes.data ?? []) as Array<{ lead_id: string | null; monto_usd: number; fecha_pago: string | null; estado: string }>;
@@ -130,6 +151,7 @@ export default async function FinanzasPage() {
   // Pro metrics: leads cerrados con info de venta + clients para revenue devengado
   const leadsForPro = leadsForComm.map((l) => ({
     id: l.id,
+    nombre: (l as { nombre?: string }).nombre ?? null,
     programa_pitcheado: l.programa_pitcheado,
     ticket_total: (l as { ticket_total?: number }).ticket_total ?? 0,
     estado: (l as { estado?: string }).estado ?? null,
@@ -168,6 +190,7 @@ export default async function FinanzasPage() {
       clientsForPro={clientsForPro}
       usdRateHistory={(usdRatesRes.data ?? []) as Array<{ mes: string; rate: number }>}
       currentFiscalMonth={currentFiscalMonth}
+      refunds={refunds}
     />
   );
 }
@@ -183,4 +206,14 @@ export interface IngresoRow {
   metodo_pago: string | null;
   receptor: string | null;
   es_renovacion: boolean;
+}
+
+export interface RefundRow {
+  id: string;
+  lead_id: string | null;
+  lead_nombre: string | null;
+  ticket_inicial: number;
+  monto: number;
+  fecha: string;
+  receptor: string | null;
 }

@@ -63,10 +63,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Error al crear pago" }, { status: 500 });
     }
 
+    // P3 audit Iñaki: si se carga un pago "pagado" y el lead sigue en un estado
+    // "no vendido", avanzarlo a "reserva" para que no queden ventas invisibles.
+    let estadoAvanzado: string | null = null;
+    if (payment.estado === "pagado" && payment.lead_id) {
+      const sb = createServerClient();
+      const { data: leadRow } = await sb
+        .from("leads")
+        .select("estado")
+        .eq("id", payment.lead_id)
+        .maybeSingle();
+      const ESTADOS_VENDIDO = ["reserva", "cerrado", "adentro_seguimiento"];
+      if (leadRow && !ESTADOS_VENDIDO.includes(leadRow.estado)) {
+        await sb.from("leads").update({ estado: "reserva" }).eq("id", payment.lead_id);
+        estadoAvanzado = "reserva";
+      }
+    }
+
     // Sync lead to Sheet ROMS
     if (payment.lead_id) await syncLeadToSheet(payment.lead_id);
 
-    return NextResponse.json({ ok: true, payment });
+    return NextResponse.json({ ok: true, payment, estadoAvanzado });
   } catch (err) {
     console.error("[POST /api/pagos]", err);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
