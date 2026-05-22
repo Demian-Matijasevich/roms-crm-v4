@@ -77,6 +77,10 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
   const [metodoPago, setMetodoPago] = useState("");
   const [receptor, setReceptor] = useState("");
   const [comprobanteFile, setComprobanteFile] = useState<File | null>(null);
+  // Cuotas futuras (vencimientos) — punto 1 audit Iñaki
+  const [cuotas, setCuotas] = useState<Array<{ monto: string; fecha: string }>>([]);
+  // Fecha estimada de cierre (solo reserva) — punto 6 audit Iñaki
+  const [fechaCierreEstimada, setFechaCierreEstimada] = useState("");
 
   // Suppress unused variable warnings
   void team;
@@ -116,8 +120,53 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
     }
   }
 
+  // Define cuantas cuotas futuras corresponden al plan elegido.
+  function selectPlan(value: string) {
+    setPlanPago(value);
+    let n = 0;
+    if (value === "2_cuotas") n = 1;
+    else if (value === "3_cuotas") n = 2;
+    else if (value === "personalizado") n = Math.max(1, cuotas.length);
+    setCuotas((prev) => {
+      const next = [...prev];
+      while (next.length < n) next.push({ monto: "", fecha: "" });
+      next.length = n;
+      return next;
+    });
+  }
+
+  function updateCuota(idx: number, field: "monto" | "fecha", val: string) {
+    setCuotas((prev) => prev.map((c, i) => (i === idx ? { ...c, [field]: val } : c)));
+  }
+
+  function addCuota() {
+    setCuotas((prev) => [...prev, { monto: "", fecha: "" }]);
+  }
+
+  function removeCuota(idx: number) {
+    setCuotas((prev) => prev.filter((_, i) => i !== idx));
+  }
+
   async function handleSubmit() {
     if (!selectedLead) return;
+
+    // ── Validaciones audit Iñaki ──
+    // P2: estado "cerrado" exige cargar el cash cobrado.
+    if (estado === "cerrado" && !(cashDia1 && parseFloat(cashDia1) > 0)) {
+      setError("El estado Cerrado exige cargar el monto cobrado (cash dia 1).");
+      return;
+    }
+    // P6: una reserva exige la fecha estimada de cierre.
+    if (estado === "reserva" && !fechaCierreEstimada) {
+      setError("Una reserva exige cargar la fecha estimada de cierre.");
+      return;
+    }
+    // P1: si hay plan en cuotas, cada cuota necesita su fecha de vencimiento.
+    if (isCerrado(estado) && cuotas.length > 0 && cuotas.some((c) => !c.fecha)) {
+      setError("Cargá la fecha de vencimiento de todas las cuotas.");
+      return;
+    }
+
     setLoading(true);
     setError("");
 
@@ -133,6 +182,17 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
     if (isCerrado(estado)) {
       body.plan_pago = planPago || undefined;
       body.ticket_total = ticketTotal ? parseFloat(ticketTotal) : 0;
+      if (estado === "reserva" && fechaCierreEstimada) {
+        body.fecha_cierre_estimada = fechaCierreEstimada;
+      }
+      // Cuotas futuras (pendientes) — punto 1 audit
+      if (cuotas.length > 0) {
+        body.cuotas = cuotas.map((c, i) => ({
+          numero_cuota: i + 2,
+          monto_usd: c.monto ? parseFloat(c.monto) : 0,
+          fecha_vencimiento: c.fecha,
+        }));
+      }
 
       // Upload comprobante if present
       let comprobanteUrl: string | undefined;
@@ -208,6 +268,8 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
     setMetodoPago("");
     setReceptor("");
     setComprobanteFile(null);
+    setCuotas([]);
+    setFechaCierreEstimada("");
     setError("");
     setSubmitted(false);
   }
@@ -452,7 +514,7 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
                 {PLAN_PAGO_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
-                    onClick={() => setPlanPago(opt.value)}
+                    onClick={() => selectPlan(opt.value)}
                     className={`py-2.5 rounded-lg text-sm font-medium border transition-colors ${
                       planPago === opt.value
                         ? "bg-[var(--purple)]/10 border-[var(--purple)] text-purple-300"
@@ -464,6 +526,22 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
                 ))}
               </div>
             </div>
+
+            {/* Fecha estimada de cierre (solo reserva) — punto 6 audit */}
+            {estado === "reserva" && (
+              <div className="bg-amber-500/5 border border-amber-500/30 rounded-lg p-3">
+                <label className={labelClass}>Fecha estimada de cierre *</label>
+                <input
+                  type="date"
+                  value={fechaCierreEstimada}
+                  onChange={(e) => setFechaCierreEstimada(e.target.value)}
+                  className={inputClass}
+                />
+                <p className="text-xs text-[var(--muted)] mt-1">
+                  Deadline en que el cliente termina de pagar / cierra el programa completo.
+                </p>
+              </div>
+            )}
 
             {/* Ticket total */}
             <div>
@@ -535,7 +613,7 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
 
             {/* Fecha de pago */}
             <div>
-              <label className={labelClass}>Fecha de pago</label>
+              <label className={labelClass}>Fecha de pago (cuota 1)</label>
               <input
                 type="date"
                 value={fechaPagoDia1}
@@ -543,6 +621,61 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
                 className={inputClass}
               />
             </div>
+
+            {/* Cuotas restantes — punto 1 audit Iñaki */}
+            {(planPago === "2_cuotas" || planPago === "3_cuotas" || planPago === "personalizado") && (
+              <div className="bg-[var(--purple)]/5 border border-[var(--purple)]/30 rounded-lg p-3 space-y-3">
+                <p className="text-sm font-medium text-[var(--foreground)]">
+                  Cuotas restantes — fecha obligatoria
+                </p>
+                {cuotas.map((c, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_1.2fr_auto] gap-2 items-end">
+                    <div>
+                      <label className="text-xs text-[var(--muted)] block mb-1">Cuota {i + 2} — monto USD</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={100}
+                        value={c.monto}
+                        onChange={(e) => updateCuota(i, "monto", e.target.value)}
+                        placeholder="0"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-[var(--muted)] block mb-1">Vencimiento *</label>
+                      <input
+                        type="date"
+                        value={c.fecha}
+                        onChange={(e) => updateCuota(i, "fecha", e.target.value)}
+                        className={inputClass}
+                      />
+                    </div>
+                    {planPago === "personalizado" && (
+                      <button
+                        type="button"
+                        onClick={() => removeCuota(i)}
+                        className="h-[42px] px-3 rounded-lg border border-red-500/40 text-red-400 text-sm hover:bg-red-500/10 transition-colors"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {planPago === "personalizado" && (
+                  <button
+                    type="button"
+                    onClick={addCuota}
+                    className="w-full py-2 rounded-lg border border-[var(--purple)]/40 text-[var(--purple-light)] text-sm font-medium hover:bg-[var(--purple)]/10 transition-colors"
+                  >
+                    + Agregar cuota
+                  </button>
+                )}
+                <p className="text-xs text-[var(--muted)]">
+                  Estas cuotas se cargan como pagos pendientes y alimentan la cola de cobranzas.
+                </p>
+              </div>
+            )}
 
             {/* Metodo de pago */}
             <div>

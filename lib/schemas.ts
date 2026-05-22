@@ -23,6 +23,14 @@ export const llamadaSchema = z.object({
   reporte_general: safeString(2000).optional(),
   notas_internas: safeString(2000).optional(),
   lead_calificado: safeString(20).optional(),
+  fecha_cierre_estimada: z.string().optional(),
+});
+
+// Cuotas futuras (pendientes) que se cargan junto con la llamada cerrada.
+export const cuotaPendienteSchema = z.object({
+  numero_cuota: z.number().int().min(2).max(12),
+  monto_usd: z.number().min(0),
+  fecha_vencimiento: z.string().min(1),
 });
 
 export const pagoSchema = z.object({

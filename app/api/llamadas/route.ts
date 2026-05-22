@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
-import { llamadaSchema } from "@/lib/schemas";
+import { llamadaSchema, cuotaPendienteSchema } from "@/lib/schemas";
 import { updateLead, updateLeadVerbose } from "@/lib/queries/leads";
 import { createPayment, createPaymentVerbose } from "@/lib/queries/payments";
 import { getToday, toDateString } from "@/lib/date-utils";
 import { syncLeadToSheet } from "@/lib/sheet-sync";
+import { z } from "zod";
 import type { LeadEstado, LeadCalificacion, Programa, MetodoPago } from "@/lib/types";
 
 export async function POST(req: NextRequest) {
@@ -21,7 +22,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { lead_id, estado, programa_pitcheado, concepto, plan_pago, ticket_total, reporte_general, notas_internas, lead_calificado } = parsed.data;
+    const { lead_id, estado, programa_pitcheado, concepto, plan_pago, ticket_total, reporte_general, notas_internas, lead_calificado, fecha_cierre_estimada } = parsed.data;
+
+    const paymentMonto = Number((body.payment as { monto_usd?: number } | undefined)?.monto_usd ?? 0);
+
+    // ── Validaciones audit Iñaki (server-side) ──
+    // P2: estado "cerrado" exige cash cobrado.
+    if (estado === "cerrado" && !(paymentMonto > 0)) {
+      return NextResponse.json(
+        { error: "El estado Cerrado exige cargar el monto cobrado." },
+        { status: 400 }
+      );
+    }
+    // P6: una reserva exige fecha estimada de cierre.
+    if (estado === "reserva" && !fecha_cierre_estimada) {
+      return NextResponse.json(
+        { error: "Una reserva exige la fecha estimada de cierre." },
+        { status: 400 }
+      );
+    }
 
     // Update the lead
     const leadUpdate: Record<string, unknown> = {
@@ -36,6 +55,7 @@ export async function POST(req: NextRequest) {
     if (reporte_general) leadUpdate.reporte_general = reporte_general;
     if (notas_internas) leadUpdate.notas_internas = notas_internas;
     if (lead_calificado) leadUpdate.lead_calificado = lead_calificado;
+    if (fecha_cierre_estimada) leadUpdate.fecha_cierre_estimada = fecha_cierre_estimada;
 
     const updatedLead = await updateLead(lead_id, leadUpdate);
     if (!updatedLead) {
@@ -81,12 +101,42 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Cuotas futuras pendientes — punto 1 audit Iñaki.
+    // Se cargan como pagos pendientes con fecha_vencimiento → alimentan la cola de cobranzas.
+    let cuotasCreadas = 0;
+    if (isCerrado && Array.isArray(body.cuotas) && body.cuotas.length > 0) {
+      const cuotasParsed = z.array(cuotaPendienteSchema).safeParse(body.cuotas);
+      if (cuotasParsed.success) {
+        for (const c of cuotasParsed.data) {
+          const cuotaRes = await createPaymentVerbose({
+            lead_id,
+            client_id: null,
+            renewal_id: null,
+            numero_cuota: c.numero_cuota,
+            monto_usd: c.monto_usd,
+            monto_ars: 0,
+            fecha_pago: null,
+            fecha_vencimiento: c.fecha_vencimiento,
+            estado: "pendiente",
+            metodo_pago: null,
+            receptor: null,
+            comprobante_url: null,
+            cobrador_id: null,
+            verificado: false,
+            es_renovacion: false,
+          });
+          if (cuotaRes.ok) cuotasCreadas++;
+        }
+      }
+    }
+
     await syncLeadToSheet(lead_id);
     return NextResponse.json({
       ok: !paymentError,
       lead: updatedLead,
       payment: paymentCreated,
       paymentError,
+      cuotasCreadas,
     });
   } catch (err) {
     console.error("[POST /api/llamadas]", err);

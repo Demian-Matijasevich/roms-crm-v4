@@ -21,7 +21,7 @@ import {
 } from "@/lib/date-utils";
 import { RECEPTORES } from "@/lib/constants";
 import type { MonthlyCash, TreasuryRow, Commission } from "@/lib/types";
-import type { GastoRow, IngresoRow } from "./page";
+import type { GastoRow, IngresoRow, RefundRow } from "./page";
 
 interface PaymentRow {
   id: string;
@@ -36,6 +36,7 @@ interface PaymentRow {
 
 interface LeadForPro {
   id: string;
+  nombre: string | null;
   programa_pitcheado: string | null;
   ticket_total: number;
   estado: string | null;
@@ -64,6 +65,7 @@ interface Props {
   clientsForPro: ClientForPro[];
   usdRateHistory: Array<{ mes: string; rate: number }>;
   currentFiscalMonth: string;
+  refunds: RefundRow[];
 }
 
 const RECEPTOR_COLORS: Record<string, string> = {
@@ -92,6 +94,7 @@ export default function FinanzasClient({
   clientsForPro,
   usdRateHistory: initialRates,
   currentFiscalMonth,
+  refunds,
 }: Props) {
   const [rates, setRates] = useState(initialRates);
   const [newRateMes, setNewRateMes] = useState<string>(new Date().toISOString().slice(0, 7));
@@ -384,6 +387,35 @@ export default function FinanzasClient({
     return [...set].sort();
   }, [localGastos]);
 
+  // Ventas sin pago registrado — punto 4 audit Iñaki (imports de Valen sin cash)
+  const ventasSinPago = useMemo(() => {
+    const leadsConPago = new Set<string>();
+    for (const p of payments) if (p.lead_id) leadsConPago.add(p.lead_id);
+    return leadsForPro.filter((l) => {
+      if (!l.estado || !["cerrado", "reserva", "adentro_seguimiento"].includes(l.estado)) return false;
+      if ((l.ticket_total || 0) <= 0) return false;
+      if (leadsConPago.has(l.id)) return false;
+      if (!l.fecha_llamada) return false;
+      const f = l.fecha_llamada.split("T")[0];
+      return f >= monthRange.start && f <= monthRange.end;
+    });
+  }, [leadsForPro, payments, monthRange]);
+  const totalTicketSinPago = useMemo(
+    () => ventasSinPago.reduce((s, l) => s + (l.ticket_total || 0), 0),
+    [ventasSinPago]
+  );
+
+  // Refunds del mes — punto 7 audit Iñaki
+  const monthRefunds = useMemo(() => {
+    return refunds.filter(
+      (r) => r.fecha && gastoFiscalMonth(r.fecha.split("T")[0]) === currentLabel
+    );
+  }, [refunds, currentLabel]);
+  const totalRefundsMes = useMemo(
+    () => monthRefunds.reduce((s, r) => s + (r.monto || 0), 0),
+    [monthRefunds]
+  );
+
   // Ingresos
   const cashVentasNuevas = monthCash?.cash_ventas_nuevas ?? 0;
   const cashCuotas = monthCash?.cash_cuotas ?? 0;
@@ -673,6 +705,35 @@ export default function FinanzasClient({
         </div>
       </div>
 
+      {/* ══════════════ ALERTA: VENTAS SIN PAGO REGISTRADO ══════════════ */}
+      {ventasSinPago.length > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/40 rounded-xl p-5">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl leading-none">⚠️</span>
+            <div className="flex-1">
+              <h2 className="text-base font-semibold text-amber-300">
+                {ventasSinPago.length} venta{ventasSinPago.length !== 1 ? "s" : ""} sin pago registrado — {currentLabel}
+              </h2>
+              <p className="text-xs text-[var(--muted)] mt-1">
+                Leads cerrados/reserva con ticket cargado pero sin ningún pago. No cuentan en Cash Collected
+                ni en comisiones. Cargá el pago o corregí el estado. Ticket &quot;fantasma&quot; total:{" "}
+                <span className="text-amber-300 font-semibold">{formatUSD(Math.round(totalTicketSinPago))}</span>.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {ventasSinPago.map((l) => (
+                  <span
+                    key={l.id}
+                    className="text-xs bg-amber-500/15 border border-amber-500/30 text-amber-200 rounded-md px-2 py-1"
+                  >
+                    {l.nombre || "Sin nombre"} · {formatUSD(l.ticket_total)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ══════════════ USD RATE POR MES ══════════════ */}
       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -750,12 +811,23 @@ export default function FinanzasClient({
               </div>
             );
           })}
+          <div className="flex justify-between text-sm pt-2 border-t border-[var(--card-border)]/30">
+            <span className="text-white/80">Revenue devengado bruto</span>
+            <span className="text-white">{formatUSD(Math.round(proMetrics.revenue.total))}</span>
+          </div>
+          {totalRefundsMes > 0 && (
+            <div className="flex justify-between text-sm">
+              <span className="text-white/80">Refunds del mes (−)</span>
+              <span className="text-[var(--red)]">−{formatUSD(Math.round(totalRefundsMes))}</span>
+            </div>
+          )}
           <div className="flex justify-between font-bold text-base text-[var(--green)] pt-2 border-t border-[var(--card-border)]/30">
-            <span>Total Ingresos (devengado)</span>
-            <span>{formatUSD(Math.round(proMetrics.revenue.total))}</span>
+            <span>Total Ingresos (devengado neto)</span>
+            <span>{formatUSD(Math.round(proMetrics.revenue.total - totalRefundsMes))}</span>
           </div>
           <p className="text-[10px] text-[var(--muted)] mt-1">
             ℹ️ Cash collected este mes: {formatUSD(Math.round(proMetrics.cash.total))} · Ventas firmadas (con pago): {formatUSD(Math.round(proMetrics.ventas.total))}
+            {totalRefundsMes > 0 && <> · Refunds aplicados: {formatUSD(Math.round(totalRefundsMes))}</>}
           </p>
         </div>
 
@@ -787,7 +859,7 @@ export default function FinanzasClient({
 
         {/* Resultado Neto — usa devengado como ingreso */}
         {(() => {
-          const ingresoDevengado = Math.round(proMetrics.revenue.total);
+          const ingresoDevengado = Math.round(proMetrics.revenue.total - totalRefundsMes);
           const resultado = ingresoDevengado - totalEgresos;
           const positivo = resultado >= 0;
           return (
@@ -798,8 +870,78 @@ export default function FinanzasClient({
           );
         })()}
         <p className="text-[10px] text-[var(--muted)] mt-2">
-          ℹ️ Resultado Neto = Revenue Devengado − Egresos. Si querés el cash neto (entró-salió), usá: {formatUSD(resultadoNeto)} ({esPositivo ? "+" : ""}cash).
+          ℹ️ Resultado Neto = Revenue Devengado neto (bruto − refunds) − Egresos. Si querés el cash neto (entró-salió), usá: {formatUSD(resultadoNeto)} ({esPositivo ? "+" : ""}cash).
         </p>
+      </div>
+
+      {/* ══════════════ REFUNDS DEL MES ══════════════ */}
+      <div className="bg-[var(--card-bg)] border border-[var(--red)]/30 rounded-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-[var(--card-border)] flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-white">
+              🔄 Refunds del mes ({monthRefunds.length})
+            </h2>
+            <p className="text-xs text-[var(--muted)] mt-0.5">
+              Reembolsos a clientes — se descuentan del cash y del revenue devengado.
+            </p>
+          </div>
+          <div className="text-sm text-[var(--muted)]">
+            Total devuelto:{" "}
+            <span className="text-[var(--red)] font-semibold">
+              {formatUSD(Math.round(totalRefundsMes))}
+            </span>
+          </div>
+        </div>
+        {monthRefunds.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--card-border)] text-left text-xs text-[var(--muted)] uppercase">
+                  <th className="py-3 px-3">Fecha</th>
+                  <th className="py-3 px-3">Cliente</th>
+                  <th className="py-3 px-3 text-right">Ticket inicial</th>
+                  <th className="py-3 px-3 text-right">Valor devuelto</th>
+                  <th className="py-3 px-3 text-right">% del ticket</th>
+                  <th className="py-3 px-3">Recibió</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthRefunds.map((r) => {
+                  const pct = r.ticket_inicial > 0 ? (r.monto / r.ticket_inicial) * 100 : 0;
+                  return (
+                    <tr key={r.id} className="border-t border-[var(--card-border)]/30 hover:bg-white/5 transition-colors">
+                      <td className="py-2 px-3 text-[var(--muted)]">
+                        {r.fecha ? formatDate(r.fecha.split("T")[0]) : "—"}
+                      </td>
+                      <td className="py-2 px-3 text-white font-medium">{r.lead_nombre || "—"}</td>
+                      <td className="py-2 px-3 text-right font-mono text-[var(--muted)]">
+                        {r.ticket_inicial > 0 ? formatUSD(r.ticket_inicial) : "—"}
+                      </td>
+                      <td className="py-2 px-3 text-right font-mono text-[var(--red)] font-semibold">
+                        {formatUSD(Math.round(r.monto))}
+                      </td>
+                      <td className="py-2 px-3 text-right font-mono text-[var(--muted)]">
+                        {pct > 0 ? `${pct.toFixed(0)}%` : "—"}
+                      </td>
+                      <td className="py-2 px-3 text-[var(--muted)]">{r.receptor || "—"}</td>
+                    </tr>
+                  );
+                })}
+                <tr className="border-t-2 border-[var(--card-border)] font-bold">
+                  <td className="py-2 px-3 text-white" colSpan={3}>TOTAL</td>
+                  <td className="py-2 px-3 text-right font-mono text-[var(--red)]">
+                    {formatUSD(Math.round(totalRefundsMes))}
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="px-6 py-8 text-center text-[var(--muted)] text-sm">
+            Sin refunds este mes
+          </div>
+        )}
       </div>
 
       {/* ══════════════ COMISIONES POR EMPLEADO ══════════════ */}
