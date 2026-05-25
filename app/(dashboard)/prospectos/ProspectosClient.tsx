@@ -3,6 +3,8 @@
 import { useState, useMemo } from "react";
 import type { AuthSession } from "@/lib/types";
 import type { ProspectoRow, TeamMemberRow } from "./page";
+import { useToast, useConfirm } from "@/app/components/Toast";
+import EmptyState from "@/app/components/EmptyState";
 
 interface Props {
   prospectos: ProspectoRow[];
@@ -34,6 +36,8 @@ const inputClass =
 export default function ProspectosClient({ prospectos: initial, team, session }: Props) {
   const isAdmin = !!session.is_admin;
   const me = session.team_member_id;
+  const toast = useToast();
+  const confirm = useConfirm();
 
   const [local, setLocal] = useState<ProspectoRow[]>(initial);
   const [estadoFilter, setEstadoFilter] = useState<EstadoFilter>("todos");
@@ -81,25 +85,43 @@ export default function ProspectosClient({ prospectos: initial, team, session }:
   }, [local, scopeFilter, me]);
 
   async function updateProspecto(id: string, patch: Partial<ProspectoRow>) {
-    const res = await fetch("/api/prospectos", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, ...patch }),
-    });
-    const json = await res.json();
-    if (json.ok) {
-      setLocal((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } as ProspectoRow : p)));
-    } else {
-      alert("Error: " + (json.error || "desconocido"));
+    try {
+      const res = await fetch("/api/prospectos", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...patch }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setLocal((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } as ProspectoRow : p)));
+      } else {
+        toast.error(json.error || "No se pudo actualizar");
+      }
+    } catch (err) {
+      toast.error("Error de red: " + (err instanceof Error ? err.message : String(err)));
     }
   }
 
   async function deleteProspecto(id: string, tel: string) {
-    if (!confirm(`¿Borrar prospecto ${tel}?`)) return;
-    const res = await fetch(`/api/prospectos?id=${id}`, { method: "DELETE" });
-    const json = await res.json();
-    if (json.ok) setLocal((prev) => prev.filter((p) => p.id !== id));
-    else alert("Error: " + (json.error || ""));
+    const ok = await confirm({
+      title: `¿Borrar prospecto ${tel}?`,
+      description: "Esta acción no se puede deshacer.",
+      confirmLabel: "Borrar",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/prospectos?id=${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.ok) {
+        setLocal((prev) => prev.filter((p) => p.id !== id));
+        toast.success("Prospecto eliminado");
+      } else {
+        toast.error(json.error || "No se pudo borrar");
+      }
+    } catch (err) {
+      toast.error("Error de red: " + (err instanceof Error ? err.message : String(err)));
+    }
   }
 
   async function handleBulkAdd(e: React.FormEvent) {
@@ -109,7 +131,7 @@ export default function ProspectosClient({ prospectos: initial, team, session }:
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
     if (tels.length === 0) {
-      alert("Pega al menos un teléfono (uno por línea)");
+      toast.error("Pegá al menos un teléfono (uno por línea)");
       return;
     }
     setBulkLoading(true);
@@ -140,9 +162,12 @@ export default function ProspectosClient({ prospectos: initial, team, session }:
         setBulkOrigen("");
         setBulkEtiquetas("");
         setShowBulkAdd(false);
+        toast.success(`${newRows.length} prospectos cargados`);
       } else {
-        alert("Error: " + (json.error || ""));
+        toast.error(json.error || "No se pudo cargar");
       }
+    } catch (err) {
+      toast.error("Error de red: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setBulkLoading(false);
     }
@@ -214,8 +239,18 @@ export default function ProspectosClient({ prospectos: initial, team, session }:
       {/* Lista */}
       <div className="space-y-2">
         {filtered.length === 0 ? (
-          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-8 text-center text-[var(--muted)] text-sm">
-            No hay prospectos con esos filtros. {scopeFilter === "mios" && "Probá cambiar a 'Todos' o cargar nuevos números."}
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl">
+            <EmptyState
+              icon="📞"
+              title="Sin prospectos por acá"
+              description={
+                scopeFilter === "mios"
+                  ? "No tenés prospectos con esos filtros. Probá cambiar a 'Todos' o cargá nuevos números."
+                  : "No hay prospectos con esos filtros."
+              }
+              actionLabel="Cargar números"
+              onAction={() => setShowBulkAdd(true)}
+            />
           </div>
         ) : (
           filtered.map((p) => (

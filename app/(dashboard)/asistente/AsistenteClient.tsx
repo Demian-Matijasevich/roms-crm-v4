@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import type { AuthSession } from "@/lib/types";
+import { useToast } from "@/app/components/Toast";
 
 interface Msg {
   role: "user" | "assistant" | "error";
@@ -24,6 +25,16 @@ export default function AsistenteClient({ session }: { session: AuthSession }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const toast = useToast();
+
+  async function copyAnswer(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Copiado");
+    } catch {
+      toast.error("No se pudo copiar");
+    }
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -103,13 +114,13 @@ export default function AsistenteClient({ session }: { session: AuthSession }) {
           </div>
         )}
 
-        {messages.map((m, i) => (
+        {messages.map((m) => (
           <div
-            key={i}
+            key={m.ts}
             className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={`max-w-[85%] rounded-lg px-4 py-3 text-sm whitespace-pre-wrap ${
+              className={`group max-w-[85%] rounded-lg px-4 py-3 text-sm whitespace-pre-wrap relative ${
                 m.role === "user"
                   ? "bg-[var(--purple)]/15 border border-[var(--purple)]/40 text-white"
                   : m.role === "error"
@@ -118,6 +129,16 @@ export default function AsistenteClient({ session }: { session: AuthSession }) {
               }`}
             >
               {m.content}
+              {m.role === "assistant" && (
+                <button
+                  type="button"
+                  onClick={() => copyAnswer(m.content)}
+                  aria-label="Copiar respuesta"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity absolute top-2 right-2 text-[10px] text-[var(--muted)] hover:text-white bg-[var(--card-bg)] border border-[var(--card-border)] rounded px-1.5 py-0.5"
+                >
+                  📋
+                </button>
+              )}
               {m.ms !== undefined && (
                 <p className="text-[10px] text-[var(--muted)] mt-2">
                   {(m.ms / 1000).toFixed(1)}s
@@ -129,8 +150,13 @@ export default function AsistenteClient({ session }: { session: AuthSession }) {
 
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-4 py-3 text-sm text-[var(--muted)]">
-              <span className="inline-block animate-pulse">▊</span> Pensando con la data del CRM...
+            <div className="bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-4 py-3 text-sm text-[var(--muted)] flex items-center gap-2">
+              <span className="flex gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--purple-light)] animate-bounce [animation-delay:-0.3s]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--purple-light)] animate-bounce [animation-delay:-0.15s]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--purple-light)] animate-bounce" />
+              </span>
+              <span>Leyendo la data del CRM...</span>
             </div>
           </div>
         )}

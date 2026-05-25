@@ -5,6 +5,7 @@ import { RealtimeProvider } from "@/app/components/RealtimeProvider";
 import SaleBanner from "@/app/components/SaleBanner";
 import CommandPalette from "@/app/components/CommandPalette";
 import QuickCallLog from "@/app/components/QuickCallLog";
+import { ToastProvider, ConfirmProvider } from "@/app/components/Toast";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   try {
@@ -12,17 +13,21 @@ export default async function DashboardLayout({ children }: { children: React.Re
     if (!session) redirect("/login");
 
     return (
-      <div className="min-h-screen">
-        <Sidebar session={session} />
-        <CommandPalette />
-        <QuickCallLog session={session} />
-        <RealtimeProvider>
-          <SaleBanner />
-          <main className="lg:ml-64 pt-14 lg:pt-0 p-4 lg:p-6 animate-fade-in">
-            {children}
-          </main>
-        </RealtimeProvider>
-      </div>
+      <ToastProvider>
+        <ConfirmProvider>
+          <div className="min-h-screen">
+            <Sidebar session={session} />
+            <CommandPalette />
+            <QuickCallLog session={session} />
+            <RealtimeProvider>
+              <SaleBanner />
+              <main className="lg:ml-64 pt-14 lg:pt-0 p-4 lg:p-6 animate-fade-in">
+                {children}
+              </main>
+            </RealtimeProvider>
+          </div>
+        </ConfirmProvider>
+      </ToastProvider>
     );
   } catch {
     redirect("/login");
