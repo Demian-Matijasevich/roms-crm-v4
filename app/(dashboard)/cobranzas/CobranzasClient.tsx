@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import type { AuthSession, AgentTask } from "@/lib/types";
 import type { CobranzasQueueItem, AuditCuotaRow, PaidPaymentRecord } from "@/lib/queries/cobranzas";
 import MonthSelector77 from "@/app/components/MonthSelector77";
+import { useToast } from "@/app/components/Toast";
 import { getFiscalMonth, parseLocalDate, getFiscalStart, getFiscalEnd, toDateString, getToday as getDateToday } from "@/lib/date-utils";
 import { formatMoney } from "@/lib/format";
 // date-fns utilities available if needed
@@ -101,6 +103,8 @@ export default function CobranzasClient({
   usdRate,
   session,
 }: Props) {
+  const router = useRouter();
+  const toast = useToast();
   const fmt = (usd: number, ars?: number) => formatMoney(usd, ars || 0, usdRate);
   const [mainTab, setMainTab] = useState<MainTab>("cola");
   const [queue, setQueue] = useState(initialQueue);
@@ -867,15 +871,17 @@ export default function CobranzasClient({
           {session.is_admin && (
             <button
               onClick={async () => {
-                const res = await fetch("/api/agent-tasks/generate", {
-                  method: "POST",
-                });
-                if (res.ok) {
-                  const data = await res.json();
-                  alert(
-                    `Tareas generadas: ${data.created} creadas, ${data.skipped} duplicadas`
-                  );
-                  window.location.reload();
+                try {
+                  const res = await fetch("/api/agent-tasks/generate", { method: "POST" });
+                  if (res.ok) {
+                    const data = await res.json();
+                    toast.success(`${data.created} tareas creadas · ${data.skipped} duplicadas`);
+                    router.refresh();
+                  } else {
+                    toast.error("No se pudieron generar las tareas");
+                  }
+                } catch (err) {
+                  toast.error("Error de red: " + (err instanceof Error ? err.message : String(err)));
                 }
               }}
               className="text-xs px-3 py-1.5 bg-[var(--purple)] text-white rounded-lg hover:bg-[var(--purple-dark)]"

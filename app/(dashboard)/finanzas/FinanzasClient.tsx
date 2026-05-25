@@ -22,6 +22,7 @@ import {
 import { RECEPTORES } from "@/lib/constants";
 import type { MonthlyCash, TreasuryRow, Commission } from "@/lib/types";
 import type { GastoRow, IngresoRow, RefundRow } from "./page";
+import { useToast, useConfirm } from "@/app/components/Toast";
 
 interface PaymentRow {
   id: string;
@@ -96,36 +97,56 @@ export default function FinanzasClient({
   currentFiscalMonth,
   refunds,
 }: Props) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [rates, setRates] = useState(initialRates);
   const [newRateMes, setNewRateMes] = useState<string>(new Date().toISOString().slice(0, 7));
   const [newRateValue, setNewRateValue] = useState<string>("");
 
   async function saveMonthRate() {
     const r = Number(newRateValue);
-    if (!Number.isFinite(r) || r <= 0) { alert("Rate inválido"); return; }
-    const res = await fetch("/api/usd-rates", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mes: newRateMes, rate: r }),
-    });
-    const json = await res.json();
-    if (json.ok) {
-      setRates((prev) => {
-        const filtered = prev.filter((x) => x.mes !== newRateMes);
-        return [...filtered, { mes: newRateMes, rate: r }].sort((a, b) => b.mes.localeCompare(a.mes));
+    if (!Number.isFinite(r) || r <= 0) { toast.error("Rate inválido"); return; }
+    try {
+      const res = await fetch("/api/usd-rates", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mes: newRateMes, rate: r }),
       });
-      setNewRateValue("");
-    } else {
-      alert("Error: " + (json.error || ""));
+      const json = await res.json();
+      if (json.ok) {
+        setRates((prev) => {
+          const filtered = prev.filter((x) => x.mes !== newRateMes);
+          return [...filtered, { mes: newRateMes, rate: r }].sort((a, b) => b.mes.localeCompare(a.mes));
+        });
+        setNewRateValue("");
+        toast.success("Rate guardado");
+      } else {
+        toast.error(json.error || "No se pudo guardar");
+      }
+    } catch (err) {
+      toast.error("Error de red: " + (err instanceof Error ? err.message : String(err)));
     }
   }
 
   async function deleteMonthRate(mes: string) {
-    if (!confirm(`¿Borrar rate de ${mes}?`)) return;
-    const res = await fetch(`/api/usd-rates?mes=${encodeURIComponent(mes)}`, { method: "DELETE" });
-    const json = await res.json();
-    if (json.ok) setRates((prev) => prev.filter((r) => r.mes !== mes));
-    else alert("Error: " + (json.error || ""));
+    const ok = await confirm({
+      title: `¿Borrar rate de ${mes}?`,
+      confirmLabel: "Borrar",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/usd-rates?mes=${encodeURIComponent(mes)}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.ok) {
+        setRates((prev) => prev.filter((r) => r.mes !== mes));
+        toast.success("Rate borrado");
+      } else {
+        toast.error(json.error || "No se pudo borrar");
+      }
+    } catch (err) {
+      toast.error("Error de red: " + (err instanceof Error ? err.message : String(err)));
+    }
   }
   const [usdRate, setUsdRate] = useState(initialUsdRate);
   const [editingRate, setEditingRate] = useState(false);
@@ -171,15 +192,26 @@ export default function FinanzasClient({
   const RECEPTOR_OPTIONS = ["FRAN", "JUANMA", "VALEN", "MEL"];
 
   async function deletePayment(paymentId: string, leadName: string | null, monto: number) {
-    const label = leadName ? `${leadName} - $${monto}` : `pago $${monto}`;
-    if (!confirm(`¿Borrar ${label}? Esta acción no se puede deshacer.`)) return;
-    const res = await fetch(`/api/pagos?id=${paymentId}`, { method: "DELETE" });
-    const json = await res.json();
-    if (json.ok) {
-      setLocalIngresos((prev) => prev.filter((i) => i.id !== paymentId));
-      setLocalPayments((prev) => prev.filter((p) => p.id !== paymentId));
-    } else {
-      alert("Error al borrar: " + (json.error || "desconocido"));
+    const label = leadName ? `${leadName} – $${monto}` : `pago de $${monto}`;
+    const ok = await confirm({
+      title: `¿Borrar ${label}?`,
+      description: "Esta acción no se puede deshacer.",
+      confirmLabel: "Borrar",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/pagos?id=${paymentId}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.ok) {
+        setLocalIngresos((prev) => prev.filter((i) => i.id !== paymentId));
+        setLocalPayments((prev) => prev.filter((p) => p.id !== paymentId));
+        toast.success("Pago borrado");
+      } else {
+        toast.error(json.error || "No se pudo borrar");
+      }
+    } catch (err) {
+      toast.error("Error de red: " + (err instanceof Error ? err.message : String(err)));
     }
   }
 
@@ -197,11 +229,11 @@ export default function FinanzasClient({
         setLocalPayments((prev) => prev.map((p) => (p.id === paymentId ? { ...p, [field]: value } : p)));
         return true;
       } else {
-        alert("Error: " + (json.error || "desconocido"));
+        toast.error(json.error || "No se pudo guardar");
         return false;
       }
     } catch (err) {
-      alert("Error: " + (err instanceof Error ? err.message : String(err)));
+      toast.error("Error de red: " + (err instanceof Error ? err.message : String(err)));
       return false;
     }
   }
@@ -228,10 +260,10 @@ export default function FinanzasClient({
       if (json.ok) {
         setLocalGastos((prev) => prev.map((g) => (g.id === gastoId ? { ...g, [field]: value } : g)));
       } else {
-        alert("Error: " + (json.error || "desconocido"));
+        toast.error(json.error || "No se pudo guardar");
       }
     } catch (err) {
-      alert("Error: " + (err instanceof Error ? err.message : String(err)));
+      toast.error("Error de red: " + (err instanceof Error ? err.message : String(err)));
     }
   }
 
@@ -567,7 +599,8 @@ export default function FinanzasClient({
   }
 
   async function deleteGasto(id: string) {
-    if (!confirm("¿Borrar este gasto?")) return;
+    const ok = await confirm({ title: "¿Borrar este gasto?", confirmLabel: "Borrar", destructive: true });
+    if (!ok) return;
     const res = await fetch(`/api/gastos?id=${id}`, { method: "DELETE" });
     const data = await res.json();
     if (data.ok) {

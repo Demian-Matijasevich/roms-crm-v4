@@ -322,3 +322,37 @@ tr.hover-row:hover {
     padding: 40px !important;
   }
 }
+
+
+/* ───── A11y polish — disabled cursor + focus rings ─────  */
+button:disabled,
+[role="button"]:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+
+button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+/* Focus ring uniforme (solo cuando se navega con teclado) */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Toast slide-in animations (Tailwind utility no soporta nativo todos) */
+@keyframes toast-slide-in {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+.animate-in {
+  animation: toast-slide-in 200ms ease-out;
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, Fragment } from "react";
+import { useRouter } from "next/navigation";
 import type { TeamMember, AuthSession, LeadScore, Payment } from "@/lib/types";
 import type { LeadWithTeam } from "@/lib/queries/leads";
 import { LEAD_ESTADOS_LABELS, PROGRAMS } from "@/lib/constants";
@@ -10,6 +11,7 @@ import StatusBadge from "@/app/components/StatusBadge";
 import AddPaymentModal from "@/app/components/AddPaymentModal";
 import AddLeadModal from "@/app/components/AddLeadModal";
 import PaymentEditModalShared, { type EditablePayment } from "@/app/components/PaymentEditModalShared";
+import { useToast, useConfirm } from "@/app/components/Toast";
 
 interface Props {
   leads: LeadWithTeam[];
@@ -47,6 +49,9 @@ function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
 }
 
 export default function LlamadasClient({ leads: initialLeads, closers, setters, payments, usdRate, session }: Props) {
+  const router = useRouter();
+  const toast = useToast();
+  const confirm = useConfirm();
   const [leads, setLocalLeads] = useState<LeadWithTeam[]>(initialLeads);
   const [search, setSearch] = useState("");
   const [estadoFilter, setEstadoFilter] = useState<string>("todos");
@@ -123,16 +128,19 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
       const json = await res.json();
       if (json.ok) {
         setSaveMsg("Guardado correctamente");
-        setTimeout(() => window.location.reload(), 800);
+        toast.success("Lead actualizado");
+        setTimeout(() => router.refresh(), 400);
       } else {
         setSaveMsg(`Error: ${json.error || "desconocido"}`);
+        toast.error(json.error || "No se pudo guardar");
       }
     } catch {
       setSaveMsg("Error de red");
+      toast.error("Error de red");
     } finally {
       setSaving(false);
     }
-  }, [editData]);
+  }, [editData, router, toast]);
 
   // Inline edit helper (for cells in the main table row — saves immediately on blur/change)
   const updateLeadField = useCallback(async (leadId: string, field: string, value: string | number | null) => {
@@ -158,12 +166,12 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
           return updated;
         }));
       } else {
-        alert("Error: " + (json.error || "desconocido"));
+        toast.error(json.error || "No se pudo guardar");
       }
     } catch (err) {
-      alert("Error: " + (err instanceof Error ? err.message : String(err)));
+      toast.error("Error de red: " + (err instanceof Error ? err.message : String(err)));
     }
-  }, [closers, setters]);
+  }, [closers, setters, toast]);
 
   // Update a specific payment's field (used from the main table row for fecha_pago of the first payment)
   const updatePaymentField = useCallback(async (paymentId: string, field: string, value: string | number | null) => {
@@ -175,16 +183,16 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
       });
       const json = await res.json();
       if (!json.ok) {
-        alert("Error: " + (json.error || "desconocido"));
+        toast.error(json.error || "No se pudo guardar el pago");
         return;
       }
-      // Force reload to refresh audit data (payments is computed server-side).
-      // Alternative would be to mutate a local payments state — for now this is simpler.
-      window.location.reload();
+      // Refresh server data (audit + payments) sin recargar la página entera.
+      router.refresh();
+      toast.success("Pago actualizado");
     } catch (err) {
-      alert("Error: " + (err instanceof Error ? err.message : String(err)));
+      toast.error("Error de red: " + (err instanceof Error ? err.message : String(err)));
     }
-  }, []);
+  }, [router, toast]);
 
   // Renders the expanded lead detail inside the table row (inline expand)
   const renderLeadDetail = (lead: LeadWithTeam) => {
@@ -838,9 +846,24 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
                                     <button
                                       onClick={async (e) => {
                                         e.stopPropagation();
-                                        if (!confirm(`¿Borrar pago de ${formatUSD(p.monto_usd)}?`)) return;
-                                        const res = await fetch(`/api/pagos?id=${p.id}`, { method: "DELETE" });
-                                        if ((await res.json()).ok) window.location.reload();
+                                        const ok = await confirm({
+                                          title: `¿Borrar pago de ${formatUSD(p.monto_usd)}?`,
+                                          description: "El pago se elimina de la cobranza y deja de contar en el cash collected.",
+                                          confirmLabel: "Borrar",
+                                          destructive: true,
+                                        });
+                                        if (!ok) return;
+                                        try {
+                                          const res = await fetch(`/api/pagos?id=${p.id}`, { method: "DELETE" });
+                                          if ((await res.json()).ok) {
+                                            toast.success("Pago borrado");
+                                            router.refresh();
+                                          } else {
+                                            toast.error("No se pudo borrar");
+                                          }
+                                        } catch {
+                                          toast.error("Error de red");
+                                        }
                                       }}
                                       className="text-xs text-red-400 hover:underline"
                                     >
@@ -918,14 +941,17 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
       const json = await res.json();
       if (json.ok) {
         setRefundMsg("Refund registrado correctamente");
+        toast.success("Refund registrado");
         setRefundMonto("");
         setRefundMotivo("");
-        setTimeout(() => window.location.reload(), 800);
+        router.refresh();
       } else {
         setRefundMsg(`Error: ${json.error || "desconocido"}`);
+        toast.error(json.error || "No se pudo registrar el refund");
       }
     } catch {
       setRefundMsg("Error de red");
+      toast.error("Error de red");
     } finally {
       setRefundLoading(false);
     }
@@ -1526,8 +1552,8 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
         <PaymentEditModalShared
           payment={editingPayment as EditablePayment}
           onClose={() => setEditingPayment(null)}
-          onSaved={() => { setEditingPayment(null); window.location.reload(); }}
-          onDeleted={() => { setEditingPayment(null); window.location.reload(); }}
+          onSaved={() => { setEditingPayment(null); router.refresh(); }}
+          onDeleted={() => { setEditingPayment(null); router.refresh(); }}
         />
       )}
 
@@ -1536,7 +1562,7 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
           leads={leads.map((l) => ({ id: l.id, nombre: l.nombre }))}
           defaultLeadId={addPaymentForLead}
           onClose={() => setAddPaymentForLead(null)}
-          onCreated={() => { setAddPaymentForLead(null); window.location.reload(); }}
+          onCreated={() => { setAddPaymentForLead(null); router.refresh(); }}
         />
       )}
 
@@ -1545,7 +1571,7 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
           closers={closers}
           setters={setters}
           onClose={() => setShowAddLead(false)}
-          onCreated={() => { setShowAddLead(false); window.location.reload(); }}
+          onCreated={() => { setShowAddLead(false); router.refresh(); }}
         />
       )}
     </div>
