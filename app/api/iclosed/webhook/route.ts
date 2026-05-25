@@ -32,8 +32,14 @@ interface IClosedPayload {
   hookType?: string;
 }
 
-function mapStatus(iclosedStatus: string): string {
+function mapStatus(iclosedStatus: string, hookType?: string): string {
   const s = (iclosedStatus || "").toUpperCase();
+  const h = (hookType || "").toUpperCase();
+  // Cancelaciones / no-shows / reagendas (puede venir por hookType o por status)
+  if (h.includes("CANCEL") || s.includes("CANCEL")) return "cancelada";
+  if (h.includes("RESCHEDUL") || s.includes("RESCHEDUL") || s.includes("REBOOK")) return "reprogramada";
+  if (h.includes("NO_SHOW") || s.includes("NO_SHOW") || s.includes("NOSHOW")) return "no_show";
+  // Bookings y calificaciones
   if (s === "STRATEGY_CALL_BOOKED" || s === "DISCOVERY_CALL_BOOKED") return "pendiente";
   if (s === "QUALIFIED") return "pendiente";
   if (s === "DISQUALIFIED") return "no_calificado";
@@ -97,10 +103,12 @@ async function processEvent(payload: IClosedPayload) {
 
   const nombre = [payload.firstName, payload.lastName].filter(Boolean).join(" ").trim();
   const instagram = extractInstagram(payload.questionsAndAnswers);
-  const nuevoEstado =
-    lead?.estado === "cerrado" || lead?.estado === "adentro_seguimiento"
-      ? lead.estado
-      : mapStatus(payload.status || "");
+  // Si el lead ya está vendido (cerrado/reserva/adentro_seguimiento) NO lo
+  // tocamos por más que iClosed mande reagenda o cancela — la venta queda.
+  const VENDIDO = ["cerrado", "reserva", "adentro_seguimiento"];
+  const nuevoEstado = lead && VENDIDO.includes(lead.estado)
+    ? lead.estado
+    : mapStatus(payload.status || "", payload.hookType);
 
   // fecha_agendado = cuando se booked la call (iClosed dateTime)
   // fecha_llamada = solo cuando la call ya ocurrió (status != BOOKED)

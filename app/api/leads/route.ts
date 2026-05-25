@@ -23,6 +23,28 @@ export async function POST(req: NextRequest) {
     if (!body.nombre || typeof body.nombre !== "string" || !body.nombre.trim()) {
       return NextResponse.json({ error: "nombre requerido" }, { status: 400 });
     }
+    // Audit Juanma 2026-05-25: lead nuevo manual exige al menos un canal de
+    // contacto + fuente. (iClosed webhook bypassa esto creando con email).
+    const sourceWebhook = body._source === "webhook";
+    if (!sourceWebhook) {
+      const tieneContacto = !!(
+        (body.instagram && String(body.instagram).trim()) ||
+        (body.telefono && String(body.telefono).trim()) ||
+        (body.email && String(body.email).trim())
+      );
+      if (!tieneContacto) {
+        return NextResponse.json(
+          { error: "Falta contacto — cargá al menos uno: instagram, teléfono o email." },
+          { status: 400 }
+        );
+      }
+      if (!body.fuente || !String(body.fuente).trim()) {
+        return NextResponse.json(
+          { error: "Falta fuente — seleccioná de dónde viene el lead." },
+          { status: 400 }
+        );
+      }
+    }
 
     const allowed = [
       "nombre", "email", "telefono", "instagram",

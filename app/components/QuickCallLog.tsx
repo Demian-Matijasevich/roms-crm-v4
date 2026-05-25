@@ -64,11 +64,23 @@ export default function QuickCallLog({ session }: QuickCallLogProps) {
   const [newName, setNewName] = useState("");
   const [newInstagram, setNewInstagram] = useState("");
   const [newPhone, setNewPhone] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [newFuente, setNewFuente] = useState("");
   const [creating, setCreating] = useState(false);
+  const [showErrors, setShowErrors] = useState(false);
+
+  // Campos obligatorios para crear un lead nuevo
+  const missingFields = {
+    nombre: !newName.trim(),
+    contacto: !newInstagram.trim() && !newPhone.trim() && !newEmail.trim(),
+    fuente: !newFuente.trim(),
+  };
+  const newLeadValid = !missingFields.nombre && !missingFields.contacto && !missingFields.fuente;
 
   async function createNewLead() {
-    if (!newName.trim()) {
-      setError("Nombre requerido");
+    if (!newLeadValid) {
+      setShowErrors(true);
+      setError("Faltan campos obligatorios — completá nombre, al menos un contacto y la fuente.");
       return;
     }
     setCreating(true);
@@ -78,9 +90,11 @@ export default function QuickCallLog({ session }: QuickCallLogProps) {
         nombre: newName.trim(),
         estado: "pendiente",
         closer_id: session.team_member_id, // auto-asigna al que carga
+        fuente: newFuente.trim(),
       };
       if (newInstagram.trim()) body.instagram = newInstagram.trim();
       if (newPhone.trim()) body.telefono = newPhone.trim();
+      if (newEmail.trim()) body.email = newEmail.trim();
       const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -102,6 +116,9 @@ export default function QuickCallLog({ session }: QuickCallLogProps) {
       setNewName("");
       setNewInstagram("");
       setNewPhone("");
+      setNewEmail("");
+      setNewFuente("");
+      setShowErrors(false);
     } catch (err) {
       setError("Error de red: " + (err instanceof Error ? err.message : String(err)));
     } finally {
@@ -318,29 +335,70 @@ export default function QuickCallLog({ session }: QuickCallLogProps) {
                         </button>
                       </div>
                       <div>
-                        <label className="text-xs text-[var(--muted)] block mb-1">Nombre completo *</label>
-                        <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} className={inputClass} autoFocus />
+                        <label className="text-xs text-[var(--muted)] block mb-1">
+                          Nombre completo <span className="text-[var(--red)]">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={newName}
+                          onChange={(e) => setNewName(e.target.value)}
+                          className={`${inputClass} ${showErrors && missingFields.nombre ? "border-[var(--red)] focus:border-[var(--red)]" : ""}`}
+                          autoFocus
+                        />
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-xs text-[var(--muted)] block mb-1">Instagram</label>
-                          <input type="text" value={newInstagram} onChange={(e) => setNewInstagram(e.target.value)} className={inputClass} placeholder="@usuario" />
+
+                      <div className={`rounded-lg border p-2 ${showErrors && missingFields.contacto ? "border-[var(--red)]/60 bg-[var(--red)]/5" : "border-transparent"}`}>
+                        <label className="text-[10px] uppercase font-semibold text-[var(--muted)] block mb-1.5">
+                          Contacto <span className="text-[var(--red)]">*</span>
+                          <span className="text-[var(--muted)] font-normal normal-case ml-1">(al menos uno)</span>
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] text-[var(--muted)] block mb-0.5">Instagram</label>
+                            <input type="text" value={newInstagram} onChange={(e) => setNewInstagram(e.target.value)} className={inputClass} placeholder="@usuario" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-[var(--muted)] block mb-0.5">Teléfono</label>
+                            <input type="tel" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} className={inputClass} />
+                          </div>
                         </div>
-                        <div>
-                          <label className="text-xs text-[var(--muted)] block mb-1">Teléfono</label>
-                          <input type="tel" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} className={inputClass} />
+                        <div className="mt-2">
+                          <label className="text-[10px] text-[var(--muted)] block mb-0.5">Email</label>
+                          <input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} className={inputClass} placeholder="cliente@mail.com" />
                         </div>
                       </div>
-                      {error && <p className="text-sm text-red-400">{error}</p>}
+
+                      <div>
+                        <label className="text-xs text-[var(--muted)] block mb-1">
+                          Fuente <span className="text-[var(--red)]">*</span>
+                        </label>
+                        <select
+                          value={newFuente}
+                          onChange={(e) => setNewFuente(e.target.value)}
+                          className={`${inputClass} ${showErrors && missingFields.fuente ? "border-[var(--red)] focus:border-[var(--red)]" : ""}`}
+                        >
+                          <option value="">— Seleccionar —</option>
+                          <option value="dm_directo">DM directo</option>
+                          <option value="organico">Orgánico</option>
+                          <option value="ads_meta">Ads Meta</option>
+                          <option value="ads_google">Ads Google</option>
+                          <option value="referido">Referido</option>
+                          <option value="iclosed">iClosed</option>
+                          <option value="evento">Evento</option>
+                          <option value="otro">Otro</option>
+                        </select>
+                      </div>
+
+                      {error && <p className="text-sm text-[var(--red)]">{error}</p>}
                       <button
                         onClick={createNewLead}
-                        disabled={creating || !newName.trim()}
+                        disabled={creating}
                         className="w-full bg-[var(--green)] hover:bg-[var(--green)]/80 disabled:opacity-50 text-white py-3 rounded-lg text-sm font-semibold"
                       >
                         {creating ? "Creando..." : "Crear y continuar →"}
                       </button>
                       <p className="text-[10px] text-[var(--muted)] text-center">
-                        Se asigna automáticamente como tu closer. Después del crear seguís con el resultado de la call.
+                        Se asigna automáticamente como tu closer. Después seguís con el resultado de la llamada.
                       </p>
                     </div>
                   ) : (
