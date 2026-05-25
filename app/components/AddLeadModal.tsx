@@ -124,7 +124,7 @@ export default function AddLeadModal({ closers, setters, onClose, onCreated }: P
       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl w-full max-w-3xl my-8 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="p-5 border-b border-[var(--card-border)] flex items-center justify-between sticky top-0 bg-[var(--card-bg)] z-10">
           <h2 className="text-lg font-semibold text-white">+ Cargar nuevo lead</h2>
-          <button onClick={onClose} className="text-[var(--muted)] hover:text-white text-2xl leading-none">×</button>
+          <button onClick={onClose} aria-label="Cerrar" className="text-[var(--muted)] hover:text-white text-2xl leading-none">×</button>
         </div>
 
         <div className="p-5 space-y-4">

@@ -7,10 +7,11 @@ export interface LeadWithTeam extends Omit<Lead, "setter" | "closer"> {
 }
 
 /**
- * Fetch all leads with setter/closer joined.
- * Ordered by created_at desc.
+ * Fetch leads with setter/closer joined, ordered by created_at desc.
+ * Default limit 2000 — los más recientes son los relevantes para la UI.
+ * Páginas viejas se acceden con limit/offset si hace falta.
  */
-export async function fetchLeads(): Promise<LeadWithTeam[]> {
+export async function fetchLeads(limit = 2000, offset = 0): Promise<LeadWithTeam[]> {
   const supabase = createServerClient();
   const { data, error } = await supabase
     .from("leads")
@@ -20,7 +21,7 @@ export async function fetchLeads(): Promise<LeadWithTeam[]> {
       closer:team_members!leads_closer_id_fkey(*)
     `)
     .order("created_at", { ascending: false })
-    .range(0, 4999);
+    .range(offset, offset + limit - 1);
 
   if (error) {
     console.error("[fetchLeads]", error.message);

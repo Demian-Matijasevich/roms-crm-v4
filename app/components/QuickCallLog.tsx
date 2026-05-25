@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { LEAD_ESTADOS_LABELS, PROGRAMS, RECEPTORES } from "@/lib/constants";
+import { useToast } from "./Toast";
 
 interface QuickCallLogProps {
   session: {
@@ -41,6 +43,8 @@ const inputClass =
 const selectClass = inputClass;
 
 export default function QuickCallLog({ session }: QuickCallLogProps) {
+  const router = useRouter();
+  const toast = useToast();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<LeadSearchResult[]>([]);
@@ -196,11 +200,12 @@ export default function QuickCallLog({ session }: QuickCallLogProps) {
         return; // no marca success, así el user ve el error
       }
       setSuccess(true);
+      toast.success("Llamada cargada");
       setTimeout(() => {
         resetForm();
         setOpen(false);
-        window.location.reload();
-      }, 1500);
+        router.refresh();
+      }, 1200);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error inesperado");
     } finally {

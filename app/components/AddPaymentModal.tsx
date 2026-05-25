@@ -104,7 +104,7 @@ export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreat
             <h2 className="text-lg font-semibold text-white">Cargar pago</h2>
             <p className="text-xs text-[var(--muted)]">Asociar a un lead existente</p>
           </div>
-          <button onClick={onClose} className="text-[var(--muted)] hover:text-white text-2xl leading-none">×</button>
+          <button onClick={onClose} aria-label="Cerrar" className="text-[var(--muted)] hover:text-white text-2xl leading-none">×</button>
         </div>
 
         <div className="p-5 space-y-4">

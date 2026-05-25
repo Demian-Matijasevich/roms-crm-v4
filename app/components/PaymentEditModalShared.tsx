@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useConfirm } from "./Toast";
 
 export interface EditablePayment {
   id: string;
@@ -26,6 +27,7 @@ interface Props {
 const METODOS = ["mercado_pago", "transferencia", "cash", "binance", "stripe", "wise"];
 
 export default function PaymentEditModalShared({ payment, onClose, onSaved, onDeleted }: Props) {
+  const confirm = useConfirm();
   const [montoUsd, setMontoUsd] = useState(String(payment.monto_usd ?? 0));
   const [montoArs, setMontoArs] = useState(String(payment.monto_ars ?? 0));
   const [fechaPago, setFechaPago] = useState(payment.fecha_pago?.split("T")[0] || "");
@@ -78,7 +80,12 @@ export default function PaymentEditModalShared({ payment, onClose, onSaved, onDe
   }
 
   async function handleDelete() {
-    const ok = window.confirm(`¿Eliminar el pago de cuota #${payment.numero_cuota}?\n\nAcción IRREVERSIBLE.`);
+    const ok = await confirm({
+      title: `¿Eliminar el pago de cuota #${payment.numero_cuota}?`,
+      description: "Acción IRREVERSIBLE — el pago se borra de la cobranza y deja de contar en cash collected.",
+      confirmLabel: "Eliminar",
+      destructive: true,
+    });
     if (!ok) return;
     setDeleting(true);
     setMsg(null);
