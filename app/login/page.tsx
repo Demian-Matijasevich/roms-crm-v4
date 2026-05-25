@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
 
 const TEAM = [
   { nombre: "Fran", role: "admin", color: "#3b82f6" },
@@ -32,7 +31,6 @@ function getRoleLabel(role: string) {
 }
 
 export default function LoginPage() {
-  const router = useRouter();
   const [selected, setSelected] = useState<string | null>(null);
   const [pin, setPin] = useState<string[]>(["", "", "", ""]);
   const [error, setError] = useState("");
@@ -49,23 +47,41 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nombre: selected, pin: joinedPin }),
-    });
+    // Timeout de seguridad: si el server no responde en 15s, abortar.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    if (res.ok) {
-      router.push("/");
-      router.refresh();
-    } else {
-      const data = await res.json();
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: selected, pin: joinedPin }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        // Hard reload \u2014 evita la race condition de Next App Router donde
+        // router.push() puede usar cache RSC sin la cookie nueva y dejar
+        // el spinner colgado para siempre.
+        window.location.assign("/");
+        return;
+      }
+
+      const data = await res.json().catch(() => ({}));
       setError(data.error || "Error al iniciar sesi\u00f3n");
       setPin(["", "", "", ""]);
       setLoading(false);
       pinRefs.current[0]?.focus();
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const isAbort = err instanceof Error && err.name === "AbortError";
+      setError(isAbort ? "Timeout \u2014 intent\u00e1 de nuevo" : "Error de conexi\u00f3n");
+      setPin(["", "", "", ""]);
+      setLoading(false);
+      pinRefs.current[0]?.focus();
     }
-  }, [selected, pin, router]);
+  }, [selected, pin]);
 
   // Auto-submit when all 4 digits are filled
   useEffect(() => {

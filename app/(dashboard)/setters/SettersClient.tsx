@@ -454,13 +454,27 @@ export default function SettersClient({ leads, payments, setters, campaigns }: P
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-[var(--card-border)]">
-                <div>
+                <div title="Presentadas / Agendas × 100. Muestras chicas (<5) aparecen atenuadas — el % no es confiable.">
                   <p className="text-xs text-[var(--muted)]">Show Up %</p>
-                  <p className="text-sm font-bold text-white">{k.show_up_pct}%</p>
+                  <p className={`text-sm font-bold ${k.agendas < 5 ? "text-[var(--muted)]" : "text-white"}`}>
+                    {k.show_up_pct}%
+                    {k.agendas > 0 && (
+                      <span className="text-[10px] text-[var(--muted)] ml-1 font-normal">
+                        ({k.presentadas}/{k.agendas})
+                      </span>
+                    )}
+                  </p>
                 </div>
-                <div>
+                <div title="Cerradas / Presentadas × 100. Muestras chicas (<5) aparecen atenuadas — el % no es confiable.">
                   <p className="text-xs text-[var(--muted)]">Cierre %</p>
-                  <p className="text-sm font-bold text-white">{k.cierre_pct}%</p>
+                  <p className={`text-sm font-bold ${k.presentadas < 5 ? "text-[var(--muted)]" : "text-white"}`}>
+                    {k.cierre_pct}%
+                    {k.presentadas > 0 && (
+                      <span className="text-[10px] text-[var(--muted)] ml-1 font-normal">
+                        ({k.cerradas}/{k.presentadas})
+                      </span>
+                    )}
+                  </p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-[var(--card-border)]">

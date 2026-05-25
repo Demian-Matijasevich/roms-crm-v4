@@ -351,13 +351,27 @@ export default function ClosersClient({
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-3 mt-3 pt-3 border-t border-[var(--card-border)]">
-                <div title="Presentadas / Agendas × 100">
+                <div title="Presentadas / Agendas × 100. Muestras chicas (<5) aparecen atenuadas — el % no es estadísticamente confiable.">
                   <p className="text-xs text-[var(--muted)]">Show Up %</p>
-                  <p className="text-sm font-bold text-white">{k.show_up_pct}%</p>
+                  <p className={`text-sm font-bold ${k.total_agendas < 5 ? "text-[var(--muted)]" : "text-white"}`}>
+                    {k.show_up_pct}%
+                    {k.total_agendas > 0 && (
+                      <span className="text-[10px] text-[var(--muted)] ml-1 font-normal">
+                        ({k.presentadas}/{k.total_agendas})
+                      </span>
+                    )}
+                  </p>
                 </div>
-                <div title="Cerradas / Presentadas × 100">
+                <div title="Cerradas / Presentadas × 100. Muestras chicas (<5) aparecen atenuadas — el % no es estadísticamente confiable.">
                   <p className="text-xs text-[var(--muted)]">Cierre %</p>
-                  <p className="text-sm font-bold text-white">{k.cierre_pct}%</p>
+                  <p className={`text-sm font-bold ${k.presentadas < 5 ? "text-[var(--muted)]" : "text-white"}`}>
+                    {k.cierre_pct}%
+                    {k.presentadas > 0 && (
+                      <span className="text-[10px] text-[var(--muted)] ml-1 font-normal">
+                        ({k.cerradas}/{k.presentadas})
+                      </span>
+                    )}
+                  </p>
                 </div>
                 <div title="Ticket promedio de las ventas cerradas (suma de ticket_total / cerradas)">
                   <p className="text-xs text-[var(--muted)]">AOV</p>

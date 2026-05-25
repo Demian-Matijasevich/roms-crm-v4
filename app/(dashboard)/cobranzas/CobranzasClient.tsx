@@ -180,6 +180,56 @@ export default function CobranzasClient({
     [fiscalItemsWithOverdue]
   );
 
+  // Exportar la cola para mandar por WhatsApp (a Juanma típicamente).
+  const [copiedAt, setCopiedAt] = useState<number | null>(null);
+  function buildWACobranzasText(): string {
+    const items = fiscalItemsWithOverdue.slice();
+    const order: Record<string, number> = { vencido: 0, urgente: 1, proximo: 2, ok: 3 };
+    items.sort((a, b) => {
+      if (a.semaforo !== b.semaforo) return order[a.semaforo] - order[b.semaforo];
+      return b.monto_usd - a.monto_usd;
+    });
+    const groups: Record<string, CobranzasQueueItem[]> = { vencido: [], urgente: [], proximo: [], ok: [] };
+    for (const it of items) groups[it.semaforo].push(it);
+    const fmt = (s: string | null) => {
+      if (!s) return "";
+      const d = new Date(s + "T00:00:00");
+      return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+    };
+    const lines: string[] = [];
+    lines.push(`*COBRANZAS — fiscal ${fiscalStart} al ${fiscalEnd}*`);
+    lines.push("");
+    const addSection = (titulo: string, arr: CobranzasQueueItem[], showDias = false) => {
+      if (!arr.length) return;
+      const tot = arr.reduce((s, i) => s + i.monto_usd, 0);
+      lines.push(`${titulo} (${arr.length} — $${tot.toLocaleString()})`);
+      for (const it of arr) {
+        const venc = it.fecha_vencimiento ? fmt(it.fecha_vencimiento) : "s/f";
+        const dias = showDias && it.fecha_vencimiento ? ` (${Math.abs(it.dias_vencido)}d atras)` : "";
+        const monto = it.monto_usd > 0 ? `$${it.monto_usd.toLocaleString()}` : (it.tipo === "renovacion" ? "renov" : "—");
+        lines.push(`• ${it.client_nombre} — ${monto} — venc ${venc}${dias}`);
+      }
+      lines.push("");
+    };
+    addSection("🔴 VENCIDAS", groups.vencido, true);
+    addSection("🟠 ESTA SEMANA", groups.urgente);
+    addSection("🟡 PROXIMAS (8-15 dias)", groups.proximo);
+    addSection("🟢 OK (mas de 15 dias)", groups.ok);
+    const totalAll = items.reduce((s, i) => s + i.monto_usd, 0);
+    lines.push(`*TOTAL POR COBRAR: $${totalAll.toLocaleString()}*`);
+    return lines.join("\n");
+  }
+  async function copyCobranzasWA() {
+    const text = buildWACobranzasText();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedAt(Date.now());
+      setTimeout(() => setCopiedAt(null), 2500);
+    } catch {
+      window.prompt("Copia este texto:", text);
+    }
+  }
+
   // Separate items with and without fecha_vencimiento
   const { queueWithDate, queueParaRevisar } = useMemo(() => {
     const withDate: CobranzasQueueItem[] = [];
@@ -682,7 +732,20 @@ export default function CobranzasClient({
       <div className="bg-gradient-to-r from-[var(--purple)]/10 to-blue-500/10 border border-[var(--purple)]/30 rounded-xl p-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-medium text-[var(--purple-light)]">Potencial del mes</p>
+            <div className="flex items-center gap-3 flex-wrap">
+              <p className="text-sm font-medium text-[var(--purple-light)]">Potencial del mes</p>
+              <button
+                onClick={copyCobranzasWA}
+                className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
+                  copiedAt
+                    ? "bg-[var(--green)]/15 border-[var(--green)]/40 text-[var(--green)]"
+                    : "bg-[var(--purple)]/10 border-[var(--purple)]/30 text-[var(--purple-light)] hover:bg-[var(--purple)]/20"
+                }`}
+                title="Copia la lista de cobranzas formateada para mandar por WhatsApp"
+              >
+                {copiedAt ? "✓ Copiado" : "📋 Copiar para WA"}
+              </button>
+            </div>
             <p className="text-xs text-[var(--muted)] mt-0.5">
               Periodo fiscal {fiscalStart} al {fiscalEnd}
             </p>
