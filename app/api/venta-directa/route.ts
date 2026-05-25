@@ -71,6 +71,8 @@ export async function POST(req: NextRequest) {
       ticket_total,
       fue_seguimiento: false,
       de_donde_viene_lead: null,
+      etiquetas: [],
+      fecha_cierre_estimada: null,
       sheets_row_index: null,
     });
 

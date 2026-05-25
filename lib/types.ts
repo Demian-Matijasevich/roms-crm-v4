@@ -108,6 +108,8 @@ export interface Lead {
   ticket_total: number;
   fue_seguimiento: boolean;
   de_donde_viene_lead: string | null;
+  etiquetas: string[];
+  fecha_cierre_estimada: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields

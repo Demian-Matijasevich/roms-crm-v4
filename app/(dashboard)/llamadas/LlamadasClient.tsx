@@ -108,6 +108,10 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
       const payload: Record<string, unknown> = { id: leadId };
       for (const [k, v] of Object.entries(editData)) {
         if (k.startsWith("_")) continue;
+        if (k === "etiquetas" && typeof v === "string") {
+          payload.etiquetas = v.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+          continue;
+        }
         if (v === "" && NULLABLE.has(k)) payload[k] = null;
         else payload[k] = v;
       }
@@ -212,6 +216,7 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
           utm_source: lead.utm_source || "",
           utm_medium: lead.utm_medium || "",
           utm_content: lead.utm_content || "",
+          etiquetas: (lead.etiquetas || []).join(", "),
         });
         setSaveMsg(null);
       }, 0);
@@ -589,6 +594,34 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
                     className={`${inputClass} w-full min-h-[80px] resize-y`}
                     rows={3}
                   />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-xs text-[var(--muted)] mb-1 block">
+                    Etiquetas <span className="text-[10px] opacity-70">(separadas por coma)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={(editData.etiquetas as string) || ""}
+                    onChange={(e) => setEditData({ ...editData, etiquetas: e.target.value })}
+                    placeholder="urgente, alto-ticket, frio, recontactar..."
+                    className={`${inputClass} w-full`}
+                  />
+                  {(editData.etiquetas as string) && (
+                    <div className="flex gap-1 mt-1.5 flex-wrap">
+                      {(editData.etiquetas as string)
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean)
+                        .map((tag, i) => (
+                          <span
+                            key={i}
+                            className="text-[10px] bg-[var(--purple)]/10 border border-[var(--purple)]/30 text-[var(--purple-light)] rounded px-1.5 py-0.5"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-3">

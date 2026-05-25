@@ -164,6 +164,7 @@ export async function PATCH(req: NextRequest) {
       "closer_id", "setter_id", "cobrador_id",
       "utm_source", "utm_medium", "utm_content",
       "fuente", "concepto", "plan_pago",
+      "etiquetas", "fecha_cierre_estimada",
     ];
 
     const updates: Record<string, unknown> = {};
