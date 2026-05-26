@@ -8,8 +8,12 @@ const SECRET = new TextEncoder().encode(
 export async function middleware(req: NextRequest) {
   const token = req.cookies.get("roms_session")?.value;
 
-  // Allow login page and API routes
-  if (req.nextUrl.pathname.startsWith("/login") || req.nextUrl.pathname.startsWith("/api/")) {
+  // Allow login page, API routes y design-lab (preview público)
+  if (
+    req.nextUrl.pathname.startsWith("/login") ||
+    req.nextUrl.pathname.startsWith("/api/") ||
+    req.nextUrl.pathname.startsWith("/design-lab")
+  ) {
     return NextResponse.next();
   }
 
