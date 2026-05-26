@@ -2,35 +2,36 @@
 
 @theme inline {
   --color-background: #06060c;
-  --color-foreground: #e5e5e5;
-  --color-card-bg: rgba(255, 255, 255, 0.04);
-  --color-card-border: rgba(255, 255, 255, 0.08);
+  --color-foreground: #F4F5F7;
+  --color-card-bg: rgba(255, 255, 255, 0.06);
+  --color-card-border: rgba(255, 255, 255, 0.10);
   --color-purple: #3b82f6;
   --color-purple-light: #60a5fa;
   --color-purple-dark: #2563eb;
   --color-green: #22c55e;
   --color-red: #ef4444;
   --color-yellow: #eab308;
-  --color-muted: rgba(255, 255, 255, 0.55);
+  --color-muted: rgba(255, 255, 255, 0.68);
 }
 
 :root {
   --background: #06060c;
-  --foreground: #e5e5e5;
-  /* GLASS — cards translúcidas para que el mesh background se vea atrás */
-  --card-bg: rgba(255, 255, 255, 0.04);
-  --card-border: rgba(255, 255, 255, 0.08);
+  --foreground: #F4F5F7;
+  /* GLASS — cards translúcidas (0.06 = balance entre ver el mesh + leer el texto) */
+  --card-bg: rgba(255, 255, 255, 0.06);
+  --card-border: rgba(255, 255, 255, 0.10);
   --purple: #3b82f6;
   --purple-light: #60a5fa;
   --purple-dark: #2563eb;
   --green: #22c55e;
   --red: #ef4444;
   --yellow: #eab308;
-  --muted: rgba(255, 255, 255, 0.55);
-  /* Mesh background — bien visible para que se note el glass */
-  --mesh-a: rgba(140, 90, 255, 0.55);
-  --mesh-b: rgba(30, 180, 255, 0.45);
-  --mesh-c: rgba(255, 80, 200, 0.25);
+  --muted: rgba(255, 255, 255, 0.68);
+  /* Mesh background bien visible — un toque menos saturado para no
+     pelear con la legibilidad del texto */
+  --mesh-a: rgba(140, 90, 255, 0.45);
+  --mesh-b: rgba(30, 180, 255, 0.38);
+  --mesh-c: rgba(255, 80, 200, 0.22);
 }
 
 /* Light theme opt-in via body.theme-light */
