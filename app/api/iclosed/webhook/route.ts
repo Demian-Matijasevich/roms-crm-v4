@@ -66,17 +66,33 @@ async function processEvent(payload: IClosedPayload) {
     .limit(1);
   const lead = existing?.[0];
 
-  // Setter from utm_medium via utm_campaigns
+  // Setter from utm_campaigns. Match preferentemente por medium+content
+  // (más específico — un mismo medium="Instagram" puede mapear a Igna
+  // o Guille según content="IN"/"Inbound"/"Out"). Fallback a solo
+  // medium si no hay match por content.
   let setter_id: string | null = null;
   const medium = payload.tracking?.utm_medium;
+  const content = payload.tracking?.utm_content;
   if (medium) {
-    const { data: camp } = await sb
-      .from("utm_campaigns")
-      .select("setter_id")
-      .ilike("medium", medium)
-      .not("setter_id", "is", null)
-      .limit(1);
-    setter_id = camp?.[0]?.setter_id || null;
+    if (content) {
+      const { data: campSpec } = await sb
+        .from("utm_campaigns")
+        .select("setter_id")
+        .ilike("medium", medium)
+        .ilike("content", content)
+        .not("setter_id", "is", null)
+        .limit(1);
+      setter_id = campSpec?.[0]?.setter_id || null;
+    }
+    if (!setter_id) {
+      const { data: camp } = await sb
+        .from("utm_campaigns")
+        .select("setter_id")
+        .ilike("medium", medium)
+        .not("setter_id", "is", null)
+        .limit(1);
+      setter_id = camp?.[0]?.setter_id || null;
+    }
   }
 
   // Closer from latestCall.user (by email or first name)

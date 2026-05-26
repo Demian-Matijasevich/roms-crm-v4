@@ -52,12 +52,21 @@ async function processEvent(payload: IClosedPayload, sb: ReturnType<typeof creat
     .limit(1);
   const lead = existing?.[0];
 
+  // Match utm_campaigns por medium+content (misma lógica que el webhook).
   let setter_id: string | null = null;
   const medium = payload.tracking?.utm_medium;
+  const content = payload.tracking?.utm_content;
   if (medium) {
-    const { data: camp } = await sb
-      .from("utm_campaigns").select("setter_id").ilike("medium", medium).not("setter_id", "is", null).limit(1);
-    setter_id = camp?.[0]?.setter_id || null;
+    if (content) {
+      const { data: campSpec } = await sb
+        .from("utm_campaigns").select("setter_id").ilike("medium", medium).ilike("content", content).not("setter_id", "is", null).limit(1);
+      setter_id = campSpec?.[0]?.setter_id || null;
+    }
+    if (!setter_id) {
+      const { data: camp } = await sb
+        .from("utm_campaigns").select("setter_id").ilike("medium", medium).not("setter_id", "is", null).limit(1);
+      setter_id = camp?.[0]?.setter_id || null;
+    }
   }
 
   let closer_id: string | null = null;
