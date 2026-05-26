@@ -150,11 +150,30 @@ export default function CommandPalette() {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh]">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOpen(false)} />
+      {/* Backdrop con blur */}
+      <div
+        className="absolute inset-0"
+        style={{
+          background: "rgba(0,0,0,0.45)",
+          backdropFilter: "blur(20px) saturate(150%)",
+          WebkitBackdropFilter: "blur(20px) saturate(150%)",
+        }}
+        onClick={() => setOpen(false)}
+      />
 
-      {/* Modal */}
-      <div className="relative w-full max-w-lg bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl shadow-2xl overflow-hidden">
+      {/* Modal — glass */}
+      <div
+        className="relative w-full max-w-lg overflow-hidden"
+        style={{
+          background: "rgba(20,20,30,0.85)",
+          backdropFilter: "blur(60px) saturate(180%)",
+          WebkitBackdropFilter: "blur(60px) saturate(180%)",
+          border: "1px solid var(--card-border)",
+          borderRadius: 20,
+          boxShadow: "0 32px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08)",
+          animation: "cmdkPop 300ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+        }}
+      >
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--card-border)]">
           <svg className="w-5 h-5 text-[var(--muted)] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

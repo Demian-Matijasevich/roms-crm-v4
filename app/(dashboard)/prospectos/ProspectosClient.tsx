@@ -5,6 +5,7 @@ import type { AuthSession } from "@/lib/types";
 import type { ProspectoRow, TeamMemberRow } from "./page";
 import { useToast, useConfirm } from "@/app/components/Toast";
 import EmptyState from "@/app/components/EmptyState";
+import { Pill } from "@/app/components/ui";
 
 interface Props {
   prospectos: ProspectoRow[];
@@ -425,9 +426,7 @@ function ProspectoCard({
       {p.etiquetas.length > 0 && !expanded && (
         <div className="flex gap-1 mt-2 flex-wrap">
           {p.etiquetas.map((e) => (
-            <span key={e} className="text-[10px] bg-[var(--purple)]/10 border border-[var(--purple)]/30 text-[var(--purple-light)] rounded px-1.5 py-0.5">
-              {e}
-            </span>
+            <Pill key={e} label={e} tone="purple" />
           ))}
         </div>
       )}

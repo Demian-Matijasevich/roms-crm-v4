@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { AuthSession } from "@/lib/types";
 import { isPushSupported, subscribeToPush, getPushPermission } from "@/lib/push-notifications";
+import { ThemeToggle } from "@/app/components/ui";
 
 interface NavItem {
   href: string;
@@ -427,6 +428,7 @@ export default function Sidebar({ session }: { session: AuthSession }) {
               Notificaciones activas
             </span>
           )}
+          <ThemeToggle />
           <button
             onClick={handleLogout}
             className="w-full text-left text-sm text-[var(--muted)] hover:text-[var(--red)] transition-colors"

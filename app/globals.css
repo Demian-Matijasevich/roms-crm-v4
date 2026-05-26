@@ -1,37 +1,87 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-background: #0d0d0f;
-  --color-foreground: #e5e5e5;
-  --color-card-bg: #18181b;
-  --color-card-border: #27272a;
+  --color-background: #06060c;
+  --color-foreground: #F4F5F7;
+  --color-card-bg: rgba(255, 255, 255, 0.06);
+  --color-card-border: rgba(255, 255, 255, 0.10);
   --color-purple: #3b82f6;
   --color-purple-light: #60a5fa;
   --color-purple-dark: #2563eb;
   --color-green: #22c55e;
   --color-red: #ef4444;
   --color-yellow: #eab308;
-  --color-muted: #71717a;
+  --color-muted: rgba(255, 255, 255, 0.68);
 }
 
 :root {
-  --background: #0d0d0f;
-  --foreground: #e5e5e5;
-  --card-bg: #18181b;
-  --card-border: #27272a;
+  --background: #06060c;
+  --foreground: #F4F5F7;
+  /* GLASS — cards translúcidas (0.06 = balance entre ver el mesh + leer el texto) */
+  --card-bg: rgba(255, 255, 255, 0.06);
+  --card-border: rgba(255, 255, 255, 0.10);
   --purple: #3b82f6;
   --purple-light: #60a5fa;
   --purple-dark: #2563eb;
   --green: #22c55e;
   --red: #ef4444;
   --yellow: #eab308;
-  --muted: #71717a;
+  --muted: rgba(255, 255, 255, 0.68);
+  /* Mesh background bien visible — un toque menos saturado para no
+     pelear con la legibilidad del texto */
+  --mesh-a: rgba(140, 90, 255, 0.45);
+  --mesh-b: rgba(30, 180, 255, 0.38);
+  --mesh-c: rgba(255, 80, 200, 0.22);
+}
+
+/* Light theme opt-in via body.theme-light */
+body.theme-light {
+  --background: #F2F3F8;
+  --foreground: #1B1D24;
+  --card-bg: rgba(255, 255, 255, 0.65);
+  --card-border: rgba(20, 20, 40, 0.10);
+  --muted: rgba(20, 20, 40, 0.55);
+  --mesh-a: rgba(120, 80, 255, 0.14);
+  --mesh-b: rgba(30, 180, 255, 0.12);
+  --mesh-c: rgba(255, 80, 200, 0.08);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-feature-settings: 'cv11', 'ss01', 'ss03', 'cv02';
+  transition: background-color 400ms ease, color 400ms ease;
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   GLASSMORPHISM AUTOMÁTICO
+   Cualquier elemento que use bg-[var(--card-bg)] de Tailwind, o la
+   utility class .glass, obtiene backdrop-blur + saturación.
+   Esto hace que todas las cards existentes se vean glass sin tocar
+   cada componente.
+──────────────────────────────────────────────────────────────────── */
+.bg-\[var\(--card-bg\)\],
+.glass,
+.bg-card,
+[style*="background: var(--card-bg)"],
+[style*="background-color: var(--card-bg)"] {
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+}
+
+/* Inputs y selects con background translúcido — backdrop-blur también */
+input[class*="bg-[var(--background)]"],
+select[class*="bg-[var(--background)]"],
+textarea[class*="bg-[var(--background)]"] {
+  background-color: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+body.theme-light input[class*="bg-[var(--background)]"],
+body.theme-light select[class*="bg-[var(--background)]"],
+body.theme-light textarea[class*="bg-[var(--background)]"] {
+  background-color: rgba(255, 255, 255, 0.50);
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -356,3 +406,10 @@ textarea:focus-visible {
 .animate-in {
   animation: toast-slide-in 200ms ease-out;
 }
+
+/* CMD+K modal pop */
+@keyframes cmdkPop {
+  from { opacity: 0; transform: translateY(-10px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+

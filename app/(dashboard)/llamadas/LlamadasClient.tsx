@@ -1382,10 +1382,14 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--card-border)] text-left">
-                <th className={thSortClass} onClick={() => toggleSort("nombre")}>
+                <th
+                  className={thSortClass}
+                  onClick={() => toggleSort("nombre")}
+                  style={{ minWidth: 200 }}
+                >
                   Nombre<SortIndicator active={sortKey === "nombre"} dir={sortKey === "nombre" ? sortDir : null} />
                 </th>
-                <th className="px-4 py-3 text-[var(--muted)] font-medium">Instagram</th>
+                <th className="px-4 py-3 text-[var(--muted)] font-medium" style={{ minWidth: 140 }}>Instagram</th>
                 <th className="px-4 py-3 text-[var(--muted)] font-medium">F. Agenda</th>
                 <th className={thSortClass} onClick={() => toggleSort("fecha")}>
                   F. Llamada<SortIndicator active={sortKey === "fecha"} dir={sortKey === "fecha" ? sortDir : null} />
@@ -1425,10 +1429,16 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
                     onClick={() => setExpandedId(isExpanded ? null : lead.id)}
                     className={`border-b border-[var(--card-border)] hover:bg-[var(--purple)]/5 cursor-pointer transition-colors ${isExpanded ? "bg-[var(--purple)]/5" : ""}`}
                   >
-                    <td className="px-2 py-2 font-medium text-[var(--foreground)]" onClick={(e) => e.stopPropagation()}>
+                    <td
+                      className="px-2 py-2 font-medium text-white"
+                      style={{ minWidth: 200 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <input type="text" defaultValue={lead.nombre || ""}
                         onBlur={(e) => { if (e.target.value !== (lead.nombre || "")) updateLeadField(lead.id, "nombre", e.target.value); }}
-                        className="w-full bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-sm font-medium text-[var(--foreground)] focus:outline-none" />
+                        className="w-full bg-transparent border border-transparent hover:border-[var(--card-border)] focus:border-[var(--purple)] rounded px-2 py-1 text-sm font-semibold text-white focus:outline-none"
+                        style={{ minWidth: 180 }}
+                      />
                     </td>
                     <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                       <input type="text" defaultValue={lead.instagram || ""}
