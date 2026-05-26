@@ -15,29 +15,39 @@ export default function MeshBackground() {
         inset: 0,
         pointerEvents: "none",
         zIndex: 0,
-        background: `radial-gradient(1200px 800px at 0% 0%, var(--mesh-a, rgba(120,80,255,0.20)), transparent 60%),
-                     radial-gradient(1000px 700px at 100% 100%, var(--mesh-b, rgba(30,180,255,0.16)), transparent 60%),
-                     radial-gradient(600px 500px at 50% 80%, var(--mesh-c, rgba(255,80,200,0.10)), transparent 60%)`,
+        background: `radial-gradient(1400px 900px at 0% 0%, var(--mesh-a), transparent 55%),
+                     radial-gradient(1200px 800px at 100% 100%, var(--mesh-b), transparent 55%),
+                     radial-gradient(800px 600px at 50% 80%, var(--mesh-c), transparent 55%)`,
       }} />
       <div aria-hidden style={{
         position: "fixed",
-        top: "-200px", left: "20%",
-        width: 600, height: 600,
+        top: "-150px", left: "10%",
+        width: 700, height: 700,
         pointerEvents: "none",
         zIndex: 0,
-        background: "radial-gradient(circle, var(--mesh-a, rgba(120,80,255,0.18)), transparent 65%)",
-        filter: "blur(60px)",
+        background: "radial-gradient(circle, var(--mesh-a), transparent 65%)",
+        filter: "blur(80px)",
         animation: "uiMeshDrift1 20s ease-in-out infinite",
       }} />
       <div aria-hidden style={{
         position: "fixed",
-        bottom: "-200px", right: "15%",
-        width: 700, height: 700,
+        bottom: "-150px", right: "10%",
+        width: 800, height: 800,
         pointerEvents: "none",
         zIndex: 0,
-        background: "radial-gradient(circle, var(--mesh-c, rgba(255,80,200,0.10)), transparent 65%)",
-        filter: "blur(60px)",
+        background: "radial-gradient(circle, var(--mesh-c), transparent 65%)",
+        filter: "blur(80px)",
         animation: "uiMeshDrift2 25s ease-in-out infinite",
+      }} />
+      <div aria-hidden style={{
+        position: "fixed",
+        top: "30%", right: "30%",
+        width: 500, height: 500,
+        pointerEvents: "none",
+        zIndex: 0,
+        background: "radial-gradient(circle, var(--mesh-b), transparent 65%)",
+        filter: "blur(80px)",
+        animation: "uiMeshDrift1 28s ease-in-out infinite reverse",
       }} />
       {/* Noise texture overlay */}
       <div aria-hidden style={{
