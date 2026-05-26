@@ -6,6 +6,7 @@ import SaleBanner from "@/app/components/SaleBanner";
 import CommandPalette from "@/app/components/CommandPalette";
 import QuickCallLog from "@/app/components/QuickCallLog";
 import { ToastProvider, ConfirmProvider } from "@/app/components/Toast";
+import { MeshBackground } from "@/app/components/ui";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   try {
@@ -15,7 +16,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     return (
       <ToastProvider>
         <ConfirmProvider>
-          <div className="min-h-screen">
+          <MeshBackground />
+          <div className="min-h-screen relative" style={{ zIndex: 1 }}>
             <Sidebar session={session} />
             <CommandPalette />
             <QuickCallLog session={session} />

@@ -47,26 +47,70 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider value={{ show, success, error, info }}>
       {children}
-      <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
-        {items.map((t) => (
-          <div
-            key={t.id}
-            role="status"
-            className={`pointer-events-auto min-w-[260px] max-w-[420px] px-4 py-3 rounded-lg border shadow-lg text-sm font-medium animate-in slide-in-from-right-3 fade-in duration-200 ${
-              t.kind === "success"
-                ? "bg-[var(--green)]/15 border-[var(--green)]/40 text-[var(--green)]"
-                : t.kind === "error"
-                ? "bg-[var(--red)]/15 border-[var(--red)]/40 text-[var(--red)]"
-                : "bg-[var(--card-bg)] border-[var(--card-border)] text-[var(--foreground)]"
-            }`}
-            onClick={() => setItems((prev) => prev.filter((x) => x.id !== t.id))}
-          >
-            {t.kind === "success" && <span className="mr-1.5">✓</span>}
-            {t.kind === "error" && <span className="mr-1.5">⚠</span>}
-            {t.message}
-          </div>
-        ))}
+      <div
+        style={{
+          position: "fixed",
+          top: 16,
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: 100,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          alignItems: "center",
+          pointerEvents: "none",
+        }}
+      >
+        {items.map((t) => {
+          const accent = t.kind === "success" ? "#34D399" : t.kind === "error" ? "#FB7185" : "#60A5FA";
+          return (
+            <div
+              key={t.id}
+              role="status"
+              onClick={() => setItems((prev) => prev.filter((x) => x.id !== t.id))}
+              style={{
+                pointerEvents: "auto",
+                minWidth: 280,
+                maxWidth: 460,
+                padding: "10px 18px",
+                borderRadius: 100,
+                background: "rgba(20,20,30,0.85)",
+                backdropFilter: "blur(40px) saturate(180%)",
+                WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                boxShadow: "0 12px 40px rgba(0,0,0,0.6)",
+                color: "#fff",
+                fontSize: 13,
+                fontWeight: 500,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                cursor: "pointer",
+                animation: "toastIslandIn 300ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+              }}
+            >
+              <span
+                aria-hidden
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: accent,
+                  boxShadow: `0 0 8px ${accent}`,
+                  flexShrink: 0,
+                }}
+              />
+              <span style={{ flex: 1 }}>{t.message}</span>
+            </div>
+          );
+        })}
       </div>
+      <style>{`
+        @keyframes toastIslandIn {
+          from { opacity: 0; transform: translateY(-20px) scale(0.6); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+      `}</style>
     </Ctx.Provider>
   );
 }

@@ -26,12 +26,30 @@
   --red: #ef4444;
   --yellow: #eab308;
   --muted: #71717a;
+  /* Mesh background (lo consume MeshBackground component) */
+  --mesh-a: rgba(120, 80, 255, 0.18);
+  --mesh-b: rgba(30, 180, 255, 0.14);
+  --mesh-c: rgba(255, 80, 200, 0.08);
+}
+
+/* Light theme opt-in via body.theme-light */
+body.theme-light {
+  --background: #F2F3F8;
+  --foreground: #1B1D24;
+  --card-bg: rgba(255,255,255,0.70);
+  --card-border: rgba(20,20,40,0.10);
+  --muted: rgba(20,20,40,0.55);
+  --mesh-a: rgba(120, 80, 255, 0.10);
+  --mesh-b: rgba(30, 180, 255, 0.10);
+  --mesh-c: rgba(255, 80, 200, 0.06);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-feature-settings: 'cv11', 'ss01', 'ss03', 'cv02';
+  transition: background-color 400ms ease, color 400ms ease;
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -356,3 +374,10 @@ textarea:focus-visible {
 .animate-in {
   animation: toast-slide-in 200ms ease-out;
 }
+
+/* CMD+K modal pop */
+@keyframes cmdkPop {
+  from { opacity: 0; transform: translateY(-10px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+

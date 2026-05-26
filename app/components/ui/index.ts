@@ -10,5 +10,7 @@ export { default as Pill } from "./Pill";
 export { default as Avatar } from "./Avatar";
 export { default as Shimmer } from "./Shimmer";
 export { default as EmptyStateIllustrated } from "./EmptyStateIllustrated";
+export { default as MeshBackground } from "./MeshBackground";
+export { default as ThemeToggle } from "./ThemeToggle";
 export { ACCENTS, GLASS, SPRING } from "./tokens";
 export type { AccentKey } from "./tokens";
