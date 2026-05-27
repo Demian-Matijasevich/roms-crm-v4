@@ -926,27 +926,19 @@ export default function CobranzasClient({
                     .slice()
                     .sort((a, b) => (a.fecha_vencimiento || "").localeCompare(b.fecha_vencimiento || ""))
                     .map((item) => (
-                      <div
+                      <PendingItemRow
                         key={item.id}
-                        className={`flex items-center justify-between p-2.5 rounded-lg text-sm ${getSemaforoBg(item.semaforo)}`}
-                      >
-                        <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                          <span className={`w-2 h-2 rounded-full ${getSemaforoDot(item.semaforo)} flex-shrink-0`} />
-                          <span className="text-white font-medium truncate">{item.client_nombre}</span>
-                          <span className="text-[10px] text-[var(--muted)] flex-shrink-0">{getTipoLabel(item)}</span>
-                        </div>
-                        <div className="flex items-center gap-3 flex-shrink-0">
-                          <span className="text-[11px] text-[var(--red)]" style={{ fontVariantNumeric: "tabular-nums" }}>
-                            venc. {item.fecha_vencimiento ? new Date(item.fecha_vencimiento + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" }) : "s/f"}
-                          </span>
-                          <span
-                            className="text-white font-semibold"
-                            style={{ fontVariantNumeric: "tabular-nums", minWidth: 70, textAlign: "right" }}
-                          >
-                            {fmt(item.monto_usd)}
-                          </span>
-                        </div>
-                      </div>
+                        item={item}
+                        fmt={fmt}
+                        getSemaforoBg={getSemaforoBg}
+                        getSemaforoDot={getSemaforoDot}
+                        getTipoLabel={getTipoLabel}
+                        sessionTeamMemberId={session.team_member_id}
+                        showVencRed
+                        onChange={() => {
+                          setQueue((prev) => prev.filter((q) => q.id !== item.id));
+                        }}
+                      />
                     ))}
                 </div>
               )}
@@ -1035,27 +1027,21 @@ export default function CobranzasClient({
               ) : (
                 <div className="space-y-1">
                   {week.items.map((item) => (
-                    <div
+                    <PendingItemRow
                       key={item.id}
-                      className={`flex items-center justify-between p-2.5 rounded-lg text-sm ${getSemaforoBg(item.semaforo)}`}
-                    >
-                      <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                        <span className={`w-2 h-2 rounded-full ${getSemaforoDot(item.semaforo)} flex-shrink-0`} />
-                        <span className="text-white font-medium truncate">{item.client_nombre}</span>
-                        <span className="text-[10px] text-[var(--muted)] flex-shrink-0">{getTipoLabel(item)}</span>
-                      </div>
-                      <div className="flex items-center gap-3 flex-shrink-0">
-                        <span className={`text-[11px] ${getSemaforoColor(item.semaforo)}`}>
-                          {getDiasLabel(item.dias_vencido)}
-                        </span>
-                        <span
-                          className="text-white font-semibold"
-                          style={{ fontVariantNumeric: "tabular-nums", minWidth: 70, textAlign: "right" }}
-                        >
-                          {fmt(item.monto_usd)}
-                        </span>
-                      </div>
-                    </div>
+                      item={item}
+                      fmt={fmt}
+                      getSemaforoBg={getSemaforoBg}
+                      getSemaforoDot={getSemaforoDot}
+                      getTipoLabel={getTipoLabel}
+                      sessionTeamMemberId={session.team_member_id}
+                      showDiasLabel
+                      diasLabel={getDiasLabel(item.dias_vencido)}
+                      diasColor={getSemaforoColor(item.semaforo)}
+                      onChange={() => {
+                        setQueue((prev) => prev.filter((q) => q.id !== item.id));
+                      }}
+                    />
                   ))}
                 </div>
               )}
@@ -1105,27 +1091,19 @@ export default function CobranzasClient({
                         .slice()
                         .sort((a, b) => (a.fecha_vencimiento || "").localeCompare(b.fecha_vencimiento || ""))
                         .map((item) => (
-                          <div
+                          <PendingItemRow
                             key={item.id}
-                            className={`flex items-center justify-between p-2.5 rounded-lg text-sm ${getSemaforoBg(item.semaforo)}`}
-                          >
-                            <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                              <span className={`w-2 h-2 rounded-full ${getSemaforoDot(item.semaforo)} flex-shrink-0`} />
-                              <span className="text-white font-medium truncate">{item.client_nombre}</span>
-                              <span className="text-[10px] text-[var(--muted)] flex-shrink-0">{getTipoLabel(item)}</span>
-                            </div>
-                            <div className="flex items-center gap-3 flex-shrink-0">
-                              <span className="text-[11px] text-[var(--muted)]" style={{ fontVariantNumeric: "tabular-nums" }}>
-                                {item.fecha_vencimiento ? new Date(item.fecha_vencimiento + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" }) : "s/f"}
-                              </span>
-                              <span
-                                className="text-white font-semibold"
-                                style={{ fontVariantNumeric: "tabular-nums", minWidth: 70, textAlign: "right" }}
-                              >
-                                {fmt(item.monto_usd)}
-                              </span>
-                            </div>
-                          </div>
+                            item={item}
+                            fmt={fmt}
+                            getSemaforoBg={getSemaforoBg}
+                            getSemaforoDot={getSemaforoDot}
+                            getTipoLabel={getTipoLabel}
+                            sessionTeamMemberId={session.team_member_id}
+                            showFecha
+                            onChange={() => {
+                              setQueue((prev) => prev.filter((q) => q.id !== item.id));
+                            }}
+                          />
                         ))}
                     </div>
                   )}
@@ -1700,6 +1678,205 @@ function AuditoriaCuotasTab({
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ========================================
+// PendingItemRow -- item de cuota con acciones inline (marcar pagada, editar fecha, borrar)
+// ========================================
+function PendingItemRow({
+  item,
+  fmt,
+  getSemaforoBg,
+  getSemaforoDot,
+  getTipoLabel,
+  sessionTeamMemberId,
+  showFecha = false,
+  showVencRed = false,
+  showDiasLabel = false,
+  diasLabel = "",
+  diasColor = "",
+  onChange,
+}: {
+  item: CobranzasQueueItem;
+  fmt: (n: number) => string;
+  getSemaforoBg: (s: string) => string;
+  getSemaforoDot: (s: string) => string;
+  getTipoLabel: (i: CobranzasQueueItem) => string;
+  sessionTeamMemberId: string;
+  showFecha?: boolean;
+  showVencRed?: boolean;
+  showDiasLabel?: boolean;
+  diasLabel?: string;
+  diasColor?: string;
+  onChange: () => void;
+}) {
+  const [mode, setMode] = useState<"none" | "pay" | "edit" | "delete">("none");
+  const [newFecha, setNewFecha] = useState(item.fecha_vencimiento ?? "");
+  const [busy, setBusy] = useState(false);
+  const router = useRouter();
+
+  const fechaCorta = item.fecha_vencimiento
+    ? new Date(item.fecha_vencimiento + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" })
+    : "s/f";
+
+  async function saveFecha() {
+    if (!item.payment_id) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/pagos", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: item.payment_id, fecha_vencimiento: newFecha || null }),
+      });
+      if (res.ok) {
+        setMode("none");
+        onChange();
+        router.refresh();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!item.payment_id) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/pagos?id=${item.payment_id}`, { method: "DELETE" });
+      if (res.ok) {
+        setMode("none");
+        onChange();
+        router.refresh();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={`rounded-lg ${getSemaforoBg(item.semaforo)}`}>
+      <div className="flex items-center justify-between p-2.5 text-sm gap-2">
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          <span className={`w-2 h-2 rounded-full ${getSemaforoDot(item.semaforo)} flex-shrink-0`} />
+          <span className="text-white font-medium truncate">{item.client_nombre}</span>
+          <span className="text-[10px] text-[var(--muted)] flex-shrink-0">{getTipoLabel(item)}</span>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {showVencRed && (
+            <span className="text-[11px] text-[var(--red)]" style={{ fontVariantNumeric: "tabular-nums" }}>
+              venc. {fechaCorta}
+            </span>
+          )}
+          {showFecha && !showVencRed && (
+            <span className="text-[11px] text-[var(--muted)]" style={{ fontVariantNumeric: "tabular-nums" }}>
+              {fechaCorta}
+            </span>
+          )}
+          {showDiasLabel && (
+            <span className={`text-[11px] ${diasColor}`}>{diasLabel}</span>
+          )}
+          <span
+            className="text-white font-semibold"
+            style={{ fontVariantNumeric: "tabular-nums", minWidth: 70, textAlign: "right" }}
+          >
+            {fmt(item.monto_usd)}
+          </span>
+          {item.payment_id && (
+            <div className="flex items-center gap-1 ml-2">
+              <button
+                onClick={() => setMode(mode === "pay" ? "none" : "pay")}
+                title="Marcar como pagada"
+                className="text-[11px] px-2 py-1 rounded bg-green-500/20 hover:bg-green-500/30 text-green-300 transition-colors"
+              >
+                ✓
+              </button>
+              <button
+                onClick={() => setMode(mode === "edit" ? "none" : "edit")}
+                title="Editar fecha de vencimiento"
+                className="text-[11px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-[var(--muted)] transition-colors"
+              >
+                ✎
+              </button>
+              <button
+                onClick={() => setMode(mode === "delete" ? "none" : "delete")}
+                title="Eliminar cuota pendiente"
+                className="text-[11px] px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-300 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+      {mode === "pay" && item.payment_id && (
+        <div className="px-2.5 pb-2.5">
+          <PaymentMiniForm
+            paymentId={item.payment_id}
+            taskId={item.task_id}
+            defaultMonto={item.monto_usd}
+            sessionTeamMemberId={sessionTeamMemberId}
+            onSuccess={() => {
+              setMode("none");
+              onChange();
+              router.refresh();
+            }}
+            onCancel={() => setMode("none")}
+          />
+        </div>
+      )}
+      {mode === "edit" && item.payment_id && (
+        <div className="px-2.5 pb-2.5">
+          <div className="p-3 bg-white/5 border border-[var(--card-border)] rounded-lg flex items-center gap-2">
+            <input
+              type="date"
+              value={newFecha}
+              onChange={(e) => setNewFecha(e.target.value)}
+              className="border border-[var(--card-border)] bg-[var(--background)] text-white rounded px-2 py-1 text-sm outline-none"
+            />
+            <button
+              type="button"
+              onClick={saveFecha}
+              disabled={busy}
+              className="text-xs px-3 py-1 bg-[var(--purple)] text-white rounded hover:bg-[var(--purple-dark)] disabled:opacity-50"
+            >
+              {busy ? "..." : "Guardar"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("none")}
+              className="text-xs px-3 py-1 bg-white/10 text-[var(--muted)] rounded hover:bg-white/20"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+      {mode === "delete" && item.payment_id && (
+        <div className="px-2.5 pb-2.5">
+          <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center justify-between gap-2">
+            <p className="text-xs text-red-300">¿Eliminar esta cuota pendiente?</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={busy}
+                className="text-xs px-3 py-1 bg-[var(--red)] text-white rounded hover:opacity-90 disabled:opacity-50"
+              >
+                {busy ? "..." : "Sí, eliminar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("none")}
+                className="text-xs px-3 py-1 bg-white/10 text-[var(--muted)] rounded hover:bg-white/20"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

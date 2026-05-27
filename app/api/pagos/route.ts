@@ -6,10 +6,25 @@ import { createServerClient } from "@/lib/supabase-server";
 import { syncLeadToSheet } from "@/lib/sheet-sync";
 import type { MetodoPago, PaymentEstado } from "@/lib/types";
 
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function planToCuotas(plan: string | null | undefined): number {
+  if (!plan) return 1;
+  if (plan === "paid_in_full") return 1;
+  if (plan === "2_cuotas") return 2;
+  if (plan === "3_cuotas") return 3;
+  return 0; // personalizado u otros → no auto-generar
+}
+
 export async function POST(req: NextRequest) {
   try {
     const result = await requireSession();
     if ("error" in result) return result.error;
+    const session = result.session;
 
     // Handle file upload
     const isUpload = req.nextUrl.searchParams.get("upload") === "1";
@@ -40,50 +55,170 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const paymentData = {
-      lead_id: parsed.data.lead_id || null,
-      client_id: parsed.data.client_id || null,
-      renewal_id: null,
-      numero_cuota: parsed.data.numero_cuota,
-      monto_usd: parsed.data.monto_usd,
-      monto_ars: parsed.data.monto_ars,
-      fecha_pago: parsed.data.fecha_pago,
-      fecha_vencimiento: null,
-      estado: parsed.data.estado as PaymentEstado,
-      metodo_pago: (parsed.data.metodo_pago as MetodoPago) || null,
-      receptor: parsed.data.receptor || null,
-      comprobante_url: (body.comprobante_url as string) || null,
-      cobrador_id: null,
-      verificado: false,
-      es_renovacion: parsed.data.es_renovacion,
-    };
+    const sb = createServerClient();
+    const leadId = parsed.data.lead_id || null;
+    const clientId = parsed.data.client_id || null;
+    const numeroCuota = parsed.data.numero_cuota;
+    const estado = parsed.data.estado as PaymentEstado;
 
-    const payment = await createPayment(paymentData);
-    if (!payment) {
-      return NextResponse.json({ error: "Error al crear pago" }, { status: 500 });
+    // B — Si se está cargando como "pagado" y existe una cuota pendiente con mismo lead/cliente + numero_cuota,
+    //     actualizamos esa en lugar de crear duplicado.
+    let payment: Awaited<ReturnType<typeof createPayment>> = null;
+    let reusedPending = false;
+
+    if (estado === "pagado" && (leadId || clientId)) {
+      const q = sb
+        .from("payments")
+        .select("*")
+        .eq("numero_cuota", numeroCuota)
+        .eq("estado", "pendiente")
+        .limit(1);
+      if (leadId) q.eq("lead_id", leadId);
+      if (clientId) q.eq("client_id", clientId);
+
+      const { data: existingPending } = await q;
+      const candidate = existingPending?.[0];
+
+      if (candidate) {
+        const updatePatch: Record<string, unknown> = {
+          estado: "pagado",
+          monto_usd: parsed.data.monto_usd,
+          monto_ars: parsed.data.monto_ars,
+          fecha_pago: parsed.data.fecha_pago,
+          metodo_pago: (parsed.data.metodo_pago as MetodoPago) || null,
+          receptor: parsed.data.receptor || null,
+          cobrador_id: session.team_member_id,
+          es_renovacion: parsed.data.es_renovacion,
+        };
+        if (body.comprobante_url) updatePatch.comprobante_url = body.comprobante_url;
+
+        const { data: updated, error: updErr } = await sb
+          .from("payments")
+          .update(updatePatch)
+          .eq("id", candidate.id)
+          .select()
+          .single();
+        if (updErr) {
+          console.error("[POST /api/pagos] update pending error:", updErr.message);
+          return NextResponse.json({ error: updErr.message }, { status: 500 });
+        }
+        payment = updated as typeof payment;
+        reusedPending = true;
+      }
     }
 
-    // P3 audit Iñaki: si se carga un pago "pagado" y el lead sigue en un estado
-    // "no vendido", avanzarlo a "reserva" para que no queden ventas invisibles.
-    let estadoAvanzado: string | null = null;
-    if (payment.estado === "pagado" && payment.lead_id) {
-      const sb = createServerClient();
+    // Si no reusamos, crear pago nuevo
+    if (!payment) {
+      const paymentData = {
+        lead_id: leadId,
+        client_id: clientId,
+        renewal_id: null,
+        numero_cuota: numeroCuota,
+        monto_usd: parsed.data.monto_usd,
+        monto_ars: parsed.data.monto_ars,
+        fecha_pago: parsed.data.fecha_pago,
+        fecha_vencimiento: null,
+        estado,
+        metodo_pago: (parsed.data.metodo_pago as MetodoPago) || null,
+        receptor: parsed.data.receptor || null,
+        comprobante_url: (body.comprobante_url as string) || null,
+        cobrador_id: estado === "pagado" ? session.team_member_id : null,
+        verificado: false,
+        es_renovacion: parsed.data.es_renovacion,
+      };
+
+      payment = await createPayment(paymentData);
+      if (!payment) {
+        return NextResponse.json({ error: "Error al crear pago" }, { status: 500 });
+      }
+    }
+
+    // A — Auto-generar cuotas pendientes futuras si es c1 y existe plan_pago.
+    let cuotasGeneradas: number = 0;
+    if (estado === "pagado" && payment.numero_cuota === 1 && leadId) {
       const { data: leadRow } = await sb
         .from("leads")
-        .select("estado")
+        .select("plan_pago, ticket_total")
+        .eq("id", leadId)
+        .maybeSingle();
+
+      const totalCuotas = planToCuotas(leadRow?.plan_pago as string | null);
+      if (totalCuotas > 1 && leadRow) {
+        const { data: existingNumbers } = await sb
+          .from("payments")
+          .select("numero_cuota")
+          .eq("lead_id", leadId);
+        const yaCargadas = new Set((existingNumbers || []).map((p) => p.numero_cuota));
+
+        const restante = Math.max(0, Number(leadRow.ticket_total || 0) - Number(payment.monto_usd || 0));
+        const montoPorCuota = totalCuotas > 1 ? Math.round(restante / (totalCuotas - 1)) : 0;
+
+        const aCrear: Array<Record<string, unknown>> = [];
+        for (let n = 2; n <= totalCuotas; n++) {
+          if (yaCargadas.has(n)) continue;
+          aCrear.push({
+            lead_id: leadId,
+            client_id: clientId,
+            numero_cuota: n,
+            monto_usd: montoPorCuota,
+            monto_ars: 0,
+            fecha_pago: null,
+            fecha_vencimiento: addDays(parsed.data.fecha_pago, 30 * (n - 1)),
+            estado: "pendiente",
+            verificado: false,
+            es_renovacion: false,
+          });
+        }
+        if (aCrear.length > 0) {
+          const { error: insErr } = await sb.from("payments").insert(aCrear);
+          if (insErr) {
+            console.error("[POST /api/pagos] generate future cuotas error:", insErr.message);
+          } else {
+            cuotasGeneradas = aCrear.length;
+          }
+        }
+      }
+    }
+
+    // G — Avanzar estado del lead según completitud del ticket
+    let estadoAvanzado: string | null = null;
+    if (payment.estado === "pagado" && payment.lead_id) {
+      const { data: leadRow } = await sb
+        .from("leads")
+        .select("estado, ticket_total")
         .eq("id", payment.lead_id)
         .maybeSingle();
-      const ESTADOS_VENDIDO = ["reserva", "cerrado", "adentro_seguimiento"];
-      if (leadRow && !ESTADOS_VENDIDO.includes(leadRow.estado)) {
-        await sb.from("leads").update({ estado: "reserva" }).eq("id", payment.lead_id);
-        estadoAvanzado = "reserva";
+
+      const { data: pagosLead } = await sb
+        .from("payments")
+        .select("monto_usd, estado")
+        .eq("lead_id", payment.lead_id);
+      const totalPagado = (pagosLead || [])
+        .filter((p) => p.estado === "pagado")
+        .reduce((s, p) => s + Number(p.monto_usd || 0), 0);
+      const ticket = Number(leadRow?.ticket_total || 0);
+
+      const ESTADOS_FINAL = ["cerrado", "adentro_seguimiento"];
+      if (leadRow && !ESTADOS_FINAL.includes(leadRow.estado)) {
+        // Si ya cubrió el ticket completo → cerrado, sino reserva
+        const targetEstado = ticket > 0 && totalPagado >= ticket ? "cerrado" : "reserva";
+        if (leadRow.estado !== targetEstado) {
+          await sb.from("leads").update({ estado: targetEstado }).eq("id", payment.lead_id);
+          estadoAvanzado = targetEstado;
+        }
       }
     }
 
     // Sync lead to Sheet ROMS
     if (payment.lead_id) await syncLeadToSheet(payment.lead_id);
 
-    return NextResponse.json({ ok: true, payment, estadoAvanzado });
+    return NextResponse.json({
+      ok: true,
+      payment,
+      reusedPending,
+      cuotasGeneradas,
+      estadoAvanzado,
+    });
   } catch (err) {
     console.error("[POST /api/pagos]", err);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });

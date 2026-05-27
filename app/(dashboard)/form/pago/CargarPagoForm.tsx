@@ -89,7 +89,21 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
   function selectLead(lead: LeadWithTeam) {
     setSelected(lead);
     const existingPayments = paymentsByLead[lead.id] || [];
-    setNumeroCuota(existingPayments.length + 1);
+    // D — default cuota = la próxima pendiente, o sino la siguiente al último pagado.
+    const proximaPendiente = existingPayments
+      .filter((p) => p.estado === "pendiente")
+      .sort((a, b) => a.numero_cuota - b.numero_cuota)[0];
+    if (proximaPendiente) {
+      setNumeroCuota(proximaPendiente.numero_cuota);
+      // Prefill monto si la pendiente trae uno
+      if (proximaPendiente.monto_usd > 0) {
+        setMontoInput(String(proximaPendiente.monto_usd));
+        setCurrency("USD");
+      }
+    } else {
+      const maxCuota = existingPayments.reduce((max, p) => Math.max(max, p.numero_cuota), 0);
+      setNumeroCuota(maxCuota + 1);
+    }
     setStep(2);
   }
 
@@ -285,6 +299,17 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
         const payments = paymentsByLead[selected.id] || [];
         const summary = getPaymentSummary(payments);
         const saldoPendiente = selected.ticket_total - summary.totalPagado;
+        const montoNum = parseFloat(montoUsd || "0");
+
+        // E — Detección de duplicado: existe cuota PAGADA con mismo numero_cuota
+        const yaPagadaMismoNum = payments.some(
+          (p) => p.estado === "pagado" && p.numero_cuota === numeroCuota
+        );
+        const excedeSaldo =
+          selected.ticket_total > 0 && montoNum > 0 && montoNum > saldoPendiente + 0.01;
+        const pendienteConMismoNum = payments.find(
+          (p) => p.estado === "pendiente" && p.numero_cuota === numeroCuota
+        );
 
         return (
           <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
@@ -435,6 +460,33 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
               </div>
             </div>
 
+            {/* Warnings */}
+            {pendienteConMismoNum && (
+              <div className="mt-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+                <p className="text-xs text-blue-300">
+                  💡 Ya existe una cuota <b>{numeroCuota}</b> pendiente (
+                  {formatUSD(pendienteConMismoNum.monto_usd)}). Al guardar se va a actualizar esa
+                  cuota como pagada (no se crea duplicado).
+                </p>
+              </div>
+            )}
+            {yaPagadaMismoNum && (
+              <div className="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                <p className="text-xs text-red-300">
+                  ⚠️ Ya hay un pago registrado para la cuota <b>{numeroCuota}</b>. Cambiá el
+                  número de cuota o esto va a crear un duplicado.
+                </p>
+              </div>
+            )}
+            {excedeSaldo && (
+              <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                <p className="text-xs text-amber-300">
+                  ⚠️ Este monto ({formatUSD(montoNum)}) supera el saldo pendiente (
+                  {formatUSD(saldoPendiente)}).
+                </p>
+              </div>
+            )}
+
             {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
 
             <div className="flex gap-3 mt-6">
@@ -443,8 +495,8 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={loading}
-                className="flex-1 bg-[var(--purple)] hover:bg-[var(--purple-dark)] disabled:opacity-50 text-white py-2.5 rounded-lg text-sm font-medium transition-colors"
+                disabled={loading || yaPagadaMismoNum}
+                className="flex-1 bg-[var(--purple)] hover:bg-[var(--purple-dark)] disabled:opacity-50 disabled:cursor-not-allowed text-white py-2.5 rounded-lg text-sm font-medium transition-colors"
               >
                 {loading ? "Guardando..." : "Registrar pago"}
               </button>
