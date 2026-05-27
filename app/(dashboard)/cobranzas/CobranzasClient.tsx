@@ -802,66 +802,172 @@ export default function CobranzasClient({
         </div>
       </div>
 
-      {/* Weekly Breakdown */}
-      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Desglose semanal</h2>
-        <div className="space-y-2">
+      {/* \u2550\u2550\u2550\u2550\u2550\u2550 Weekly Breakdown \u2014 vista principal de la cola \u2550\u2550\u2550\u2550\u2550\u2550 */}
+      <div>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div>
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <span aria-hidden>{"\u{1F4C5}"}</span>
+              <span>Cu&aacute;nto cobro cada semana</span>
+            </h2>
+            <p className="text-xs text-[var(--muted)] mt-0.5">
+              Cuotas agrupadas por fecha de vencimiento dentro del mes fiscal.
+              Click una semana para ver el detalle.
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-[var(--muted)] uppercase tracking-wider">Total a cobrar</p>
+            <p className="text-xl font-bold text-white" style={{ fontVariantNumeric: "tabular-nums" }}>
+              ${totalPorCobrar.toLocaleString()}
+            </p>
+          </div>
+        </div>
+        {(() => {
+          // Calculo de items "overdue de meses previos" que no caen en ninguna semana del fiscal actual
+          const fiscalStartDate = new Date(fiscalStart + "T00:00:00");
+          const overdueAnteriores = fiscalItemsWithOverdue.filter((i) => {
+            if (!i.fecha_vencimiento) return false;
+            return new Date(i.fecha_vencimiento + "T00:00:00") < fiscalStartDate;
+          });
+          const totalOverdueAnteriores = overdueAnteriores.reduce((s, i) => s + i.monto_usd, 0);
+          if (overdueAnteriores.length === 0) return null;
+          return (
+            <div
+              className="mb-3 bg-[var(--card-bg)] border rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap"
+              style={{ borderColor: "#FB7185", borderLeftWidth: 4 }}
+            >
+              <div className="flex items-center gap-3">
+                <span aria-hidden style={{ fontSize: 22 }}>{"\u26A0\uFE0F"}</span>
+                <div>
+                  <p className="text-sm font-semibold text-[var(--red)]">
+                    Vencidas de meses anteriores
+                  </p>
+                  <p className="text-xs text-[var(--muted)]">
+                    {overdueAnteriores.length} cuota{overdueAnteriores.length !== 1 ? "s" : ""} no cobradas &mdash; no entran en las semanas del mes actual.
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p
+                  className="text-xl font-bold text-[var(--red)]"
+                  style={{ fontVariantNumeric: "tabular-nums" }}
+                >
+                  ${totalOverdueAnteriores.toLocaleString()}
+                </p>
+                <p className="text-[10px] text-[var(--muted)]">total vencido previo</p>
+              </div>
+            </div>
+          );
+        })()}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {weeks.map((week, idx) => {
             const isExpanded = expandedWeeks.has(idx);
             const weekVencidas = week.items.filter((i) => i.semaforo === "vencido").length;
+            const weekUrgentes = week.items.filter((i) => i.semaforo === "urgente").length;
+            const hasItems = week.items.length > 0;
+            const accentColor = weekVencidas > 0 ? "#FB7185" : weekUrgentes > 0 ? "#FB923C" : hasItems ? "#34D399" : "rgba(255,255,255,0.15)";
             return (
-              <div key={idx}>
-                <button
-                  onClick={() => toggleWeek(idx)}
-                  className="w-full flex items-center justify-between p-3 rounded-lg bg-[var(--background)] border border-[var(--card-border)] hover:border-[var(--purple)]/50 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-[var(--muted)] text-sm">{isExpanded ? "\u25BE" : "\u25B8"}</span>
-                    <span className="text-sm font-medium text-white">{week.label}</span>
-                    <span className="text-xs text-[var(--muted)]">
-                      {week.items.length} cuota{week.items.length !== 1 ? "s" : ""}
+              <button
+                key={idx}
+                onClick={() => toggleWeek(idx)}
+                className="text-left bg-[var(--card-bg)] border rounded-xl p-4 transition-all hover:scale-[1.02]"
+                style={{
+                  borderColor: isExpanded ? accentColor : "var(--card-border)",
+                  borderTopWidth: 3,
+                  borderTopColor: accentColor,
+                  boxShadow: isExpanded ? `0 0 0 1px ${accentColor}80` : "0 8px 32px rgba(0,0,0,0.18)",
+                }}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">
+                    Semana {idx + 1}
+                  </span>
+                  {weekVencidas > 0 && (
+                    <span
+                      className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                      style={{ background: "#FB718520", color: "#FB7185" }}
+                    >
+                      {weekVencidas} venc.
                     </span>
-                    {weekVencidas > 0 && (
-                      <span className="text-xs px-1.5 py-0.5 bg-red-500/20 text-[var(--red)] rounded">
-                        {weekVencidas} vencida{weekVencidas !== 1 ? "s" : ""}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-sm font-bold text-white">${week.total.toLocaleString()}</span>
-                </button>
-                {isExpanded && week.items.length > 0 && (
-                  <div className="mt-1 ml-6 space-y-1">
-                    {week.items.map((item) => (
-                      <div
-                        key={item.id}
-                        className={`flex items-center justify-between p-2 rounded-lg text-sm ${getSemaforoBg(item.semaforo)}`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${getSemaforoDot(item.semaforo)}`} />
-                          <span className="text-white font-medium">{item.client_nombre}</span>
-                          <span className="text-xs text-[var(--muted)]">{getTipoLabel(item)}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className={`text-xs ${getSemaforoColor(item.semaforo)}`}>
-                            {getDiasLabel(item.dias_vencido)}
-                          </span>
-                          <span className="text-white font-medium">
-                            {fmt(item.monto_usd)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {isExpanded && week.items.length === 0 && (
-                  <p className="mt-1 ml-6 text-xs text-[var(--muted)] py-2">
-                    Sin cuotas en esta semana
-                  </p>
-                )}
-              </div>
+                  )}
+                </div>
+                <p className="text-xs text-[var(--muted)] mb-2" style={{ fontVariantNumeric: "tabular-nums" }}>
+                  {week.label.replace(/Semana \d+ \(|\)/g, "")}
+                </p>
+                <p
+                  className="text-2xl font-bold mb-1"
+                  style={{
+                    color: hasItems ? "#fff" : "rgba(255,255,255,0.35)",
+                    fontVariantNumeric: "tabular-nums",
+                    letterSpacing: "-0.02em",
+                  }}
+                >
+                  ${week.total.toLocaleString()}
+                </p>
+                <p className="text-[11px] text-[var(--muted)]">
+                  {hasItems
+                    ? `${week.items.length} cuota${week.items.length !== 1 ? "s" : ""}`
+                    : "Sin cuotas"}
+                </p>
+              </button>
             );
           })}
         </div>
+
+        {/* Detalle expandido \u2014 debajo del grid */}
+        {Array.from(expandedWeeks).sort().map((idx) => {
+          const week = weeks[idx];
+          if (!week) return null;
+          return (
+            <div
+              key={`detail-${idx}`}
+              className="mt-3 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-white">
+                  {week.label} \u00B7 <span className="text-[var(--muted)]">{week.items.length} cuotas \u00B7 ${week.total.toLocaleString()}</span>
+                </h3>
+                <button
+                  onClick={() => toggleWeek(idx)}
+                  className="text-xs text-[var(--muted)] hover:text-white"
+                >
+                  \u2715 Cerrar
+                </button>
+              </div>
+              {week.items.length === 0 ? (
+                <p className="text-xs text-[var(--muted)] py-4 text-center">
+                  Sin cuotas en esta semana
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {week.items.map((item) => (
+                    <div
+                      key={item.id}
+                      className={`flex items-center justify-between p-2.5 rounded-lg text-sm ${getSemaforoBg(item.semaforo)}`}
+                    >
+                      <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                        <span className={`w-2 h-2 rounded-full ${getSemaforoDot(item.semaforo)} flex-shrink-0`} />
+                        <span className="text-white font-medium truncate">{item.client_nombre}</span>
+                        <span className="text-[10px] text-[var(--muted)] flex-shrink-0">{getTipoLabel(item)}</span>
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <span className={`text-[11px] ${getSemaforoColor(item.semaforo)}`}>
+                          {getDiasLabel(item.dias_vencido)}
+                        </span>
+                        <span
+                          className="text-white font-semibold"
+                          style={{ fontVariantNumeric: "tabular-nums", minWidth: 70, textAlign: "right" }}
+                        >
+                          {fmt(item.monto_usd)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Agent Tasks Dashboard */}
