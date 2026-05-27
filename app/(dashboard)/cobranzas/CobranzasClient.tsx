@@ -35,17 +35,39 @@ interface WeekBucket {
 }
 
 function getWeekBuckets(fiscalStart: string, fiscalEnd: string, items: CobranzasQueueItem[]): WeekBucket[] {
-  const start = new Date(fiscalStart + "T00:00:00");
-  const end = new Date(fiscalEnd + "T00:00:00");
+  // Genera buckets semanales desde HOY (lunes de esta semana) hacia adelante,
+  // cubriendo el mes fiscal Y todas las semanas siguientes hasta cubrir
+  // la fecha de vencimiento más lejana en `items`. Min 5 semanas.
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  // Lunes de la semana actual
+  const monday = new Date(today);
+  const dow = monday.getDay(); // 0=dom, 1=lun, ..., 6=sab
+  const diffToMonday = dow === 0 ? -6 : 1 - dow;
+  monday.setDate(monday.getDate() + diffToMonday);
+
+  // Fecha más lejana entre el fin del mes fiscal y la cuota más futura
+  const fiscalEndDate = new Date(fiscalEnd + "T00:00:00");
+  let furthest = fiscalEndDate.getTime();
+  for (const it of items) {
+    if (!it.fecha_vencimiento) continue;
+    const t = new Date(it.fecha_vencimiento + "T00:00:00").getTime();
+    if (t > furthest) furthest = t;
+  }
+  // Asegurar mínimo 5 semanas desde hoy
+  const minEnd = new Date(monday);
+  minEnd.setDate(minEnd.getDate() + 7 * 5 - 1);
+  if (minEnd.getTime() > furthest) furthest = minEnd.getTime();
+
+  void fiscalStart; // ya no usamos fiscalStart como inicio
 
   const weeks: WeekBucket[] = [];
-  let weekStart = new Date(start);
+  let weekStart = new Date(monday);
   let weekNum = 1;
 
-  while (weekStart <= end) {
+  while (weekStart.getTime() <= furthest) {
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 6);
-    if (weekEnd > end) weekEnd.setTime(end.getTime());
 
     const sLabel = `${weekStart.getDate()}/${weekStart.getMonth() + 1}`;
     const eLabel = `${weekEnd.getDate()}/${weekEnd.getMonth() + 1}`;
@@ -70,6 +92,8 @@ function getWeekBuckets(fiscalStart: string, fiscalEnd: string, items: Cobranzas
     weekStart = new Date(weekEnd);
     weekStart.setDate(weekStart.getDate() + 1);
     weekNum++;
+    // Safety: cap a 12 semanas para no explotar.
+    if (weekNum > 12) break;
   }
 
   return weeks;
@@ -149,23 +173,28 @@ export default function CobranzasClient({
     });
   }, [allPendingItems, fiscalStart, fiscalEnd, todayStr]);
 
-  // Also include overdue items from before the fiscal start (they should show in current month)
+  // Cuando estamos en el mes fiscal en curso, incluir TODO:
+  // - overdue de meses anteriores (vencidas viejas)
+  // - cuotas del mes en curso
+  // - cuotas FUTURAS (próximos meses) → para que el grid semanal las muestre.
+  // Cuando se navega a un mes pasado/futuro, mostrar solo el rango específico
+  // (comportamiento legacy).
   const fiscalItemsWithOverdue = useMemo(() => {
-    // For current fiscal month, include all overdue. For past months, only items in that range.
     const currentFiscalStart = toDateString(getFiscalStart(getDateToday()));
     if (selectedMonth === currentFiscalStart) {
-      // Current month: include fiscal range + all overdue
-      const seenIds = new Set<string>(fiscalItems.map((i) => i.id));
-      const overdue = allPendingItems.filter(
-        (item) =>
-          !seenIds.has(item.id) &&
-          item.fecha_vencimiento &&
-          item.fecha_vencimiento < todayStr
-      );
-      return [...overdue, ...fiscalItems];
+      // Mes en curso: TODOS los pendientes — overdue, actuales y futuros.
+      // Dedup por id.
+      const seen = new Set<string>();
+      const all: CobranzasQueueItem[] = [];
+      for (const it of allPendingItems) {
+        if (seen.has(it.id)) continue;
+        seen.add(it.id);
+        all.push(it);
+      }
+      return all;
     }
     return fiscalItems;
-  }, [fiscalItems, allPendingItems, selectedMonth, todayStr]);
+  }, [fiscalItems, allPendingItems, selectedMonth]);
 
   // Fiscal paid: filter by selected fiscal period
   const fiscalPaid = useMemo(() => {
@@ -823,11 +852,17 @@ export default function CobranzasClient({
           </div>
         </div>
         {(() => {
-          // Calculo de items "overdue de meses previos" que no caen en ninguna semana del fiscal actual
-          const fiscalStartDate = new Date(fiscalStart + "T00:00:00");
+          // Items "atrasados" = vencidos antes del lunes de esta semana.
+          // Estos NO caen en ninguna card del grid (que arranca desde el
+          // lunes actual) \u2014 se muestran en una card aparte arriba.
+          const monday = new Date();
+          monday.setHours(0, 0, 0, 0);
+          const dow = monday.getDay();
+          const diff = dow === 0 ? -6 : 1 - dow;
+          monday.setDate(monday.getDate() + diff);
           const overdueAnteriores = fiscalItemsWithOverdue.filter((i) => {
             if (!i.fecha_vencimiento) return false;
-            return new Date(i.fecha_vencimiento + "T00:00:00") < fiscalStartDate;
+            return new Date(i.fecha_vencimiento + "T00:00:00") < monday;
           });
           const totalOverdueAnteriores = overdueAnteriores.reduce((s, i) => s + i.monto_usd, 0);
           if (overdueAnteriores.length === 0) return null;
@@ -840,10 +875,10 @@ export default function CobranzasClient({
                 <span aria-hidden style={{ fontSize: 22 }}>{"\u26A0\uFE0F"}</span>
                 <div>
                   <p className="text-sm font-semibold text-[var(--red)]">
-                    Vencidas de meses anteriores
+                    Atrasadas (vencidas antes de esta semana)
                   </p>
                   <p className="text-xs text-[var(--muted)]">
-                    {overdueAnteriores.length} cuota{overdueAnteriores.length !== 1 ? "s" : ""} no cobradas &mdash; no entran en las semanas del mes actual.
+                    {overdueAnteriores.length} {overdueAnteriores.length === 1 ? "cuota" : "cuotas"}{" "}sin cobrar &mdash; ya pas&oacute; la fecha original de vencimiento.
                   </p>
                 </div>
               </div>
@@ -854,7 +889,7 @@ export default function CobranzasClient({
                 >
                   ${totalOverdueAnteriores.toLocaleString()}
                 </p>
-                <p className="text-[10px] text-[var(--muted)]">total vencido previo</p>
+                <p className="text-[10px] text-[var(--muted)]">total atrasado</p>
               </div>
             </div>
           );
