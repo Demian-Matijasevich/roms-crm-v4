@@ -35,39 +35,18 @@ interface WeekBucket {
 }
 
 function getWeekBuckets(fiscalStart: string, fiscalEnd: string, items: CobranzasQueueItem[]): WeekBucket[] {
-  // Genera buckets semanales desde HOY (lunes de esta semana) hacia adelante,
-  // cubriendo el mes fiscal Y todas las semanas siguientes hasta cubrir
-  // la fecha de vencimiento más lejana en `items`. Min 5 semanas.
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  // Lunes de la semana actual
-  const monday = new Date(today);
-  const dow = monday.getDay(); // 0=dom, 1=lun, ..., 6=sab
-  const diffToMonday = dow === 0 ? -6 : 1 - dow;
-  monday.setDate(monday.getDate() + diffToMonday);
-
-  // Fecha más lejana entre el fin del mes fiscal y la cuota más futura
-  const fiscalEndDate = new Date(fiscalEnd + "T00:00:00");
-  let furthest = fiscalEndDate.getTime();
-  for (const it of items) {
-    if (!it.fecha_vencimiento) continue;
-    const t = new Date(it.fecha_vencimiento + "T00:00:00").getTime();
-    if (t > furthest) furthest = t;
-  }
-  // Asegurar mínimo 5 semanas desde hoy
-  const minEnd = new Date(monday);
-  minEnd.setDate(minEnd.getDate() + 7 * 5 - 1);
-  if (minEnd.getTime() > furthest) furthest = minEnd.getTime();
-
-  void fiscalStart; // ya no usamos fiscalStart como inicio
+  // Buckets semanales DENTRO del mes fiscal (fiscalStart → fiscalEnd).
+  const start = new Date(fiscalStart + "T00:00:00");
+  const end = new Date(fiscalEnd + "T00:00:00");
 
   const weeks: WeekBucket[] = [];
-  let weekStart = new Date(monday);
+  let weekStart = new Date(start);
   let weekNum = 1;
 
-  while (weekStart.getTime() <= furthest) {
+  while (weekStart <= end) {
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 6);
+    if (weekEnd > end) weekEnd.setTime(end.getTime());
 
     const sLabel = `${weekStart.getDate()}/${weekStart.getMonth() + 1}`;
     const eLabel = `${weekEnd.getDate()}/${weekEnd.getMonth() + 1}`;
@@ -92,11 +71,36 @@ function getWeekBuckets(fiscalStart: string, fiscalEnd: string, items: Cobranzas
     weekStart = new Date(weekEnd);
     weekStart.setDate(weekStart.getDate() + 1);
     weekNum++;
-    // Safety: cap a 12 semanas para no explotar.
-    if (weekNum > 12) break;
   }
 
   return weeks;
+}
+
+/** Agrupa items futuros (post fiscalEnd) por mes calendario. */
+function groupItemsByFutureMonth(fiscalEnd: string, items: CobranzasQueueItem[]): Array<{ ym: string; label: string; total: number; count: number; items: CobranzasQueueItem[] }> {
+  const fiscalEndDate = new Date(fiscalEnd + "T00:00:00");
+  const map = new Map<string, CobranzasQueueItem[]>();
+  for (const it of items) {
+    if (!it.fecha_vencimiento) continue;
+    const d = new Date(it.fecha_vencimiento + "T00:00:00");
+    if (d <= fiscalEndDate) continue;
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (!map.has(ym)) map.set(ym, []);
+    map.get(ym)!.push(it);
+  }
+  const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+  return Array.from(map.entries())
+    .sort()
+    .map(([ym, arr]) => {
+      const [, m] = ym.split("-").map(Number);
+      return {
+        ym,
+        label: `${monthNames[m - 1]} ${ym.slice(0, 4)}`,
+        total: arr.reduce((s, i) => s + i.monto_usd, 0),
+        count: arr.length,
+        items: arr,
+      };
+    });
 }
 
 function getToday(): string {
@@ -137,6 +141,7 @@ export default function CobranzasClient({
   const [search, setSearch] = useState("");
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set());
+  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
   // Fiscal month selector — defaults to current fiscal month
@@ -357,11 +362,26 @@ export default function CobranzasClient({
   const grandTotal = totalPorCobrar + cobradoTotal;
   const tasaCobro = grandTotal > 0 ? (cobradoTotal / grandTotal) * 100 : 0;
 
-  // Weekly breakdown
+  // Weekly breakdown (mes fiscal en curso)
   const weeks = useMemo(
     () => getWeekBuckets(fiscalStart, fiscalEnd, fiscalItemsWithOverdue),
     [fiscalStart, fiscalEnd, fiscalItemsWithOverdue]
   );
+
+  // Items post-mes-fiscal agrupados por mes calendario
+  const futureMonths = useMemo(
+    () => groupItemsByFutureMonth(fiscalEnd, fiscalItemsWithOverdue),
+    [fiscalEnd, fiscalItemsWithOverdue]
+  );
+
+  function toggleMonth(ym: string) {
+    setExpandedMonths((prev) => {
+      const next = new Set(prev);
+      if (next.has(ym)) next.delete(ym);
+      else next.add(ym);
+      return next;
+    });
+  }
 
   // Potencial del mes: cuotas pendientes + renovaciones esperadas
   const renovacionesEsperadas = useMemo(() => {
@@ -833,64 +853,103 @@ export default function CobranzasClient({
 
       {/* \u2550\u2550\u2550\u2550\u2550\u2550 Weekly Breakdown \u2014 vista principal de la cola \u2550\u2550\u2550\u2550\u2550\u2550 */}
       <div>
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <div>
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-              <span aria-hidden>{"\u{1F4C5}"}</span>
-              <span>Cu&aacute;nto cobro cada semana</span>
-            </h2>
-            <p className="text-xs text-[var(--muted)] mt-0.5">
-              Cuotas agrupadas por fecha de vencimiento dentro del mes fiscal.
-              Click una semana para ver el detalle.
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs text-[var(--muted)] uppercase tracking-wider">Total a cobrar</p>
-            <p className="text-xl font-bold text-white" style={{ fontVariantNumeric: "tabular-nums" }}>
-              ${totalPorCobrar.toLocaleString()}
-            </p>
-          </div>
-        </div>
         {(() => {
-          // Items "atrasados" = vencidos antes del lunes de esta semana.
-          // Estos NO caen en ninguna card del grid (que arranca desde el
-          // lunes actual) \u2014 se muestran en una card aparte arriba.
-          const monday = new Date();
-          monday.setHours(0, 0, 0, 0);
-          const dow = monday.getDay();
-          const diff = dow === 0 ? -6 : 1 - dow;
-          monday.setDate(monday.getDate() + diff);
-          const overdueAnteriores = fiscalItemsWithOverdue.filter((i) => {
-            if (!i.fecha_vencimiento) return false;
-            return new Date(i.fecha_vencimiento + "T00:00:00") < monday;
-          });
-          const totalOverdueAnteriores = overdueAnteriores.reduce((s, i) => s + i.monto_usd, 0);
-          if (overdueAnteriores.length === 0) return null;
+          // Total de las semanas del mes vigente (sin atrasadas, sin futuros).
+          const totalMesVigente = weeks.reduce((s, w) => s + w.total, 0);
+          const _d = new Date(fiscalStart + "T00:00:00");
+          const meses = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+          const mesNombre = `${meses[_d.getMonth()]} ${_d.getFullYear()}`;
           return (
-            <div
-              className="mb-3 bg-[var(--card-bg)] border rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap"
-              style={{ borderColor: "#FB7185", borderLeftWidth: 4 }}
-            >
-              <div className="flex items-center gap-3">
-                <span aria-hidden style={{ fontSize: 22 }}>{"\u26A0\uFE0F"}</span>
-                <div>
-                  <p className="text-sm font-semibold text-[var(--red)]">
-                    Atrasadas (vencidas antes de esta semana)
-                  </p>
-                  <p className="text-xs text-[var(--muted)]">
-                    {overdueAnteriores.length} {overdueAnteriores.length === 1 ? "cuota" : "cuotas"}{" "}sin cobrar &mdash; ya pas&oacute; la fecha original de vencimiento.
-                  </p>
-                </div>
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <div>
+                <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <span aria-hidden>{"\u{1F4C5}"}</span>
+                  <span>Cuotas del mes &mdash; <span className="text-[var(--purple-light)]">{mesNombre}</span></span>
+                </h2>
+                <p className="text-xs text-[var(--muted)] mt-0.5">
+                  Cuotas agrupadas por semana. Click una semana para ver el detalle de cada cuota.
+                </p>
               </div>
               <div className="text-right">
-                <p
-                  className="text-xl font-bold text-[var(--red)]"
-                  style={{ fontVariantNumeric: "tabular-nums" }}
-                >
-                  ${totalOverdueAnteriores.toLocaleString()}
+                <p className="text-xs text-[var(--muted)] uppercase tracking-wider">Total mes vigente</p>
+                <p className="text-xl font-bold text-white" style={{ fontVariantNumeric: "tabular-nums" }}>
+                  ${totalMesVigente.toLocaleString()}
                 </p>
-                <p className="text-[10px] text-[var(--muted)]">total atrasado</p>
               </div>
+            </div>
+          );
+        })()}
+        {(() => {
+          // Atrasadas = cuotas con vencimiento ANTES del inicio del mes vigente.
+          // No entran en el grid del mes (que muestra semanas dentro del mes).
+          const fiscalStartDate = new Date(fiscalStart + "T00:00:00");
+          const atrasadas = fiscalItemsWithOverdue.filter((i) => {
+            if (!i.fecha_vencimiento) return false;
+            return new Date(i.fecha_vencimiento + "T00:00:00") < fiscalStartDate;
+          });
+          const totalAtrasadas = atrasadas.reduce((s, i) => s + i.monto_usd, 0);
+          if (atrasadas.length === 0) return null;
+          const isExpanded = expandedMonths.has("atrasadas");
+          return (
+            <div
+              className="mb-3 bg-[var(--card-bg)] border rounded-xl overflow-hidden"
+              style={{ borderColor: "#FB7185", borderLeftWidth: 4 }}
+            >
+              <button
+                onClick={() => toggleMonth("atrasadas")}
+                className="w-full flex items-center justify-between gap-3 p-4 hover:bg-white/5 transition-colors text-left"
+              >
+                <div className="flex items-center gap-3">
+                  <span aria-hidden style={{ fontSize: 22 }}>{"\u26A0\uFE0F"}</span>
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--red)]">
+                      Atrasadas (meses anteriores)
+                    </p>
+                    <p className="text-xs text-[var(--muted)]">
+                      {atrasadas.length} {atrasadas.length === 1 ? "cuota" : "cuotas"}{" "}sin cobrar de meses pasados. Click para ver el detalle.
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p
+                    className="text-xl font-bold text-[var(--red)]"
+                    style={{ fontVariantNumeric: "tabular-nums" }}
+                  >
+                    ${totalAtrasadas.toLocaleString()}
+                  </p>
+                  <p className="text-[10px] text-[var(--muted)]">total atrasado</p>
+                </div>
+              </button>
+              {isExpanded && (
+                <div className="border-t border-[var(--card-border)] p-3 space-y-1">
+                  {atrasadas
+                    .slice()
+                    .sort((a, b) => (a.fecha_vencimiento || "").localeCompare(b.fecha_vencimiento || ""))
+                    .map((item) => (
+                      <div
+                        key={item.id}
+                        className={`flex items-center justify-between p-2.5 rounded-lg text-sm ${getSemaforoBg(item.semaforo)}`}
+                      >
+                        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                          <span className={`w-2 h-2 rounded-full ${getSemaforoDot(item.semaforo)} flex-shrink-0`} />
+                          <span className="text-white font-medium truncate">{item.client_nombre}</span>
+                          <span className="text-[10px] text-[var(--muted)] flex-shrink-0">{getTipoLabel(item)}</span>
+                        </div>
+                        <div className="flex items-center gap-3 flex-shrink-0">
+                          <span className="text-[11px] text-[var(--red)]" style={{ fontVariantNumeric: "tabular-nums" }}>
+                            venc. {item.fecha_vencimiento ? new Date(item.fecha_vencimiento + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" }) : "s/f"}
+                          </span>
+                          <span
+                            className="text-white font-semibold"
+                            style={{ fontVariantNumeric: "tabular-nums", minWidth: 70, textAlign: "right" }}
+                          >
+                            {fmt(item.monto_usd)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           );
         })()}
@@ -1003,6 +1062,78 @@ export default function CobranzasClient({
             </div>
           );
         })}
+
+        {/* ══════ Meses futuros (colapsables) ══════ */}
+        {futureMonths.length > 0 && (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs text-[var(--muted)] uppercase tracking-wider font-semibold">
+              Pr&oacute;ximos meses
+            </p>
+            {futureMonths.map((m) => {
+              const expanded = expandedMonths.has(m.ym);
+              return (
+                <div
+                  key={m.ym}
+                  className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden"
+                >
+                  <button
+                    onClick={() => toggleMonth(m.ym)}
+                    className="w-full flex items-center justify-between gap-3 p-4 hover:bg-white/5 transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        className="text-[var(--muted)]"
+                        style={{ fontSize: 12, transition: "transform 200ms", display: "inline-block", transform: expanded ? "rotate(90deg)" : "rotate(0)" }}
+                      >
+                        &#9658;
+                      </span>
+                      <span className="text-sm font-semibold text-white">{m.label}</span>
+                      <span className="text-xs text-[var(--muted)]">
+                        {m.count} cuota{m.count !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    <span
+                      className="text-lg font-bold text-white"
+                      style={{ fontVariantNumeric: "tabular-nums" }}
+                    >
+                      ${m.total.toLocaleString()}
+                    </span>
+                  </button>
+                  {expanded && (
+                    <div className="border-t border-[var(--card-border)] p-3 space-y-1">
+                      {m.items
+                        .slice()
+                        .sort((a, b) => (a.fecha_vencimiento || "").localeCompare(b.fecha_vencimiento || ""))
+                        .map((item) => (
+                          <div
+                            key={item.id}
+                            className={`flex items-center justify-between p-2.5 rounded-lg text-sm ${getSemaforoBg(item.semaforo)}`}
+                          >
+                            <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                              <span className={`w-2 h-2 rounded-full ${getSemaforoDot(item.semaforo)} flex-shrink-0`} />
+                              <span className="text-white font-medium truncate">{item.client_nombre}</span>
+                              <span className="text-[10px] text-[var(--muted)] flex-shrink-0">{getTipoLabel(item)}</span>
+                            </div>
+                            <div className="flex items-center gap-3 flex-shrink-0">
+                              <span className="text-[11px] text-[var(--muted)]" style={{ fontVariantNumeric: "tabular-nums" }}>
+                                {item.fecha_vencimiento ? new Date(item.fecha_vencimiento + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" }) : "s/f"}
+                              </span>
+                              <span
+                                className="text-white font-semibold"
+                                style={{ fontVariantNumeric: "tabular-nums", minWidth: 70, textAlign: "right" }}
+                              >
+                                {fmt(item.monto_usd)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Agent Tasks Dashboard */}
