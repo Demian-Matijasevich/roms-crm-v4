@@ -31,6 +31,7 @@ function getNav(session: AuthSession): NavSection[] {
           { href: "/", label: "Dashboard", icon: "\u{1F4CA}" },
           { href: "/hoy", label: "Actividad hoy", icon: "\u{1F4C6}" },
           { href: "/calendario", label: "Calendario", icon: "\u{1F4C5}" },
+          { href: "/coaching", label: "Coaching", icon: "\u{1F3AF}" },
           { href: "/pipeline", label: "Pipeline", icon: "\u{1F4DE}" },
           { href: "/prospectos", label: "Prospectos", icon: "\u{1F4DE}" },
           { href: "/asistente", label: "Asistente IA", icon: "\u{1F916}" },

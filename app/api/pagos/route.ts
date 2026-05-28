@@ -122,7 +122,8 @@ export async function POST(req: NextRequest) {
         metodo_pago: (parsed.data.metodo_pago as MetodoPago) || null,
         receptor: parsed.data.receptor || null,
         comprobante_url: (body.comprobante_url as string) || null,
-        cobrador_id: estado === "pagado" ? session.team_member_id : null,
+        // Refund #2 — Setear cobrador_id también para refunds (no solo para pagados)
+        cobrador_id: estado === "pagado" || estado === "refund" ? session.team_member_id : null,
         verificado: false,
         es_renovacion: parsed.data.es_renovacion,
       };
@@ -181,8 +182,9 @@ export async function POST(req: NextRequest) {
     }
 
     // G — Avanzar estado del lead según completitud del ticket
+    // Refund #1 — Si refund total → broke_cancelado en lead, inactivo en cliente
     let estadoAvanzado: string | null = null;
-    if (payment.estado === "pagado" && payment.lead_id) {
+    if (payment.lead_id && (payment.estado === "pagado" || payment.estado === "refund")) {
       const { data: leadRow } = await sb
         .from("leads")
         .select("estado, ticket_total")
@@ -196,15 +198,34 @@ export async function POST(req: NextRequest) {
       const totalPagado = (pagosLead || [])
         .filter((p) => p.estado === "pagado")
         .reduce((s, p) => s + Number(p.monto_usd || 0), 0);
+      const totalRefund = (pagosLead || [])
+        .filter((p) => p.estado === "refund")
+        .reduce((s, p) => s + Number(p.monto_usd || 0), 0);
+      const neto = totalPagado - totalRefund;
       const ticket = Number(leadRow?.ticket_total || 0);
 
-      const ESTADOS_FINAL = ["cerrado", "adentro_seguimiento"];
-      if (leadRow && !ESTADOS_FINAL.includes(leadRow.estado)) {
-        // Si ya cubrió el ticket completo → cerrado, sino reserva
-        const targetEstado = ticket > 0 && totalPagado >= ticket ? "cerrado" : "reserva";
-        if (leadRow.estado !== targetEstado) {
+      if (leadRow) {
+        let targetEstado: string | null = null;
+        if (neto <= 0 && totalRefund > 0) {
+          // Refund total → broke_cancelado
+          targetEstado = "broke_cancelado";
+        } else if (payment.estado === "pagado") {
+          const ESTADOS_FINAL = ["cerrado", "adentro_seguimiento"];
+          if (!ESTADOS_FINAL.includes(leadRow.estado)) {
+            targetEstado = ticket > 0 && neto >= ticket ? "cerrado" : "reserva";
+          }
+        }
+        if (targetEstado && leadRow.estado !== targetEstado) {
           await sb.from("leads").update({ estado: targetEstado }).eq("id", payment.lead_id);
           estadoAvanzado = targetEstado;
+
+          // Propagar al cliente si existe
+          if (targetEstado === "broke_cancelado") {
+            await sb
+              .from("clients")
+              .update({ estado: "inactivo" })
+              .eq("lead_id", payment.lead_id);
+          }
         }
       }
     }
@@ -228,6 +249,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const authResult = await requireSession();
   if ("error" in authResult) return authResult.error;
+  const session = authResult.session;
 
   try {
     const body = await req.json();
@@ -238,11 +260,44 @@ export async function PATCH(req: NextRequest) {
     const patch: Record<string, unknown> = {};
     for (const k of allowed) if (k in updates) patch[k] = updates[k];
 
+    // Refund #2 — Si se está cambiando estado a refund o pagado y no había cobrador_id, setearlo
+    if (patch.estado === "refund" || patch.estado === "pagado") {
+      patch.cobrador_id = session.team_member_id;
+    }
+
     const supabase = createServerClient();
     const { data, error } = await supabase.from("payments").update(patch).eq("id", id).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Refund #1 — Si tras el cambio quedó refund total, mover lead a broke_cancelado
+    let estadoAvanzado: string | null = null;
+    if (data?.lead_id && (patch.estado === "refund" || patch.estado === "pagado")) {
+      const { data: leadRow } = await supabase
+        .from("leads")
+        .select("estado, ticket_total")
+        .eq("id", data.lead_id)
+        .maybeSingle();
+      const { data: pagosLead } = await supabase
+        .from("payments")
+        .select("monto_usd, estado")
+        .eq("lead_id", data.lead_id);
+      const totalPagado = (pagosLead || [])
+        .filter((p) => p.estado === "pagado")
+        .reduce((s, p) => s + Number(p.monto_usd || 0), 0);
+      const totalRefund = (pagosLead || [])
+        .filter((p) => p.estado === "refund")
+        .reduce((s, p) => s + Number(p.monto_usd || 0), 0);
+      const neto = totalPagado - totalRefund;
+
+      if (leadRow && neto <= 0 && totalRefund > 0 && leadRow.estado !== "broke_cancelado") {
+        await supabase.from("leads").update({ estado: "broke_cancelado" }).eq("id", data.lead_id);
+        await supabase.from("clients").update({ estado: "inactivo" }).eq("lead_id", data.lead_id);
+        estadoAvanzado = "broke_cancelado";
+      }
+    }
+
     if (data?.lead_id) await syncLeadToSheet(data.lead_id);
-    return NextResponse.json({ ok: true, payment: data });
+    return NextResponse.json({ ok: true, payment: data, estadoAvanzado });
   } catch (err) {
     console.error("[PATCH /api/pagos]", err);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });

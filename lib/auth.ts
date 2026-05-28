@@ -16,12 +16,14 @@ export async function createSessionToken(member: TeamMember): Promise<string> {
   if (member.is_setter) roles.push("setter");
   if (member.is_cobranzas) roles.push("cobranzas");
   if (member.is_seguimiento) roles.push("seguimiento");
+  if (member.is_jefe_ventas) roles.push("jefe_ventas");
 
   return new SignJWT({
     team_member_id: member.id,
     nombre: member.nombre,
     roles,
     is_admin: member.is_admin,
+    is_jefe_ventas: !!member.is_jefe_ventas,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -87,6 +89,7 @@ export async function loginWithPin(
   if (member.is_setter) roles.push("setter");
   if (member.is_cobranzas) roles.push("cobranzas");
   if (member.is_seguimiento) roles.push("seguimiento");
+  if (member.is_jefe_ventas) roles.push("jefe_ventas");
 
   return {
     token,
@@ -95,6 +98,7 @@ export async function loginWithPin(
       nombre: member.nombre,
       roles,
       is_admin: member.is_admin,
+      is_jefe_ventas: !!member.is_jefe_ventas,
     },
   };
 }

@@ -65,6 +65,7 @@ export interface TeamMember {
   is_setter: boolean;
   is_cobranzas: boolean;
   is_seguimiento: boolean;
+  is_jefe_ventas?: boolean;
   comision_pct: number;
   pin: string | null;
   activo: boolean;
@@ -411,6 +412,7 @@ export interface AuthSession {
   nombre: string;
   roles: string[];
   is_admin: boolean;
+  is_jefe_ventas?: boolean;
 }
 
 // ========================================

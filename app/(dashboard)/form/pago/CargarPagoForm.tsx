@@ -60,6 +60,7 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form fields
+  const [tipo, setTipo] = useState<"pagado" | "refund">("pagado");
   const [numeroCuota, setNumeroCuota] = useState<number>(2);
   const [currency, setCurrency] = useState<"USD" | "ARS">("USD");
   const [montoInput, setMontoInput] = useState("");
@@ -69,6 +70,7 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
   const [fechaPago, setFechaPago] = useState(todayISO());
   const [metodoPago, setMetodoPago] = useState("");
   const [receptor, setReceptor] = useState("");
+  const [motivoRefund, setMotivoRefund] = useState("");
   const [comprobante, setComprobante] = useState<File | null>(null);
 
   // Suppress unused variable warnings
@@ -147,9 +149,9 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
         monto_usd: monto,
         monto_ars: montoArs ? parseFloat(montoArs) : 0,
         fecha_pago: fechaPago,
-        estado: "pagado",
+        estado: tipo,
         metodo_pago: metodoPago || undefined,
-        receptor: receptor || undefined,
+        receptor: tipo === "refund" && motivoRefund ? `Refund - ${motivoRefund}` : receptor || undefined,
         comprobante_url: comprobanteUrl,
         es_renovacion: false,
       };
@@ -183,6 +185,8 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
     setFechaPago(todayISO());
     setMetodoPago("");
     setReceptor("");
+    setMotivoRefund("");
+    setTipo("pagado");
     setComprobante(null);
     setError("");
     setSubmitted(false);
@@ -313,8 +317,36 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
 
         return (
           <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
-            <h2 className="text-base font-semibold mb-1">Registrar pago</h2>
-            <p className="text-xs text-[var(--muted)] mb-5">{selected.nombre}</p>
+            <h2 className="text-base font-semibold mb-1">
+              {tipo === "refund" ? "Registrar refund" : "Registrar pago"}
+            </h2>
+            <p className="text-xs text-[var(--muted)] mb-4">{selected.nombre}</p>
+
+            {/* Tipo: Pago | Refund */}
+            <div className="grid grid-cols-2 gap-2 mb-5">
+              <button
+                type="button"
+                onClick={() => setTipo("pagado")}
+                className={`py-2.5 rounded-lg text-sm font-medium border transition-colors ${
+                  tipo === "pagado"
+                    ? "bg-green-500/20 border-green-500/50 text-green-300"
+                    : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--muted)]"
+                }`}
+              >
+                💰 Pago
+              </button>
+              <button
+                type="button"
+                onClick={() => setTipo("refund")}
+                className={`py-2.5 rounded-lg text-sm font-medium border transition-colors ${
+                  tipo === "refund"
+                    ? "bg-red-500/20 border-red-500/50 text-red-300"
+                    : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--muted)]"
+                }`}
+              >
+                ↩ Refund
+              </button>
+            </div>
 
             {/* Student info card */}
             <div className="bg-[#111113] border border-[var(--card-border)] rounded-lg p-4 mb-6 space-y-2">
@@ -444,6 +476,20 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
                 </select>
               </div>
 
+              {/* Motivo refund — solo si es refund */}
+              {tipo === "refund" && (
+                <div>
+                  <label className={labelClass}>Motivo del refund (opcional)</label>
+                  <input
+                    type="text"
+                    value={motivoRefund}
+                    onChange={(e) => setMotivoRefund(e.target.value)}
+                    placeholder="Ej: cliente arrepentido, chargeback, fallo en onboarding..."
+                    className={inputClass}
+                  />
+                </div>
+              )}
+
               {/* Comprobante upload */}
               <div>
                 <label className={labelClass}>Comprobante (imagen/PDF)</label>
@@ -495,10 +541,14 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={loading || yaPagadaMismoNum}
-                className="flex-1 bg-[var(--purple)] hover:bg-[var(--purple-dark)] disabled:opacity-50 disabled:cursor-not-allowed text-white py-2.5 rounded-lg text-sm font-medium transition-colors"
+                disabled={loading || (tipo === "pagado" && yaPagadaMismoNum)}
+                className={`flex-1 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  tipo === "refund"
+                    ? "bg-red-500 hover:bg-red-600"
+                    : "bg-[var(--purple)] hover:bg-[var(--purple-dark)]"
+                }`}
               >
-                {loading ? "Guardando..." : "Registrar pago"}
+                {loading ? "Guardando..." : tipo === "refund" ? "Registrar refund" : "Registrar pago"}
               </button>
             </div>
           </div>

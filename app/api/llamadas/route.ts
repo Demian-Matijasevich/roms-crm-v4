@@ -3,10 +3,25 @@ import { requireSession } from "@/lib/auth";
 import { llamadaSchema, cuotaPendienteSchema } from "@/lib/schemas";
 import { updateLead, updateLeadVerbose } from "@/lib/queries/leads";
 import { createPayment, createPaymentVerbose } from "@/lib/queries/payments";
+import { createServerClient } from "@/lib/supabase-server";
 import { getToday, toDateString } from "@/lib/date-utils";
 import { syncLeadToSheet } from "@/lib/sheet-sync";
 import { z } from "zod";
 import type { LeadEstado, LeadCalificacion, Programa, MetodoPago } from "@/lib/types";
+
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function planToCuotas(plan: string | null | undefined): number {
+  if (!plan) return 1;
+  if (plan === "paid_in_full") return 1;
+  if (plan === "2_cuotas") return 2;
+  if (plan === "3_cuotas") return 3;
+  return 0;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -89,7 +104,7 @@ export async function POST(req: NextRequest) {
           metodo_pago: (paymentData.metodo_pago as MetodoPago) || null,
           receptor: paymentData.receptor || null,
           comprobante_url: paymentData.comprobante_url || null,
-          cobrador_id: null,
+          cobrador_id: result.session.team_member_id,
           verificado: false,
           es_renovacion: false,
         });
@@ -130,6 +145,54 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Auto-generar cuotas pendientes si el closer NO las cargó a mano ──
+    // Se dispara solo si: hubo pago (c1 pagado), plan_pago indica multi-cuotas,
+    // ticket_total > 0, y no se cargaron cuotas manualmente.
+    let cuotasAutoGeneradas = 0;
+    if (
+      isCerrado &&
+      paymentCreated &&
+      cuotasCreadas === 0 &&
+      plan_pago &&
+      ticket_total &&
+      paymentMonto > 0
+    ) {
+      const totalCuotas = planToCuotas(plan_pago);
+      if (totalCuotas > 1) {
+        const sb = createServerClient();
+        const { data: existing } = await sb
+          .from("payments")
+          .select("numero_cuota")
+          .eq("lead_id", lead_id);
+        const yaCargadas = new Set((existing || []).map((p) => p.numero_cuota));
+
+        const restante = Math.max(0, Number(ticket_total) - Number(paymentMonto));
+        const montoPorCuota = totalCuotas > 1 ? Math.round(restante / (totalCuotas - 1)) : 0;
+        const baseFecha = (body.payment as { fecha_pago?: string } | undefined)?.fecha_pago || toDateString(getToday());
+
+        const aCrear: Array<Record<string, unknown>> = [];
+        for (let n = 2; n <= totalCuotas; n++) {
+          if (yaCargadas.has(n)) continue;
+          aCrear.push({
+            lead_id,
+            client_id: null,
+            numero_cuota: n,
+            monto_usd: montoPorCuota,
+            monto_ars: 0,
+            fecha_pago: null,
+            fecha_vencimiento: addDays(baseFecha, 30 * (n - 1)),
+            estado: "pendiente",
+            verificado: false,
+            es_renovacion: false,
+          });
+        }
+        if (aCrear.length > 0) {
+          const { error: insErr } = await sb.from("payments").insert(aCrear);
+          if (!insErr) cuotasAutoGeneradas = aCrear.length;
+        }
+      }
+    }
+
     await syncLeadToSheet(lead_id);
     return NextResponse.json({
       ok: !paymentError,
@@ -137,6 +200,7 @@ export async function POST(req: NextRequest) {
       payment: paymentCreated,
       paymentError,
       cuotasCreadas,
+      cuotasAutoGeneradas,
     });
   } catch (err) {
     console.error("[POST /api/llamadas]", err);
