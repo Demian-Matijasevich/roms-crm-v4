@@ -5,6 +5,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 const TEAM = [
   { nombre: "Fran", role: "admin", color: "#3b82f6" },
   { nombre: "Juanma", role: "admin", color: "#3b82f6" },
+  { nombre: "Mati", role: "jefe_ventas", color: "#f59e0b" },
   { nombre: "Valentino", role: "closer+setter", color: "#8b5cf6" },
   { nombre: "Agust\u00edn", role: "closer", color: "#60a5fa" },
   { nombre: "Juan Mart\u00edn", role: "closer", color: "#60a5fa" },
@@ -26,6 +27,7 @@ function getRoleLabel(role: string) {
     "closer+setter": "Closer + Setter",
     cobranzas: "Cobranzas",
     seguimiento: "Seguimiento",
+    jefe_ventas: "Jefe de Ventas",
   };
   return map[role] ?? role;
 }
