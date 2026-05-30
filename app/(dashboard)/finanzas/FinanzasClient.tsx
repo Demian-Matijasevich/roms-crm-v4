@@ -23,6 +23,8 @@ import { RECEPTORES } from "@/lib/constants";
 import type { MonthlyCash, TreasuryRow, Commission } from "@/lib/types";
 import type { GastoRow, IngresoRow, RefundRow } from "./page";
 import { useToast, useConfirm } from "@/app/components/Toast";
+import { useRouter } from "next/navigation";
+import AddPaymentModal from "@/app/components/AddPaymentModal";
 
 interface PaymentRow {
   id: string;
@@ -99,9 +101,12 @@ export default function FinanzasClient({
 }: Props) {
   const toast = useToast();
   const confirm = useConfirm();
+  const router = useRouter();
   const [rates, setRates] = useState(initialRates);
   const [newRateMes, setNewRateMes] = useState<string>(new Date().toISOString().slice(0, 7));
   const [newRateValue, setNewRateValue] = useState<string>("");
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   async function saveMonthRate() {
     const r = Number(newRateValue);
@@ -918,11 +923,19 @@ export default function FinanzasClient({
               Reembolsos a clientes — se descuentan del cash y del revenue devengado.
             </p>
           </div>
-          <div className="text-sm text-[var(--muted)]">
-            Total devuelto:{" "}
-            <span className="text-[var(--red)] font-semibold">
-              {formatUSD(Math.round(totalRefundsMes))}
-            </span>
+          <div className="flex items-center gap-3">
+            <div className="text-sm text-[var(--muted)]">
+              Total devuelto:{" "}
+              <span className="text-[var(--red)] font-semibold">
+                {formatUSD(Math.round(totalRefundsMes))}
+              </span>
+            </div>
+            <button
+              onClick={() => setShowRefundModal(true)}
+              className="text-xs font-medium px-3 py-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 transition-colors"
+            >
+              ↩ Cargar refund
+            </button>
           </div>
         </div>
         {monthRefunds.length > 0 ? (
@@ -1649,6 +1662,33 @@ export default function FinanzasClient({
           </BarChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Modal de refund */}
+      {showRefundModal && (
+        <AddPaymentModal
+          leads={leadsForPro.map((l) => ({ id: l.id, nombre: l.nombre || "(sin nombre)" }))}
+          defaultEstado="refund"
+          onClose={() => setShowRefundModal(false)}
+          onCreated={() => {
+            toast.success("Refund cargado");
+            setShowRefundModal(false);
+            router.refresh();
+          }}
+        />
+      )}
+
+      {/* Modal de pago genérico */}
+      {showPaymentModal && (
+        <AddPaymentModal
+          leads={leadsForPro.map((l) => ({ id: l.id, nombre: l.nombre || "(sin nombre)" }))}
+          onClose={() => setShowPaymentModal(false)}
+          onCreated={() => {
+            toast.success("Pago cargado");
+            setShowPaymentModal(false);
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

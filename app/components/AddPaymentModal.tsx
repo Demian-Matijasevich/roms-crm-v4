@@ -10,6 +10,7 @@ interface LeadOption {
 interface Props {
   leads: LeadOption[];
   defaultLeadId?: string | null;
+  defaultEstado?: "pagado" | "pendiente" | "perdido" | "refund";
   onClose: () => void;
   onCreated?: (payment: PaymentResult) => void;
 }
@@ -26,7 +27,7 @@ export interface PaymentResult {
 
 const METODOS = ["mercado_pago", "transferencia", "cash", "binance", "stripe", "wise"];
 
-export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreated }: Props) {
+export default function AddPaymentModal({ leads, defaultLeadId, defaultEstado, onClose, onCreated }: Props) {
   const [leadId, setLeadId] = useState<string>(defaultLeadId || "");
   const defaultLeadName = defaultLeadId ? (leads.find((l) => l.id === defaultLeadId)?.nombre || "") : "";
   const [search, setSearch] = useState(defaultLeadName);
@@ -34,10 +35,11 @@ export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreat
   const [montoArs, setMontoArs] = useState<string>("");
   const [fechaPago, setFechaPago] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [numeroCuota, setNumeroCuota] = useState<number>(1);
-  const [estado, setEstado] = useState<"pagado" | "pendiente" | "perdido" | "refund">("pagado");
+  const [estado, setEstado] = useState<"pagado" | "pendiente" | "perdido" | "refund">(defaultEstado || "pagado");
+  const [motivo, setMotivo] = useState<string>("");
   const [metodoPago, setMetodoPago] = useState<string>("");
   const [metodoCustom, setMetodoCustom] = useState<string>("");
-  const [receptor, setReceptor] = useState<string>("");
+  const [receptor, setReceptor] = useState<string>(defaultEstado === "refund" ? "Refund" : "");
   const [esRenovacion, setEsRenovacion] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -64,6 +66,9 @@ export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreat
     setMsg(null);
     try {
       const finalMetodo = metodoPago === "otro" ? metodoCustom.trim() : metodoPago;
+      const finalReceptor = estado === "refund" && motivo.trim()
+        ? `Refund - ${motivo.trim()}`
+        : receptor || undefined;
       const body = {
         lead_id: leadId,
         numero_cuota: numeroCuota,
@@ -72,7 +77,7 @@ export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreat
         fecha_pago: fechaPago,
         estado,
         metodo_pago: finalMetodo || undefined,
-        receptor: receptor || undefined,
+        receptor: finalReceptor,
         es_renovacion: esRenovacion,
       };
       const res = await fetch("/api/pagos", {
@@ -101,8 +106,12 @@ export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreat
       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl w-full max-w-2xl my-8 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="p-5 border-b border-[var(--card-border)] flex items-center justify-between sticky top-0 bg-[var(--card-bg)] z-10">
           <div>
-            <h2 className="text-lg font-semibold text-white">Cargar pago</h2>
-            <p className="text-xs text-[var(--muted)]">Asociar a un lead existente</p>
+            <h2 className="text-lg font-semibold text-white">
+              {estado === "refund" ? "↩ Cargar refund" : "Cargar pago"}
+            </h2>
+            <p className="text-xs text-[var(--muted)]">
+              {estado === "refund" ? "Reembolso a un lead existente" : "Asociar a un lead existente"}
+            </p>
           </div>
           <button onClick={onClose} aria-label="Cerrar" className="text-[var(--muted)] hover:text-white text-2xl leading-none">×</button>
         </div>
@@ -192,6 +201,22 @@ export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreat
             </div>
           </div>
 
+          {estado === "refund" && (
+            <div>
+              <label className="text-xs text-[var(--muted)] mb-1 block">Motivo del refund (opcional)</label>
+              <input
+                type="text"
+                value={motivo}
+                onChange={(e) => setMotivo(e.target.value)}
+                className={inputClass}
+                placeholder="Ej: cliente arrepentido, chargeback, fallo en onboarding..."
+              />
+              <p className="text-[10px] text-amber-300 mt-1.5">
+                ⚠️ Si el refund cubre el total pagado, el lead pasa a <b>broke_cancelado</b> y el cliente a <b>inactivo</b> automáticamente.
+              </p>
+            </div>
+          )}
+
           <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
             <input type="checkbox" checked={esRenovacion} onChange={(e) => setEsRenovacion(e.target.checked)} />
             Es renovación
@@ -199,9 +224,16 @@ export default function AddPaymentModal({ leads, defaultLeadId, onClose, onCreat
         </div>
 
         <div className="p-5 border-t border-[var(--card-border)] flex items-center gap-3 sticky bottom-0 bg-[var(--card-bg)]">
-          <button onClick={handleSave} disabled={saving}
-            className="text-sm font-medium bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white px-5 py-2 rounded-lg disabled:opacity-50">
-            {saving ? "Guardando..." : "Cargar pago"}
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className={`text-sm font-medium text-white px-5 py-2 rounded-lg disabled:opacity-50 ${
+              estado === "refund"
+                ? "bg-red-500 hover:bg-red-600"
+                : "bg-[var(--purple)] hover:bg-[var(--purple-dark)]"
+            }`}
+          >
+            {saving ? "Guardando..." : estado === "refund" ? "Cargar refund" : "Cargar pago"}
           </button>
           <button onClick={onClose} className="text-sm text-[var(--muted)] hover:text-white px-3 py-2">Cancelar</button>
           {msg && (
