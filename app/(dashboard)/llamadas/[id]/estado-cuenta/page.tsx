@@ -5,6 +5,7 @@ import { redirect, notFound } from "next/navigation";
 import { PROGRAMS, LEAD_ESTADOS_LABELS } from "@/lib/constants";
 import { getToday } from "@/lib/date-utils";
 import { formatUSD, formatDate } from "@/lib/format";
+import { formatPlanDetail } from "@/lib/plan-format";
 import type { Payment } from "@/lib/types";
 import EstadoCuentaLeadActions from "./EstadoCuentaLeadActions";
 
@@ -90,8 +91,38 @@ export default async function EstadoCuentaLeadPage({ params }: Props) {
         </div>
         <div>
           <p className="text-gray-500">Plan de pago</p>
-          <p className="text-black">{lead.plan_pago?.replace(/_/g, " ") || "---"}</p>
+          <p className="text-black">
+            {lead.plan_pago?.replace(/_/g, " ") || "---"}
+            {lead.plan_pago && lead.ticket_total > 0 && (
+              <span className="text-gray-500 ml-1">— {formatPlanDetail(lead.plan_pago, lead.ticket_total)}</span>
+            )}
+          </p>
         </div>
+        {lead.transcripcion_url && (
+          <div className="col-span-2">
+            <p className="text-gray-500">Grabación / Transcripción</p>
+            <a
+              href={lead.transcripcion_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 underline break-all"
+            >
+              {lead.transcripcion_url}
+            </a>
+          </div>
+        )}
+        {lead.se_presento && (
+          <div>
+            <p className="text-gray-500">¿Se presentó?</p>
+            <p className="text-black">{lead.se_presento === "si" ? "Sí, vino" : lead.se_presento === "no" ? "No show" : "Canceló antes"}</p>
+          </div>
+        )}
+        {lead.estado === "cerrado" && lead.cerrado_en_llamada !== null && lead.cerrado_en_llamada !== undefined && (
+          <div>
+            <p className="text-gray-500">Cierre</p>
+            <p className="text-black">{lead.cerrado_en_llamada ? "En llamada (mismo día)" : "En seguimiento (después)"}</p>
+          </div>
+        )}
         <div>
           <p className="text-gray-500">Closer</p>
           <p className="text-black">{lead.closer?.nombre || "---"}</p>

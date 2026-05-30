@@ -1258,6 +1258,21 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
           ))}
         </select>
 
+        {/* Quick "Mis llamadas" — solo si el user es closer (o jefe ventas) */}
+        {(session.roles.includes("closer") || session.is_jefe_ventas) && (
+          <button
+            type="button"
+            onClick={() => setCloserFilter(closerFilter === session.team_member_id ? "todos" : session.team_member_id)}
+            className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap ${
+              closerFilter === session.team_member_id
+                ? "bg-[var(--purple)]/20 border-[var(--purple)] text-purple-300"
+                : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--muted)]"
+            }`}
+          >
+            👤 Mis llamadas
+          </button>
+        )}
+
         <select
           value={setterFilter}
           onChange={(e) => setSetterFilter(e.target.value)}

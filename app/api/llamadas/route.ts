@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { lead_id, estado, programa_pitcheado, concepto, plan_pago, ticket_total, reporte_general, notas_internas, lead_calificado, fecha_cierre_estimada } = parsed.data;
+    const { lead_id, estado, programa_pitcheado, concepto, plan_pago, ticket_total, reporte_general, notas_internas, lead_calificado, fecha_cierre_estimada, se_presento, cerrado_en_llamada, transcripcion_url } = parsed.data;
 
     const paymentMonto = Number((body.payment as { monto_usd?: number } | undefined)?.monto_usd ?? 0);
 
@@ -56,6 +56,14 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    // 025 — Si el estado implica que se trabajó la llamada, exigir se_presento.
+    const ESTADOS_POST_LLAMADA = ["cerrado", "reserva", "seguimiento", "no_cierre", "no_calificado", "adentro_seguimiento"];
+    if (ESTADOS_POST_LLAMADA.includes(estado) && !se_presento) {
+      return NextResponse.json(
+        { error: "Indicá si el lead se presentó a la llamada (¿se presentó?)." },
+        { status: 400 }
+      );
+    }
 
     // Update the lead
     const leadUpdate: Record<string, unknown> = {
@@ -71,6 +79,15 @@ export async function POST(req: NextRequest) {
     if (notas_internas) leadUpdate.notas_internas = notas_internas;
     if (lead_calificado) leadUpdate.lead_calificado = lead_calificado;
     if (fecha_cierre_estimada) leadUpdate.fecha_cierre_estimada = fecha_cierre_estimada;
+    // 025 — Secure Scale improvements
+    if (se_presento !== undefined && se_presento !== null) leadUpdate.se_presento = se_presento;
+    if (cerrado_en_llamada !== undefined && cerrado_en_llamada !== null) leadUpdate.cerrado_en_llamada = cerrado_en_llamada;
+    else if (estado === "cerrado") {
+      // Default: si cierra ahora y se presentó, asumimos cerrado en llamada (más común).
+      // El form puede destildar esto si fue en seguimiento.
+      leadUpdate.cerrado_en_llamada = true;
+    }
+    if (transcripcion_url) leadUpdate.transcripcion_url = transcripcion_url;
 
     const updatedLead = await updateLead(lead_id, leadUpdate);
     if (!updatedLead) {

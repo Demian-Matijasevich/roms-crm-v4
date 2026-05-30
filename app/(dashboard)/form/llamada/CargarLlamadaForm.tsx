@@ -62,11 +62,13 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
   const [error, setError] = useState("");
 
   // Step 3 fields
-  const [sePresento, setSePresento] = useState<"si" | "no" | "">("");
+  const [sePresento, setSePresento] = useState<"si" | "no" | "cancelado" | "">("");
   const [estado, setEstado] = useState<string>("");
   const [calificado, setCalificado] = useState<string>("");
   const [programa, setPrograma] = useState<string>("");
   const [reporteGeneral, setReporteGeneral] = useState("");
+  const [transcripcionUrl, setTranscripcionUrl] = useState("");
+  const [cerradoEnLlamada, setCerradoEnLlamada] = useState<boolean>(true);
 
   // Step 4 fields (payment)
   const [planPago, setPlanPago] = useState<string>("");
@@ -176,12 +178,19 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
       lead_calificado: calificado || undefined,
       programa_pitcheado: programa || undefined,
       reporte_general: reporteGeneral || undefined,
+      // 025 — Secure Scale improvements
+      se_presento: sePresento || undefined,
+      transcripcion_url: transcripcionUrl || undefined,
     };
 
-    // If cerrado, include payment info
+    // If cerrado, include payment info + cerrado_en_llamada
     if (isCerrado(estado)) {
       body.plan_pago = planPago || undefined;
       body.ticket_total = ticketTotal ? parseFloat(ticketTotal) : 0;
+      // 025 — Si cerró, indicar si fue en la llamada o en seguimiento
+      if (estado === "cerrado") {
+        body.cerrado_en_llamada = cerradoEnLlamada;
+      }
       if (estado === "reserva" && fechaCierreEstimada) {
         body.fecha_cierre_estimada = fechaCierreEstimada;
       }
@@ -227,9 +236,13 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
       };
     }
 
-    // If no-show, mark estado accordingly
+    // Si no se presentó (no_show) y no se eligió un estado de post-llamada, forzamos no_show.
     if (sePresento === "no" && estado === "pendiente") {
       body.estado = "no_show";
+    }
+    // Si avisó que cancelaba, marcar el estado como cancelada.
+    if (sePresento === "cancelado" && estado === "pendiente") {
+      body.estado = "cancelada";
     }
 
     try {
@@ -261,6 +274,8 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
     setCalificado("");
     setPrograma("");
     setReporteGeneral("");
+    setTranscripcionUrl("");
+    setCerradoEnLlamada(true);
     setPlanPago("");
     setTicketTotal("");
     setCashDia1("");
@@ -404,26 +419,35 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
           <p className="text-xs text-[var(--muted)] mb-5">{selectedLead.nombre}</p>
 
           <div className="space-y-4">
-            {/* Se presento */}
+            {/* Se presento — tres estados separados de "Situación" */}
             <div>
-              <label className={labelClass}>Se presento *</label>
-              <div className="flex gap-3">
-                {(["si", "no"] as const).map((opt) => (
+              <label className={labelClass}>¿Se presentó? *</label>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { v: "si", label: "Sí, vino", c: "green" },
+                  { v: "no", label: "No show", c: "red" },
+                  { v: "cancelado", label: "Canceló antes", c: "amber" },
+                ] as const).map((opt) => (
                   <button
-                    key={opt}
-                    onClick={() => setSePresento(opt)}
-                    className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${
-                      sePresento === opt
-                        ? opt === "si"
+                    key={opt.v}
+                    onClick={() => setSePresento(opt.v)}
+                    className={`py-2.5 rounded-lg text-xs font-medium border transition-colors ${
+                      sePresento === opt.v
+                        ? opt.c === "green"
                           ? "bg-green-500/10 border-green-500 text-green-400"
-                          : "bg-red-500/10 border-red-500 text-red-400"
+                          : opt.c === "red"
+                          ? "bg-red-500/10 border-red-500 text-red-400"
+                          : "bg-amber-500/10 border-amber-500 text-amber-400"
                         : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--muted)]"
                     }`}
                   >
-                    {opt === "si" ? "Si" : "No"}
+                    {opt.label}
                   </button>
                 ))}
               </div>
+              <p className="text-[10px] text-[var(--muted)] mt-1.5">
+                Show up rate se calcula con este campo, independiente de la situación.
+              </p>
             </div>
 
             {/* Estado */}
@@ -479,6 +503,19 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
                 className={`${inputClass} resize-none`}
               />
             </div>
+
+            {/* Transcripción / grabación */}
+            <div>
+              <label className={labelClass}>Link grabación / transcripción</label>
+              <input
+                type="url"
+                value={transcripcionUrl}
+                onChange={(e) => setTranscripcionUrl(e.target.value)}
+                placeholder="https://fathom.video/share/... o link Drive"
+                className={inputClass}
+              />
+              <p className="text-[10px] text-[var(--muted)] mt-1">Opcional — Fathom, Loom, Drive, etc.</p>
+            </div>
           </div>
 
           {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
@@ -507,6 +544,28 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
           </p>
 
           <div className="space-y-4">
+            {/* 025 — Cerrado en llamada vs en seguimiento */}
+            {estado === "cerrado" && (
+              <div className="bg-blue-500/5 border border-blue-500/30 rounded-lg p-3">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={cerradoEnLlamada}
+                    onChange={(e) => setCerradoEnLlamada(e.target.checked)}
+                    className="mt-1 w-4 h-4"
+                  />
+                  <div>
+                    <p className="text-sm text-white font-medium">
+                      {cerradoEnLlamada ? "Cerrado en la misma llamada" : "Cerrado en seguimiento (después)"}
+                    </p>
+                    <p className="text-[10px] text-[var(--muted)] mt-0.5">
+                      Si destildás esto, el cierre cuenta como "en seguimiento" (vino a una llamada antes pero cerró después).
+                    </p>
+                  </div>
+                </label>
+              </div>
+            )}
+
             {/* Plan de pago */}
             <div>
               <label className={labelClass}>Plan de pago *</label>

@@ -4,12 +4,13 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { AuthSession } from "@/lib/types";
-import type { CoachingCloserSnapshot, CoachingLeadAlerta } from "./page";
+import type { CoachingCloserSnapshot, CoachingLeadAlerta, CoachingSetterFuente } from "./page";
 import { useToast } from "@/app/components/Toast";
 
 interface Props {
   snapshots: CoachingCloserSnapshot[];
   alertas: CoachingLeadAlerta[];
+  setterFuente: CoachingSetterFuente[];
   session: AuthSession;
   fiscalStart: string;
   fiscalEnd: string;
@@ -22,7 +23,7 @@ const fmtDate = (d: string | null) => {
   return dt.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
 };
 
-export default function CoachingClient({ snapshots, alertas, session, fiscalStart, fiscalEnd }: Props) {
+export default function CoachingClient({ snapshots, alertas, setterFuente, session, fiscalStart, fiscalEnd }: Props) {
   const router = useRouter();
   const toast = useToast();
   const [filterCloser, setFilterCloser] = useState<string>("");
@@ -111,6 +112,61 @@ export default function CoachingClient({ snapshots, alertas, session, fiscalStar
           <p className="text-[10px] uppercase text-[var(--muted)]">Total alertas</p>
           <p className="text-2xl font-bold text-amber-300" style={{ fontVariantNumeric: "tabular-nums" }}>{alertas.length}</p>
           <p className="text-[10px] text-[var(--muted)]">leads sin seguimiento</p>
+        </div>
+      </div>
+
+      {/* 025 — Performance avanzada por closer */}
+      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
+        <div className="p-4 border-b border-[var(--card-border)]">
+          <h2 className="text-base font-semibold text-white">📞 Performance del mes (Show Up + Cierre)</h2>
+          <p className="text-xs text-[var(--muted)]">
+            Solo cuenta llamadas con fecha_llamada en el periodo seleccionado.
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[10px] uppercase text-[var(--muted)] border-b border-[var(--card-border)]">
+                <th className="px-4 py-2">Closer</th>
+                <th className="px-3 py-2 text-right">Agendadas</th>
+                <th className="px-3 py-2 text-right">Presentadas</th>
+                <th className="px-3 py-2 text-right">Show Up</th>
+                <th className="px-3 py-2 text-right">Show Up Calif.</th>
+                <th className="px-3 py-2 text-right">% Cierre Calif.</th>
+                <th className="px-3 py-2 text-right">% Cierre No Calif.</th>
+                <th className="px-3 py-2 text-right">En llamada</th>
+                <th className="px-3 py-2 text-right">En seguim.</th>
+                <th className="px-3 py-2 text-right">AOV Día 1</th>
+                <th className="px-3 py-2 text-right">AOV Trato</th>
+              </tr>
+            </thead>
+            <tbody>
+              {snapshots.map((s) => (
+                <tr key={s.id} className="border-b border-[var(--card-border)]/40 hover:bg-white/5">
+                  <td className="px-4 py-2.5 text-white font-medium">{s.nombre}</td>
+                  <td className="px-3 py-2.5 text-right text-[var(--muted)]">{s.agendas_mes}</td>
+                  <td className="px-3 py-2.5 text-right text-[var(--muted)]">{s.presentadas_mes}</td>
+                  <td className={`px-3 py-2.5 text-right font-medium ${s.show_up_rate >= 70 ? "text-green-300" : s.show_up_rate >= 50 ? "text-amber-300" : "text-[var(--red)]"}`}>
+                    {s.show_up_rate}%
+                  </td>
+                  <td className={`px-3 py-2.5 text-right ${s.show_up_rate_calificados >= 70 ? "text-green-300" : s.show_up_rate_calificados >= 50 ? "text-amber-300" : "text-[var(--red)]"}`}>
+                    {s.show_up_rate_calificados}%
+                  </td>
+                  <td className={`px-3 py-2.5 text-right font-medium ${s.cierre_pct_calificados >= 40 ? "text-green-300" : s.cierre_pct_calificados >= 20 ? "text-amber-300" : "text-[var(--muted)]"}`}>
+                    {s.cierre_pct_calificados}%
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-[var(--muted)]">{s.cierre_pct_no_calificados}%</td>
+                  <td className="px-3 py-2.5 text-right text-green-300">{s.cerrados_en_llamada}</td>
+                  <td className="px-3 py-2.5 text-right text-amber-300">{s.cerrados_en_seguimiento}</td>
+                  <td className="px-3 py-2.5 text-right text-white" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(s.aov_dia_1)}</td>
+                  <td className="px-3 py-2.5 text-right text-[var(--purple-light)]" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(s.aov_trato_cerrado)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-3 text-[10px] text-[var(--muted)] border-t border-[var(--card-border)]">
+          Show Up Calif. = presentadas calificadas / agendadas calificadas. AOV Día 1 = $ cobrado en c1 promedio. AOV Trato = $ total promedio del deal cerrado.
         </div>
       </div>
 
@@ -271,6 +327,58 @@ export default function CoachingClient({ snapshots, alertas, session, fiscalStar
                 + {alertasFiltradas.length - 50} alertas más…
               </p>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* 025 — Setters por fuente */}
+      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
+        <div className="p-4 border-b border-[var(--card-border)]">
+          <h2 className="text-base font-semibold text-white">💬 Setters · performance por fuente</h2>
+          <p className="text-xs text-[var(--muted)]">
+            Agregado del periodo. Cada setter ve cuántos calendarios/agendas/calificadas saca por canal.
+          </p>
+        </div>
+        {setterFuente.length === 0 ? (
+          <p className="text-sm text-[var(--muted)] p-6 text-center">
+            Sin reportes diarios con fuente cargada en este periodo.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[10px] uppercase text-[var(--muted)] border-b border-[var(--card-border)]">
+                  <th className="px-4 py-2">Setter</th>
+                  <th className="px-3 py-2">Fuente</th>
+                  <th className="px-3 py-2 text-right">Conv.</th>
+                  <th className="px-3 py-2 text-right">FUPs</th>
+                  <th className="px-3 py-2 text-right">Calend.</th>
+                  <th className="px-3 py-2 text-right">Agendas</th>
+                  <th className="px-3 py-2 text-right">Calif.</th>
+                  <th className="px-3 py-2 text-right">% Calif.</th>
+                  <th className="px-3 py-2 text-right">Msj/Calend.</th>
+                  <th className="px-3 py-2 text-right">Agenda/Cal.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {setterFuente.map((s) => (
+                  <tr key={s.setter_id + s.fuente} className="border-b border-[var(--card-border)]/40 hover:bg-white/5">
+                    <td className="px-4 py-2.5 text-white font-medium">{s.setter_nombre}</td>
+                    <td className="px-3 py-2.5 text-[var(--purple-light)] capitalize">{s.fuente}</td>
+                    <td className="px-3 py-2.5 text-right text-[var(--muted)]">{s.conversaciones}</td>
+                    <td className="px-3 py-2.5 text-right text-[var(--muted)]">{s.fups}</td>
+                    <td className="px-3 py-2.5 text-right text-[var(--muted)]">{s.calendarios}</td>
+                    <td className="px-3 py-2.5 text-right text-white font-medium">{s.agendas}</td>
+                    <td className="px-3 py-2.5 text-right text-green-300">{s.agendas_calificadas}</td>
+                    <td className={`px-3 py-2.5 text-right ${s.pct_calificados >= 50 ? "text-green-300" : s.pct_calificados >= 30 ? "text-amber-300" : "text-[var(--muted)]"}`}>
+                      {s.pct_calificados}%
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-[var(--muted)]">{s.msj_por_calendario}</td>
+                    <td className="px-3 py-2.5 text-right text-[var(--muted)]">{s.agenda_por_calendario}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

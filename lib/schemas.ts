@@ -24,6 +24,10 @@ export const llamadaSchema = z.object({
   notas_internas: safeString(2000).optional(),
   lead_calificado: safeString(20).optional(),
   fecha_cierre_estimada: z.string().optional(),
+  // 025 — Secure Scale improvements
+  se_presento: z.enum(["si", "no", "cancelado"]).optional().nullable(),
+  cerrado_en_llamada: z.boolean().optional().nullable(),
+  transcripcion_url: z.string().optional().nullable(),
 });
 
 // Cuotas futuras (pendientes) que se cargan junto con la llamada cerrada.
@@ -69,6 +73,11 @@ export const reporteSetterSchema = z.object({
   ventas_por_chat: safeString(500).optional(),
   agendas_confirmadas: safeString(500).optional(),
   origen_principal: z.array(z.string()).default([]),
+  // 025 — Secure Scale metrics
+  fups: z.number().int().min(0).default(0),
+  agendas: z.number().int().min(0).default(0),
+  agendas_calificadas: z.number().int().min(0).default(0),
+  fuente: z.enum(["ig", "landing", "whatsapp", "otro"]).optional().nullable(),
 });
 
 export const followUpSchema = z.object({

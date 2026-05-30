@@ -111,6 +111,9 @@ export interface Lead {
   de_donde_viene_lead: string | null;
   etiquetas: string[];
   fecha_cierre_estimada: string | null;
+  se_presento?: "si" | "no" | "cancelado" | null;
+  cerrado_en_llamada?: boolean | null;
+  transcripcion_url?: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields

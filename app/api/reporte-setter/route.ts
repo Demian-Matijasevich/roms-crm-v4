@@ -31,6 +31,11 @@ export async function POST(req: NextRequest) {
         ventas_por_chat: parsed.data.ventas_por_chat || null,
         agendas_confirmadas: parsed.data.agendas_confirmadas || null,
         origen_principal: parsed.data.origen_principal,
+        // 025 — Secure Scale metrics
+        fups: parsed.data.fups,
+        agendas: parsed.data.agendas,
+        agendas_calificadas: parsed.data.agendas_calificadas,
+        fuente: parsed.data.fuente || null,
       })
       .select()
       .single();
@@ -54,7 +59,7 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json();
     const { id, ...updates } = body;
     if (!id) return NextResponse.json({ error: "id requerido" }, { status: 400 });
-    const allowed = ["setter_id", "fecha", "conversaciones_iniciadas", "respuestas_historias", "calendarios_enviados", "ventas_por_chat", "agendas_confirmadas"];
+    const allowed = ["setter_id", "fecha", "conversaciones_iniciadas", "respuestas_historias", "calendarios_enviados", "ventas_por_chat", "agendas_confirmadas", "fups", "agendas", "agendas_calificadas", "fuente"];
     const patch: Record<string, unknown> = {};
     for (const k of allowed) if (k in updates) patch[k] = updates[k];
     if (Object.keys(patch).length === 0) return NextResponse.json({ error: "nada para actualizar" }, { status: 400 });

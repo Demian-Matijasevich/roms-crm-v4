@@ -33,6 +33,11 @@ export default function ReporteSetterForm({ session }: Props) {
   const [ventasPorChat, setVentasPorChat] = useState("");
   const [agendasConfirmadas, setAgendasConfirmadas] = useState("");
   const [origenPrincipal, setOrigenPrincipal] = useState<string[]>([]);
+  // 025 — Secure Scale fields
+  const [fups, setFups] = useState("");
+  const [agendas, setAgendas] = useState("");
+  const [agendasCalificadas, setAgendasCalificadas] = useState("");
+  const [fuente, setFuente] = useState<"" | "ig" | "landing" | "whatsapp" | "otro">("");
 
   function toggleOrigen(origen: string) {
     setOrigenPrincipal((prev) =>
@@ -64,6 +69,11 @@ export default function ReporteSetterForm({ session }: Props) {
       ventas_por_chat: ventasPorChat.trim() || undefined,
       agendas_confirmadas: agendasConfirmadas.trim() || undefined,
       origen_principal: origenPrincipal,
+      // 025
+      fups: parseInt(fups, 10) || 0,
+      agendas: parseInt(agendas, 10) || 0,
+      agendas_calificadas: parseInt(agendasCalificadas, 10) || 0,
+      fuente: fuente || undefined,
     };
 
     try {
@@ -94,6 +104,10 @@ export default function ReporteSetterForm({ session }: Props) {
     setVentasPorChat("");
     setAgendasConfirmadas("");
     setOrigenPrincipal([]);
+    setFups("");
+    setAgendas("");
+    setAgendasCalificadas("");
+    setFuente("");
     setError("");
     setSubmitted(false);
   }
@@ -173,6 +187,43 @@ export default function ReporteSetterForm({ session }: Props) {
             className={`${inputClass} text-center text-lg`}
             required
           />
+        </div>
+
+        {/* 025 — Secure Scale: FUPs, Agendas, Agendas Calificadas, Fuente */}
+        <div className="mb-4 grid grid-cols-3 gap-2">
+          <div>
+            <label className={labelClass}>FUPs enviados</label>
+            <input type="number" min={0} value={fups} onChange={(e) => setFups(e.target.value)} placeholder="0" className={`${inputClass} text-center`} />
+          </div>
+          <div>
+            <label className={labelClass}>Agendas confirmadas</label>
+            <input type="number" min={0} value={agendas} onChange={(e) => setAgendas(e.target.value)} placeholder="0" className={`${inputClass} text-center`} />
+          </div>
+          <div>
+            <label className={labelClass}>De ellas, calificadas</label>
+            <input type="number" min={0} value={agendasCalificadas} onChange={(e) => setAgendasCalificadas(e.target.value)} placeholder="0" className={`${inputClass} text-center`} />
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className={labelClass}>Fuente principal del día</label>
+          <div className="grid grid-cols-4 gap-2">
+            {(["ig", "landing", "whatsapp", "otro"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFuente(fuente === f ? "" : f)}
+                className={`py-2 rounded-lg text-xs font-medium border transition-colors capitalize ${
+                  fuente === f
+                    ? "bg-[var(--purple)]/10 border-[var(--purple)] text-purple-300"
+                    : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--muted)]"
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-[var(--muted)] mt-1">Si trabajaste varias por igual, dejá vacío.</p>
         </div>
 
         {/* Ventas por chat */}
