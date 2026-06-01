@@ -95,6 +95,12 @@ export async function PATCH(req: NextRequest) {
       "ticket_total", "programa_pitcheado", "concepto", "plan_pago",
       "fuente", "lead_calificado", "lead_score",
       "contexto_setter", "reporte_general", "notas_internas",
+      // 028 — Nicho
+      "nicho",
+      // 025 — Secure Scale
+      "se_presento", "cerrado_en_llamada", "transcripcion_url",
+      // 021 — Iñaki
+      "fecha_cierre_estimada",
     ];
     const patch: Record<string, unknown> = {};
     for (const k of allowed) if (k in updates) patch[k] = updates[k];

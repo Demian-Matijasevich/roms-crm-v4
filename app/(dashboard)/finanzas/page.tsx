@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase-server";
 import { getFiscalMonth, getToday } from "@/lib/date-utils";
 import { getUsdRate } from "@/lib/queries/settings";
+import { getNichoFilter } from "@/lib/vista";
 import { computeTeamCommissions } from "@/lib/commissions";
 import FinanzasClient from "./FinanzasClient";
 import type { MonthlyCash, TreasuryRow, Commission } from "@/lib/types";
@@ -30,6 +31,20 @@ export default async function FinanzasPage() {
 
   const supabase = createServerClient();
   const currentFiscalMonth = getFiscalMonth(getToday());
+  const nicho = await getNichoFilter();
+
+  // Si hay vista filtrada, calcular set de lead_ids del nicho
+  let leadIdsNicho: Set<string> | null = null;
+  if (nicho) {
+    const { data: leadsN } = await supabase.from("leads").select("id").eq("nicho", nicho).range(0, 9999);
+    leadIdsNicho = new Set((leadsN || []).map((l: { id: string }) => l.id));
+  }
+
+  let leadsForCommQuery = supabase
+    .from("leads")
+    .select("id, nombre, closer_id, setter_id, utm_medium, programa_pitcheado, ticket_total, estado, fecha_llamada")
+    .range(0, 9999);
+  if (nicho) leadsForCommQuery = leadsForCommQuery.eq("nicho", nicho);
 
   const [monthlyCashRes, treasuryRes, gastosRes, paymentsRes, ingresosRes, leadsForCommRes, teamRes, campaignsRes, usdRate] =
     await Promise.all([
@@ -47,10 +62,7 @@ export default async function FinanzasPage() {
         .not("fecha_pago", "is", null)
         .order("fecha_pago", { ascending: false })
         .range(0, 4999),
-      supabase
-        .from("leads")
-        .select("id, nombre, closer_id, setter_id, utm_medium, programa_pitcheado, ticket_total, estado, fecha_llamada")
-        .range(0, 9999),
+      leadsForCommQuery,
       supabase
         .from("team_members")
         .select("id, nombre, is_closer, is_setter")
@@ -93,7 +105,10 @@ export default async function FinanzasPage() {
   });
 
   // Compute commissions per month using Valen scheme (7/5/7 × multiplicador, cap 10%) + setter 3%
-  const allPayments = (paymentsRes.data ?? []) as Array<{ lead_id: string | null; monto_usd: number; fecha_pago: string | null; estado: string }>;
+  const allPaymentsRaw = (paymentsRes.data ?? []) as Array<{ lead_id: string | null; monto_usd: number; fecha_pago: string | null; estado: string }>;
+  const allPayments = leadIdsNicho
+    ? allPaymentsRaw.filter((p) => p.lead_id && leadIdsNicho!.has(p.lead_id))
+    : allPaymentsRaw;
   const leadsForComm = (leadsForCommRes.data ?? []) as Array<{ id: string; closer_id: string | null; setter_id: string | null; utm_medium: string | null; programa_pitcheado: string | null }>;
   const teamData = (teamRes.data ?? []) as Array<{ id: string; nombre: string; is_closer: boolean; is_setter: boolean }>;
   const campaignsData = (campaignsRes.data ?? []) as Array<{ medium: string | null; setter_id: string | null }>;
@@ -133,7 +148,7 @@ export default async function FinanzasPage() {
     }
   }
 
-  const ingresos = ((ingresosRes.data as unknown[]) ?? []).map((r) => {
+  const ingresosRaw = ((ingresosRes.data as unknown[]) ?? []).map((r) => {
     const p = r as Record<string, unknown>;
     const lead = p.lead as Record<string, unknown> | null;
     return {
@@ -149,6 +164,13 @@ export default async function FinanzasPage() {
       es_renovacion: (p.es_renovacion as boolean) || false,
     };
   });
+  const ingresos = leadIdsNicho
+    ? ingresosRaw.filter((i) => i.lead_id && leadIdsNicho!.has(i.lead_id))
+    : ingresosRaw;
+  // Refunds también filtrados
+  const refundsFiltered = leadIdsNicho
+    ? refunds.filter((r) => r.lead_id && leadIdsNicho!.has(r.lead_id))
+    : refunds;
 
   // Pro metrics: leads cerrados con info de venta + clients para revenue devengado
   const leadsForPro = leadsForComm.map((l) => ({
@@ -192,7 +214,7 @@ export default async function FinanzasPage() {
       clientsForPro={clientsForPro}
       usdRateHistory={(usdRatesRes.data ?? []) as Array<{ mes: string; rate: number }>}
       currentFiscalMonth={currentFiscalMonth}
-      refunds={refunds}
+      refunds={refundsFiltered}
     />
   );
 }

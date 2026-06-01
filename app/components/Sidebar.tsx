@@ -5,6 +5,9 @@ import { usePathname, useRouter } from "next/navigation";
 import type { AuthSession } from "@/lib/types";
 import { isPushSupported, subscribeToPush, getPushPermission } from "@/lib/push-notifications";
 import { ThemeToggle } from "@/app/components/ui";
+import VistaSelector from "@/app/components/VistaSelector";
+
+type Vista = "todos" | "general" | "politica";
 
 interface NavItem {
   href: string;
@@ -282,7 +285,7 @@ function getBottomNav(session: AuthSession): BottomNavItem[] {
   ];
 }
 
-export default function Sidebar({ session }: { session: AuthSession }) {
+export default function Sidebar({ session, vista = "todos" }: { session: AuthSession; vista?: Vista }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -371,6 +374,12 @@ export default function Sidebar({ session }: { session: AuthSession }) {
         <div className="p-4 border-b border-[var(--card-border)]">
           <h2 className="text-lg font-bold text-white">ROMS CRM</h2>
           <p className="text-xs text-[var(--muted)]">{session.nombre} — {session.roles.join(", ")}</p>
+          {session.is_admin && (
+            <div className="mt-3">
+              <p className="text-[10px] uppercase text-[var(--muted)] font-semibold mb-1">Vista</p>
+              <VistaSelector current={vista} />
+            </div>
+          )}
         </div>
 
         <nav className="p-2">

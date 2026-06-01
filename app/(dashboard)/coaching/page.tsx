@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase-server";
+import { getNichoFilter } from "@/lib/vista";
 import { getFiscalStart, getFiscalEnd, toDateString, getToday } from "@/lib/date-utils";
 import CoachingClient from "./CoachingClient";
 
@@ -72,12 +73,16 @@ export default async function CoachingPage() {
   const fiscalStart = toDateString(getFiscalStart(getToday()));
   const fiscalEnd = toDateString(getFiscalEnd(getToday()));
 
+  const nicho = await getNichoFilter();
+  let leadsQuery = sb
+    .from("leads")
+    .select("id, nombre, estado, fecha_llamada, fecha_cierre_estimada, closer_id, ticket_total, telefono, se_presento, cerrado_en_llamada, lead_calificado")
+    .range(0, 9999);
+  if (nicho) leadsQuery = leadsQuery.eq("nicho", nicho);
+
   const [closersRes, leadsRes, paymentsRes, settersRes, reportsRes] = await Promise.all([
     sb.from("team_members").select("id, nombre, is_closer").eq("activo", true).eq("is_closer", true),
-    sb
-      .from("leads")
-      .select("id, nombre, estado, fecha_llamada, fecha_cierre_estimada, closer_id, ticket_total, telefono, se_presento, cerrado_en_llamada, lead_calificado")
-      .range(0, 9999),
+    leadsQuery,
     sb
       .from("payments")
       .select("lead_id, monto_usd, fecha_pago, estado, numero_cuota, es_renovacion")
@@ -107,7 +112,7 @@ export default async function CoachingPage() {
     cerrado_en_llamada?: boolean | null;
     lead_calificado?: string | null;
   }>;
-  const payments = (paymentsRes.data || []) as Array<{
+  const allPayments = (paymentsRes.data || []) as Array<{
     lead_id: string | null;
     monto_usd: number;
     fecha_pago: string | null;
@@ -115,6 +120,11 @@ export default async function CoachingPage() {
     numero_cuota: number;
     es_renovacion: boolean;
   }>;
+  // Si hay filtro de nicho, los payments deben reducirse a leads del nicho
+  const leadIdsNicho = nicho ? new Set(leads.map((l) => l.id)) : null;
+  const payments = leadIdsNicho
+    ? allPayments.filter((p) => p.lead_id && leadIdsNicho.has(p.lead_id))
+    : allPayments;
 
   const closerById = new Map(closers.map((c) => [c.id, c]));
 

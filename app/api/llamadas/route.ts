@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { lead_id, estado, programa_pitcheado, concepto, plan_pago, ticket_total, reporte_general, notas_internas, lead_calificado, fecha_cierre_estimada, se_presento, cerrado_en_llamada, transcripcion_url } = parsed.data;
+    const { lead_id, estado, programa_pitcheado, concepto, plan_pago, ticket_total, reporte_general, notas_internas, lead_calificado, fecha_cierre_estimada, se_presento, cerrado_en_llamada, transcripcion_url, nicho } = parsed.data;
 
     const paymentMonto = Number((body.payment as { monto_usd?: number } | undefined)?.monto_usd ?? 0);
 
@@ -88,6 +88,7 @@ export async function POST(req: NextRequest) {
       leadUpdate.cerrado_en_llamada = true;
     }
     if (transcripcion_url) leadUpdate.transcripcion_url = transcripcion_url;
+    if (nicho) leadUpdate.nicho = nicho;
 
     const updatedLead = await updateLead(lead_id, leadUpdate);
     if (!updatedLead) {

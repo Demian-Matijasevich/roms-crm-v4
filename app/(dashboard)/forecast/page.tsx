@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase-server";
 import { getSettings } from "@/lib/queries/settings";
+import { getNichoFilter } from "@/lib/vista";
 import { getFiscalStart, getFiscalEnd, toDateString, getToday } from "@/lib/date-utils";
 import { forecastByMonth, projectThisMonth, scoreCuotaRiesgo, type PaymentLite } from "@/lib/forecast";
 import ForecastClient from "./ForecastClient";
@@ -52,18 +53,23 @@ export default async function ForecastPage() {
   const todayStr = toDateString(today);
   const fiscalStart = toDateString(getFiscalStart(today));
   const fiscalEnd = toDateString(getFiscalEnd(today));
+  const nicho = await getNichoFilter();
+
+  // Leads filtrados por nicho si corresponde
+  let leadsQuery = sb.from("leads").select("id, nombre, telefono, closer_id, estado, ticket_total, fecha_llamada").range(0, 9999);
+  if (nicho) leadsQuery = leadsQuery.eq("nicho", nicho);
 
   const [paymentsRes, leadsRes, closersRes, settingsRaw] = await Promise.all([
     sb
       .from("payments")
       .select("id, lead_id, client_id, numero_cuota, monto_usd, estado, fecha_pago, fecha_vencimiento, snoozed_until, snooze_count, es_renovacion")
       .range(0, 9999),
-    sb.from("leads").select("id, nombre, telefono, closer_id, estado, ticket_total, fecha_llamada").range(0, 9999),
+    leadsQuery,
     sb.from("team_members").select("id, nombre").eq("is_closer", true).eq("activo", true),
     getSettings(),
   ]);
 
-  const payments = (paymentsRes.data || []) as Array<PaymentLite & { es_renovacion?: boolean }>;
+  const allPaymentsRaw = (paymentsRes.data || []) as Array<PaymentLite & { es_renovacion?: boolean }>;
   const leads = (leadsRes.data || []) as Array<{
     id: string;
     nombre: string;
@@ -73,6 +79,11 @@ export default async function ForecastPage() {
     ticket_total: number;
     fecha_llamada: string | null;
   }>;
+  // Si hay filtro de nicho, recortar payments a los leads del nicho
+  const leadIdsNicho = nicho ? new Set(leads.map((l) => l.id)) : null;
+  const payments = leadIdsNicho
+    ? allPaymentsRaw.filter((p) => !p.lead_id || leadIdsNicho.has(p.lead_id))
+    : allPaymentsRaw;
   const closers = (closersRes.data || []) as { id: string; nombre: string }[];
   const leadById = new Map(leads.map((l) => [l.id, l]));
 

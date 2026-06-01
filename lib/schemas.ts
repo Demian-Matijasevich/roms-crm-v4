@@ -28,6 +28,8 @@ export const llamadaSchema = z.object({
   se_presento: z.enum(["si", "no", "cancelado"]).optional().nullable(),
   cerrado_en_llamada: z.boolean().optional().nullable(),
   transcripcion_url: z.string().optional().nullable(),
+  // 028 — Nicho del lead (vertical)
+  nicho: z.string().max(50).optional().nullable(),
 });
 
 // Cuotas futuras (pendientes) que se cargan junto con la llamada cerrada.

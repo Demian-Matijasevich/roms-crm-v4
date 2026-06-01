@@ -516,6 +516,18 @@ export default function LlamadasClient({ leads: initialLeads, closers, setters, 
                     onChange={(e) => setEditData({ ...editData, fecha_llamada: e.target.value || null })}
                     className={inputClass} />
                 </div>
+                <div>
+                  <label className="text-xs text-[var(--muted)] mb-1 block">Nicho</label>
+                  <select
+                    value={(editData.nicho as string) || (lead as { nicho?: string }).nicho || "general"}
+                    onChange={(e) => setEditData({ ...editData, nicho: e.target.value })}
+                    className={selectClass}
+                  >
+                    <option value="general">🛒 Normal</option>
+                    <option value="politica">🏛 Política</option>
+                    <option value="otro">📦 Otro</option>
+                  </select>
+                </div>
               </div>
 
               {/* Fuente + UTMs */}

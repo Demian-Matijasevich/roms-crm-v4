@@ -11,6 +11,7 @@ interface Props {
   team: TeamMember[];
   usdRate: number;
   session: AuthSession;
+  defaultNicho?: string;
 }
 
 type Step = 1 | 2 | 3 | 4;
@@ -53,7 +54,7 @@ const labelClass = "text-sm text-[var(--muted)] block mb-1";
 const selectClass =
   "w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2.5 text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--purple)]";
 
-export default function CargarLlamadaForm({ leads, team, usdRate, session }: Props) {
+export default function CargarLlamadaForm({ leads, team, usdRate, session, defaultNicho = "general" }: Props) {
   const [step, setStep] = useState<Step>(1);
   const [search, setSearch] = useState("");
   const [selectedLead, setSelectedLead] = useState<LeadWithTeam | null>(null);
@@ -69,6 +70,7 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
   const [reporteGeneral, setReporteGeneral] = useState("");
   const [transcripcionUrl, setTranscripcionUrl] = useState("");
   const [cerradoEnLlamada, setCerradoEnLlamada] = useState<boolean>(true);
+  const [nicho, setNicho] = useState<string>(defaultNicho);
 
   // Step 4 fields (payment)
   const [planPago, setPlanPago] = useState<string>("");
@@ -226,6 +228,8 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
       // 025 — Secure Scale improvements
       se_presento: sePresento || undefined,
       transcripcion_url: transcripcionUrl || undefined,
+      // 028 — Nicho/vertical del lead
+      nicho: nicho || undefined,
     };
 
     // If cerrado, include payment info + cerrado_en_llamada
@@ -321,6 +325,7 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
     setReporteGeneral("");
     setTranscripcionUrl("");
     setCerradoEnLlamada(true);
+    setNicho(defaultNicho);
     setPlanPago("");
     setTicketTotal("");
     setCashDia1("");
@@ -535,6 +540,19 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
                   <option key={key} value={key}>{p.label}</option>
                 ))}
               </select>
+            </div>
+
+            {/* Nicho / vertical */}
+            <div>
+              <label className={labelClass}>Nicho del cliente</label>
+              <select value={nicho} onChange={(e) => setNicho(e.target.value)} className={selectClass}>
+                <option value="general">🛒 Normal (ecomm / negocios)</option>
+                <option value="politica">🏛 Política</option>
+                <option value="otro">📦 Otro</option>
+              </select>
+              <p className="text-[10px] text-[var(--muted)] mt-1">
+                Permite filtrar la app por vista (Normal / Política). Default: Normal.
+              </p>
             </div>
 
             {/* Reporte general */}
