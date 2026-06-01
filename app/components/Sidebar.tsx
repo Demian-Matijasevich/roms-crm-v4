@@ -374,7 +374,6 @@ export default function Sidebar({ session, vista = "todos" }: { session: AuthSes
           <h2 className="text-lg font-bold text-white">
             ROMS CRM
             {vista === "politica" && <span className="ml-2 text-xs font-semibold text-purple-300">· 🏛 Política</span>}
-            {vista === "general" && <span className="ml-2 text-xs font-semibold text-green-300">· 🛒 Normal</span>}
           </h2>
           <p className="text-xs text-[var(--muted)]">{session.nombre} — {session.roles.join(", ")}</p>
           {session.is_admin && (

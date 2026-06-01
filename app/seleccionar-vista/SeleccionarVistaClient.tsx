@@ -15,11 +15,11 @@ const VISTAS: Array<{
   glow: string;
 }> = [
   {
-    value: "general",
+    value: "todos",
     emoji: "🛒",
     title: "ROMS Normal",
-    subtitle: "Ecommerce y negocios",
-    description: "Operación habitual: clientes de Omnipresencia, Multicuentas, Consultoría y ROMS 7.",
+    subtitle: "Operación habitual",
+    description: "Vista combinada de todo: Omnipresencia, Multicuentas, Consultoría, ROMS 7 y demás. La operación de siempre.",
     accent: "#10b981",
     glow: "rgba(16, 185, 129, 0.30)",
   },
@@ -28,18 +28,9 @@ const VISTAS: Array<{
     emoji: "🏛",
     title: "ROMS Política",
     subtitle: "Campañas y asesoramiento",
-    description: "Clientes del vertical político. Aislado de la operación normal — no se mezcla.",
+    description: "Solo clientes del vertical político. Aislado de la operación normal — métricas y cobranzas por separado.",
     accent: "#a855f7",
     glow: "rgba(168, 85, 247, 0.30)",
-  },
-  {
-    value: "todos",
-    emoji: "🌐",
-    title: "Ver todo",
-    subtitle: "Vista combinada",
-    description: "Sin filtro de nicho. Muestra todos los leads y métricas mezcladas. Útil para análisis.",
-    accent: "#3b82f6",
-    glow: "rgba(59, 130, 246, 0.20)",
   },
 ];
 
@@ -92,7 +83,7 @@ export default function SeleccionarVistaClient({ nombre }: { nombre: string }) {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
           {VISTAS.map((v) => {
             const isBusy = busy === v.value;
             return (
