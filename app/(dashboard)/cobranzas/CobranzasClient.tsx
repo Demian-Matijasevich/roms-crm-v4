@@ -1712,10 +1712,80 @@ function PendingItemRow({
   diasColor?: string;
   onChange: () => void;
 }) {
-  const [mode, setMode] = useState<"none" | "pay" | "edit" | "delete">("none");
+  const [mode, setMode] = useState<"none" | "pay" | "edit" | "delete" | "snooze" | "bulk">("none");
   const [newFecha, setNewFecha] = useState(item.fecha_vencimiento ?? "");
+  const [snoozeDias, setSnoozeDias] = useState("7");
+  const [snoozeMotivo, setSnoozeMotivo] = useState("");
+  const [bulkDias, setBulkDias] = useState("7");
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
   const router = useRouter();
+
+  async function doSnooze() {
+    if (!item.payment_id) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/cuotas/snooze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          payment_id: item.payment_id,
+          dias: Number(snoozeDias) || 7,
+          motivo: snoozeMotivo || undefined,
+        }),
+      });
+      if (res.ok) {
+        toast.success(`Postergada +${snoozeDias} días`);
+        setMode("none");
+        setSnoozeMotivo("");
+        onChange();
+        router.refresh();
+      } else {
+        toast.error("Error al postergar");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doBulkMove() {
+    if (!item.client_id && !item.payment_id) return;
+    // Necesitamos lead_id; lo derivamos del payment vía API
+    setBusy(true);
+    try {
+      // El API acepta lead_id; pero hoy tenemos client_id. Usamos /api/admin/lookup-lead si hace falta.
+      // Para simplificar: el bulk-move acepta lead_id que sale del payment row.
+      // Pedimos al backend que lo resuelva: enviamos payment_id y dejamos que mueva por lead.
+      const res = await fetch(`/api/cuotas/bulk-move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ payment_id: item.payment_id, dias: Number(bulkDias) || 7 }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        toast.success(`${json.moved || 0} cuotas movidas +${bulkDias}d`);
+        setMode("none");
+        onChange();
+        router.refresh();
+      } else {
+        toast.error("Error al mover cuotas");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function copyWA() {
+    const venc = item.fecha_vencimiento
+      ? new Date(item.fecha_vencimiento + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "long" })
+      : "—";
+    const first = (item.client_nombre || "").split(" ")[0];
+    const txt = `Hola ${first}, te escribo desde ROMS. Te quería avisar que tenés una cuota de ${fmt(item.monto_usd)} con vencimiento ${venc}. ¿Cómo va con eso? Cualquier cosa me avisás. 🙌`;
+    navigator.clipboard.writeText(txt).then(
+      () => toast.success("Mensaje copiado"),
+      () => toast.error("No se pudo copiar")
+    );
+  }
 
   const fechaCorta = item.fecha_vencimiento
     ? new Date(item.fecha_vencimiento + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" })
@@ -1793,11 +1863,32 @@ function PendingItemRow({
                 ✓
               </button>
               <button
+                onClick={copyWA}
+                title="Copiar mensaje WA pre-armado"
+                className="text-[11px] px-2 py-1 rounded bg-green-500/10 hover:bg-green-500/20 text-green-400 transition-colors"
+              >
+                📋
+              </button>
+              <button
+                onClick={() => setMode(mode === "snooze" ? "none" : "snooze")}
+                title="Postergar cuota"
+                className="text-[11px] px-2 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 transition-colors"
+              >
+                ⏰
+              </button>
+              <button
                 onClick={() => setMode(mode === "edit" ? "none" : "edit")}
                 title="Editar fecha de vencimiento"
                 className="text-[11px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-[var(--muted)] transition-colors"
               >
                 ✎
+              </button>
+              <button
+                onClick={() => setMode(mode === "bulk" ? "none" : "bulk")}
+                title="Mover todas las cuotas del lead +N días"
+                className="text-[11px] px-2 py-1 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 transition-colors"
+              >
+                ⇒
               </button>
               <button
                 onClick={() => setMode(mode === "delete" ? "none" : "delete")}
@@ -1874,6 +1965,54 @@ function PendingItemRow({
                 Cancelar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {mode === "snooze" && item.payment_id && (
+        <div className="px-2.5 pb-2.5">
+          <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-2 flex-wrap">
+            <label className="text-xs text-amber-300">Postergar +</label>
+            <input
+              type="number"
+              value={snoozeDias}
+              onChange={(e) => setSnoozeDias(e.target.value)}
+              className="w-16 bg-[var(--background)] border border-[var(--card-border)] rounded px-2 py-1 text-sm text-white"
+            />
+            <span className="text-xs text-amber-300">días</span>
+            <input
+              type="text"
+              value={snoozeMotivo}
+              onChange={(e) => setSnoozeMotivo(e.target.value)}
+              placeholder="Motivo (cliente pidió tiempo, banco, etc)"
+              className="flex-1 min-w-[180px] bg-[var(--background)] border border-[var(--card-border)] rounded px-2 py-1 text-sm text-white"
+            />
+            <button onClick={doSnooze} disabled={busy} className="text-xs px-3 py-1 bg-amber-500 text-black font-medium rounded">
+              {busy ? "..." : "Postergar"}
+            </button>
+            <button onClick={() => setMode("none")} className="text-xs px-2 py-1 text-[var(--muted)]">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+      {mode === "bulk" && item.payment_id && (
+        <div className="px-2.5 pb-2.5">
+          <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg flex items-center gap-2 flex-wrap">
+            <p className="text-xs text-blue-300">Mover TODAS las cuotas pendientes de este lead</p>
+            <label className="text-xs text-blue-300">+</label>
+            <input
+              type="number"
+              value={bulkDias}
+              onChange={(e) => setBulkDias(e.target.value)}
+              className="w-16 bg-[var(--background)] border border-[var(--card-border)] rounded px-2 py-1 text-sm text-white"
+            />
+            <span className="text-xs text-blue-300">días</span>
+            <button onClick={doBulkMove} disabled={busy} className="text-xs px-3 py-1 bg-blue-500 text-white font-medium rounded">
+              {busy ? "..." : "Mover todas"}
+            </button>
+            <button onClick={() => setMode("none")} className="text-xs px-2 py-1 text-[var(--muted)]">
+              Cancelar
+            </button>
           </div>
         </div>
       )}

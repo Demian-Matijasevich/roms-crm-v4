@@ -122,19 +122,64 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
     }
   }
 
-  // Define cuantas cuotas futuras corresponden al plan elegido.
+  // Auto-genera fechas y montos sugeridos para cuotas futuras al elegir un plan.
   function selectPlan(value: string) {
     setPlanPago(value);
     let n = 0;
     if (value === "2_cuotas") n = 1;
     else if (value === "3_cuotas") n = 2;
     else if (value === "personalizado") n = Math.max(1, cuotas.length);
+
+    // Monto sugerido = (ticket - cashDia1) / cuotas restantes
+    const ticketNum = parseFloat(ticketTotal) || 0;
+    const cashRaw = parseFloat(cashDia1) || 0;
+    const cashUsd = cashCurrency === "USD" ? cashRaw : cashRaw > 0 ? Math.round(cashRaw / usdRate) : 0;
+    const saldo = Math.max(0, ticketNum - cashUsd);
+    const sugMonto = n > 0 ? Math.round(saldo / n) : 0;
+
+    // Fechas sugeridas: +30 días, +60 días, etc desde fechaPagoDia1
+    const baseDate = fechaPagoDia1 || new Date().toISOString().slice(0, 10);
+    function addDays(dateStr: string, days: number): string {
+      const d = new Date(dateStr + "T00:00:00");
+      d.setDate(d.getDate() + days);
+      return d.toISOString().slice(0, 10);
+    }
+
     setCuotas((prev) => {
       const next = [...prev];
-      while (next.length < n) next.push({ monto: "", fecha: "" });
+      while (next.length < n) {
+        const idx = next.length + 1;
+        next.push({
+          monto: sugMonto > 0 ? String(sugMonto) : "",
+          fecha: addDays(baseDate, 30 * idx),
+        });
+      }
       next.length = n;
       return next;
     });
+  }
+
+  // Recalcula fechas/montos sugeridos sin pisar lo que el closer ya tipeó.
+  function autoFillCuotas() {
+    const ticketNum = parseFloat(ticketTotal) || 0;
+    const cashRaw = parseFloat(cashDia1) || 0;
+    const cashUsd = cashCurrency === "USD" ? cashRaw : cashRaw > 0 ? Math.round(cashRaw / usdRate) : 0;
+    const saldo = Math.max(0, ticketNum - cashUsd);
+    const n = cuotas.length;
+    if (n === 0) return;
+    const sugMonto = Math.round(saldo / n);
+    const baseDate = fechaPagoDia1 || new Date().toISOString().slice(0, 10);
+    function addDays(dateStr: string, days: number): string {
+      const d = new Date(dateStr + "T00:00:00");
+      d.setDate(d.getDate() + days);
+      return d.toISOString().slice(0, 10);
+    }
+    setCuotas((prev) =>
+      prev.map((c, i) => ({
+        monto: c.monto || (sugMonto > 0 ? String(sugMonto) : ""),
+        fecha: c.fecha || addDays(baseDate, 30 * (i + 1)),
+      }))
+    );
   }
 
   function updateCuota(idx: number, field: "monto" | "fecha", val: string) {
@@ -684,11 +729,21 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
             {/* Cuotas restantes — punto 1 audit Iñaki */}
             {(planPago === "2_cuotas" || planPago === "3_cuotas" || planPago === "personalizado") && (
               <div className="bg-[var(--purple)]/5 border border-[var(--purple)]/30 rounded-lg p-3 space-y-3">
-                <p className="text-sm font-medium text-[var(--foreground)]">
-                  Cuotas restantes — fecha obligatoria
-                </p>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <p className="text-sm font-medium text-[var(--foreground)]">
+                    Cuotas restantes — fecha obligatoria
+                  </p>
+                  <button
+                    type="button"
+                    onClick={autoFillCuotas}
+                    className="text-[11px] px-2.5 py-1 rounded-md bg-[var(--purple)]/20 hover:bg-[var(--purple)]/30 text-[var(--purple-light)]"
+                    title="Sugerencia: monto = saldo/n, fechas a +30/+60/+90 días"
+                  >
+                    ✨ Auto-completar +30d
+                  </button>
+                </div>
                 {cuotas.map((c, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_1.2fr_auto] gap-2 items-end">
+                  <div key={i} className="grid grid-cols-[1fr_1.2fr_auto_auto] gap-2 items-end">
                     <div>
                       <label className="text-xs text-[var(--muted)] block mb-1">Cuota {i + 2} — monto USD</label>
                       <input
@@ -710,6 +765,35 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
                         className={inputClass}
                       />
                     </div>
+                    {/* Atajos +/-7d */}
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!c.fecha) return;
+                          const d = new Date(c.fecha + "T00:00:00");
+                          d.setDate(d.getDate() - 7);
+                          updateCuota(i, "fecha", d.toISOString().slice(0, 10));
+                        }}
+                        className="h-[42px] px-2 rounded-lg border border-[var(--card-border)] text-[var(--muted)] text-xs hover:bg-white/5"
+                        title="-7 días"
+                      >
+                        −7d
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!c.fecha) return;
+                          const d = new Date(c.fecha + "T00:00:00");
+                          d.setDate(d.getDate() + 7);
+                          updateCuota(i, "fecha", d.toISOString().slice(0, 10));
+                        }}
+                        className="h-[42px] px-2 rounded-lg border border-[var(--card-border)] text-[var(--muted)] text-xs hover:bg-white/5"
+                        title="+7 días"
+                      >
+                        +7d
+                      </button>
+                    </div>
                     {planPago === "personalizado" && (
                       <button
                         type="button"
@@ -730,6 +814,21 @@ export default function CargarLlamadaForm({ leads, team, usdRate, session }: Pro
                     + Agregar cuota
                   </button>
                 )}
+                {/* Validación visual: suma de cuotas vs saldo */}
+                {(() => {
+                  const ticketNum = parseFloat(ticketTotal) || 0;
+                  const cashRaw = parseFloat(cashDia1) || 0;
+                  const cashUsd = cashCurrency === "USD" ? cashRaw : cashRaw > 0 ? Math.round(cashRaw / usdRate) : 0;
+                  const saldo = Math.max(0, ticketNum - cashUsd);
+                  const sumaCuotas = cuotas.reduce((s, c) => s + (parseFloat(c.monto) || 0), 0);
+                  const diff = saldo - sumaCuotas;
+                  if (Math.abs(diff) < 1 || saldo === 0) return null;
+                  return (
+                    <p className={`text-xs ${Math.abs(diff) > 10 ? "text-amber-300" : "text-[var(--muted)]"}`}>
+                      ⚠️ Suma cuotas (${sumaCuotas.toLocaleString()}) {diff > 0 ? "menor" : "mayor"} al saldo (${saldo.toLocaleString()}). Diferencia: ${Math.abs(diff).toLocaleString()}
+                    </p>
+                  );
+                })()}
                 <p className="text-xs text-[var(--muted)]">
                   Estas cuotas se cargan como pagos pendientes y alimentan la cola de cobranzas.
                 </p>

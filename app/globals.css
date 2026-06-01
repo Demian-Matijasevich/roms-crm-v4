@@ -84,10 +84,69 @@ body.theme-light textarea[class*="bg-[var(--background)]"] {
   background-color: rgba(255, 255, 255, 0.50);
 }
 
+/* ───── Fix selects: las opciones del dropdown del browser
+   se renderizan con el bg del SO. En dark theme quedan blancas
+   y el texto blanco no se ve. Forzamos fondo dark y texto claro
+   para todas las <option> del CRM.
+─────────────────────────────────────────────────────────────── */
+select {
+  color: var(--foreground);
+  color-scheme: dark;
+}
+body.theme-light select {
+  color-scheme: light;
+}
+select option,
+select optgroup {
+  background-color: #1a1a22;
+  color: #f4f5f7;
+  padding: 6px 10px;
+}
+body.theme-light select option,
+body.theme-light select optgroup {
+  background-color: #ffffff;
+  color: #1b1d24;
+}
+
+/* Native date/time inputs: misma corrección de color */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"] {
+  color-scheme: dark;
+}
+body.theme-light input[type="date"],
+body.theme-light input[type="time"],
+body.theme-light input[type="datetime-local"],
+body.theme-light input[type="month"],
+body.theme-light input[type="week"] {
+  color-scheme: light;
+}
+
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* Placeholder de inputs ligeramente más legibles */
+input::placeholder,
+textarea::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+body.theme-light input::placeholder,
+body.theme-light textarea::placeholder {
+  color: rgba(20, 20, 40, 0.45);
+}
+
+/* Tooltip de title nativo más rápido (sólo Chrome lo respeta parcial, no rompe) */
+[title] {
+  cursor: help;
+}
+button[title],
+a[title] {
+  cursor: pointer;
+}
 
 /* ===== ANIMATIONS ===== */
 
