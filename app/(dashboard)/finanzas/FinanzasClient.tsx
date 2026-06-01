@@ -948,6 +948,8 @@ export default function FinanzasClient({
                   <th className="py-3 px-3 text-right">Ticket inicial</th>
                   <th className="py-3 px-3 text-right">Valor devuelto</th>
                   <th className="py-3 px-3 text-right">% del ticket</th>
+                  <th className="py-3 px-3 text-right">Desc. Closer</th>
+                  <th className="py-3 px-3 text-right">Desc. Setter</th>
                   <th className="py-3 px-3">Recibió</th>
                 </tr>
               </thead>
@@ -969,6 +971,12 @@ export default function FinanzasClient({
                       <td className="py-2 px-3 text-right font-mono text-[var(--muted)]">
                         {pct > 0 ? `${pct.toFixed(0)}%` : "—"}
                       </td>
+                      <td className="py-2 px-3 text-right font-mono text-amber-300">
+                        {r.descuento_closer > 0 ? `−${formatUSD(Math.round(r.descuento_closer))}` : "—"}
+                      </td>
+                      <td className="py-2 px-3 text-right font-mono text-amber-300">
+                        {r.descuento_setter > 0 ? `−${formatUSD(Math.round(r.descuento_setter))}` : "—"}
+                      </td>
                       <td className="py-2 px-3 text-[var(--muted)]">{r.receptor || "—"}</td>
                     </tr>
                   );
@@ -978,7 +986,20 @@ export default function FinanzasClient({
                   <td className="py-2 px-3 text-right font-mono text-[var(--red)]">
                     {formatUSD(Math.round(totalRefundsMes))}
                   </td>
-                  <td colSpan={2} />
+                  <td />
+                  <td className="py-2 px-3 text-right font-mono text-amber-300">
+                    {(() => {
+                      const t = monthRefunds.reduce((s, r) => s + (r.descuento_closer || 0), 0);
+                      return t > 0 ? `−${formatUSD(Math.round(t))}` : "—";
+                    })()}
+                  </td>
+                  <td className="py-2 px-3 text-right font-mono text-amber-300">
+                    {(() => {
+                      const t = monthRefunds.reduce((s, r) => s + (r.descuento_setter || 0), 0);
+                      return t > 0 ? `−${formatUSD(Math.round(t))}` : "—";
+                    })()}
+                  </td>
+                  <td />
                 </tr>
               </tbody>
             </table>

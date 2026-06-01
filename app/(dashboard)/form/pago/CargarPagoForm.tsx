@@ -71,6 +71,8 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
   const [metodoPago, setMetodoPago] = useState("");
   const [receptor, setReceptor] = useState("");
   const [motivoRefund, setMotivoRefund] = useState("");
+  const [descCloser, setDescCloser] = useState("");
+  const [descSetter, setDescSetter] = useState("");
   const [comprobante, setComprobante] = useState<File | null>(null);
 
   // Suppress unused variable warnings
@@ -154,6 +156,9 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
         receptor: tipo === "refund" && motivoRefund ? `Refund - ${motivoRefund}` : receptor || undefined,
         comprobante_url: comprobanteUrl,
         es_renovacion: false,
+        // 027 — Descuento de comisión negociado (solo aplica si es refund)
+        descuento_comision_closer_usd: tipo === "refund" ? Number(descCloser) || 0 : 0,
+        descuento_comision_setter_usd: tipo === "refund" ? Number(descSetter) || 0 : 0,
       };
 
       const res = await fetch("/api/pagos", {
@@ -186,6 +191,8 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
     setMetodoPago("");
     setReceptor("");
     setMotivoRefund("");
+    setDescCloser("");
+    setDescSetter("");
     setTipo("pagado");
     setComprobante(null);
     setError("");
@@ -478,16 +485,72 @@ export default function CargarPagoForm({ leads, paymentsByLead, team, usdRate, s
 
               {/* Motivo refund — solo si es refund */}
               {tipo === "refund" && (
-                <div>
-                  <label className={labelClass}>Motivo del refund (opcional)</label>
-                  <input
-                    type="text"
-                    value={motivoRefund}
-                    onChange={(e) => setMotivoRefund(e.target.value)}
-                    placeholder="Ej: cliente arrepentido, chargeback, fallo en onboarding..."
-                    className={inputClass}
-                  />
-                </div>
+                <>
+                  <div>
+                    <label className={labelClass}>Motivo del refund (opcional)</label>
+                    <input
+                      type="text"
+                      value={motivoRefund}
+                      onChange={(e) => setMotivoRefund(e.target.value)}
+                      placeholder="Ej: cliente arrepentido, chargeback, fallo en onboarding..."
+                      className={inputClass}
+                    />
+                  </div>
+
+                  {/* 027 — Descuento de comisión negociado */}
+                  <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-3">
+                    <p className="text-xs text-red-300 font-semibold mb-1">💸 Descuento de comisión</p>
+                    <p className="text-[10px] text-[var(--muted)] mb-3">
+                      Default sugerido = 10% closer / 5% setter del monto refundeado. Dejá en 0 si no descontás al equipo.
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] text-[var(--muted)] mb-1 block">Descuento closer (USD)</label>
+                        <div className="flex gap-1">
+                          <input
+                            type="number"
+                            min={0}
+                            step={10}
+                            value={descCloser}
+                            onChange={(e) => setDescCloser(e.target.value)}
+                            placeholder={montoUsd ? String(Math.round(parseFloat(montoUsd) * 0.1)) : "0"}
+                            className={inputClass}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setDescCloser(String(Math.round((parseFloat(montoUsd) || 0) * 0.1)))}
+                            className="px-2 text-[10px] rounded border border-[var(--card-border)] text-[var(--muted)] hover:text-white"
+                            title="Sugerir 10%"
+                          >
+                            10%
+                          </button>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-[var(--muted)] mb-1 block">Descuento setter (USD)</label>
+                        <div className="flex gap-1">
+                          <input
+                            type="number"
+                            min={0}
+                            step={10}
+                            value={descSetter}
+                            onChange={(e) => setDescSetter(e.target.value)}
+                            placeholder={montoUsd ? String(Math.round(parseFloat(montoUsd) * 0.05)) : "0"}
+                            className={inputClass}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setDescSetter(String(Math.round((parseFloat(montoUsd) || 0) * 0.05)))}
+                            className="px-2 text-[10px] rounded border border-[var(--card-border)] text-[var(--muted)] hover:text-white"
+                            title="Sugerir 5%"
+                          >
+                            5%
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
               )}
 
               {/* Comprobante upload */}

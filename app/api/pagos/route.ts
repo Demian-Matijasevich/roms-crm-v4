@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
 
     // Si no reusamos, crear pago nuevo
     if (!payment) {
-      const paymentData = {
+      const paymentData: Record<string, unknown> = {
         lead_id: leadId,
         client_id: clientId,
         renewal_id: null,
@@ -126,9 +126,14 @@ export async function POST(req: NextRequest) {
         cobrador_id: estado === "pagado" || estado === "refund" ? session.team_member_id : null,
         verificado: false,
         es_renovacion: parsed.data.es_renovacion,
+        // 027 — Descuentos de comisión negociados (típicamente en refunds)
+        descuento_comision_closer_usd: Number(parsed.data.descuento_comision_closer_usd || 0),
+        descuento_comision_setter_usd: Number(parsed.data.descuento_comision_setter_usd || 0),
       };
 
-      payment = await createPayment(paymentData);
+      // createPayment espera Omit<Payment, ...>; usamos any local porque
+      // los nuevos campos están en DB pero el tipo Payment puede no reflejarlos aún.
+      payment = await createPayment(paymentData as Parameters<typeof createPayment>[0]);
       if (!payment) {
         return NextResponse.json({ error: "Error al crear pago" }, { status: 500 });
       }
@@ -256,7 +261,7 @@ export async function PATCH(req: NextRequest) {
     const { id, ...updates } = body;
     if (!id) return NextResponse.json({ error: "id requerido" }, { status: 400 });
 
-    const allowed = ["monto_usd", "monto_ars", "fecha_pago", "fecha_vencimiento", "estado", "metodo_pago", "receptor", "numero_cuota", "es_renovacion"];
+    const allowed = ["monto_usd", "monto_ars", "fecha_pago", "fecha_vencimiento", "estado", "metodo_pago", "receptor", "numero_cuota", "es_renovacion", "descuento_comision_closer_usd", "descuento_comision_setter_usd"];
     const patch: Record<string, unknown> = {};
     for (const k of allowed) if (k in updates) patch[k] = updates[k];
 

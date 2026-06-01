@@ -41,6 +41,9 @@ export default function AddPaymentModal({ leads, defaultLeadId, defaultEstado, o
   const [metodoCustom, setMetodoCustom] = useState<string>("");
   const [receptor, setReceptor] = useState<string>(defaultEstado === "refund" ? "Refund" : "");
   const [esRenovacion, setEsRenovacion] = useState<boolean>(false);
+  // 027 — descuento comisión configurable
+  const [descCloser, setDescCloser] = useState<string>("");
+  const [descSetter, setDescSetter] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -79,6 +82,9 @@ export default function AddPaymentModal({ leads, defaultLeadId, defaultEstado, o
         metodo_pago: finalMetodo || undefined,
         receptor: finalReceptor,
         es_renovacion: esRenovacion,
+        // 027 — Descuento de comisión solo aplica cuando hay refund (server lo permite siempre, UI lo expone en refund)
+        descuento_comision_closer_usd: estado === "refund" ? Number(descCloser) || 0 : 0,
+        descuento_comision_setter_usd: estado === "refund" ? Number(descSetter) || 0 : 0,
       };
       const res = await fetch("/api/pagos", {
         method: "POST",
@@ -202,19 +208,76 @@ export default function AddPaymentModal({ leads, defaultLeadId, defaultEstado, o
           </div>
 
           {estado === "refund" && (
-            <div>
-              <label className="text-xs text-[var(--muted)] mb-1 block">Motivo del refund (opcional)</label>
-              <input
-                type="text"
-                value={motivo}
-                onChange={(e) => setMotivo(e.target.value)}
-                className={inputClass}
-                placeholder="Ej: cliente arrepentido, chargeback, fallo en onboarding..."
-              />
-              <p className="text-[10px] text-amber-300 mt-1.5">
-                ⚠️ Si el refund cubre el total pagado, el lead pasa a <b>broke_cancelado</b> y el cliente a <b>inactivo</b> automáticamente.
-              </p>
-            </div>
+            <>
+              <div>
+                <label className="text-xs text-[var(--muted)] mb-1 block">Motivo del refund (opcional)</label>
+                <input
+                  type="text"
+                  value={motivo}
+                  onChange={(e) => setMotivo(e.target.value)}
+                  className={inputClass}
+                  placeholder="Ej: cliente arrepentido, chargeback, fallo en onboarding..."
+                />
+                <p className="text-[10px] text-amber-300 mt-1.5">
+                  ⚠️ Si el refund cubre el total pagado, el lead pasa a <b>broke_cancelado</b> y el cliente a <b>inactivo</b> automáticamente.
+                </p>
+              </div>
+
+              {/* 027 — Descuento de comisión negociado */}
+              <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-3">
+                <p className="text-xs text-red-300 font-semibold mb-2">💸 Descuento de comisión negociado</p>
+                <p className="text-[10px] text-[var(--muted)] mb-3">
+                  Editable por refund. Default sugerido = 10% closer / 5% setter del monto refundeado.
+                  Dejá en 0 si no le descontás al equipo.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-[var(--muted)] mb-1 block">Descuento closer (USD)</label>
+                    <div className="flex gap-1">
+                      <input
+                        type="number"
+                        min={0}
+                        step={10}
+                        value={descCloser}
+                        onChange={(e) => setDescCloser(e.target.value)}
+                        placeholder={montoUsd ? String(Math.round(Number(montoUsd) * 0.1)) : "0"}
+                        className={inputClass}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setDescCloser(String(Math.round(Number(montoUsd) * 0.1)))}
+                        className="px-2 text-[10px] rounded border border-[var(--card-border)] text-[var(--muted)] hover:text-white"
+                        title="Sugerir 10%"
+                      >
+                        10%
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-[var(--muted)] mb-1 block">Descuento setter (USD)</label>
+                    <div className="flex gap-1">
+                      <input
+                        type="number"
+                        min={0}
+                        step={10}
+                        value={descSetter}
+                        onChange={(e) => setDescSetter(e.target.value)}
+                        placeholder={montoUsd ? String(Math.round(Number(montoUsd) * 0.05)) : "0"}
+                        className={inputClass}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setDescSetter(String(Math.round(Number(montoUsd) * 0.05)))}
+                        className="px-2 text-[10px] rounded border border-[var(--card-border)] text-[var(--muted)] hover:text-white"
+                        title="Sugerir 5%"
+                      >
+                        5%
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
           )}
 
           <label className="flex items-center gap-2 text-sm text-[var(--muted)]">

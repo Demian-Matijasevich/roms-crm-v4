@@ -48,6 +48,9 @@ export const pagoSchema = z.object({
   metodo_pago: safeString(30),
   receptor: safeString(50),
   es_renovacion: z.boolean().default(false),
+  // 027 — Descuento de comisión configurable (tipicamente cuando es refund)
+  descuento_comision_closer_usd: z.number().min(0).default(0).optional(),
+  descuento_comision_setter_usd: z.number().min(0).default(0).optional(),
 });
 
 export const ventaChatSchema = z.object({

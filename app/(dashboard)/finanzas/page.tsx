@@ -72,7 +72,7 @@ export default async function FinanzasPage() {
   // Refunds — punto 7 audit Iñaki: payments con estado refund + ticket inicial del lead
   const refundsRes = await supabase
     .from("payments")
-    .select("id, lead_id, monto_usd, fecha_pago, numero_cuota, receptor, lead:leads!payments_lead_id_fkey(nombre, ticket_total)")
+    .select("id, lead_id, monto_usd, fecha_pago, numero_cuota, receptor, descuento_comision_closer_usd, descuento_comision_setter_usd, lead:leads!payments_lead_id_fkey(nombre, ticket_total)")
     .eq("estado", "refund")
     .order("fecha_pago", { ascending: false });
 
@@ -87,6 +87,8 @@ export default async function FinanzasPage() {
       monto: (p.monto_usd as number) || 0,
       fecha: (p.fecha_pago as string) || "",
       receptor: (p.receptor as string) || null,
+      descuento_closer: Number(p.descuento_comision_closer_usd || 0),
+      descuento_setter: Number(p.descuento_comision_setter_usd || 0),
     };
   });
 
@@ -216,4 +218,6 @@ export interface RefundRow {
   monto: number;
   fecha: string;
   receptor: string | null;
+  descuento_closer: number;
+  descuento_setter: number;
 }
