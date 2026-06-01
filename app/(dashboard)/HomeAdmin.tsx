@@ -186,8 +186,15 @@ export default function HomeAdmin({
     return ((curr - previous) / previous) * 100;
   }
 
-  // Si recibimos override (mes actual real), usar eso; sino el viejo de v_monthly_cash
-  const facturacion = ventasFirmadasOverride ?? (current?.facturacion ?? 0);
+  // El override viene del servidor calculado solo para el mes actual real.
+  // Si el admin cambió a otro mes, usar el dato de la vista monthly_cash de ese mes.
+  const isCurrentRealMonth = useMemo(() => {
+    const realStart = getFiscalStart().toISOString().split("T")[0];
+    return selectedMonth === realStart;
+  }, [selectedMonth]);
+  const facturacion = isCurrentRealMonth && ventasFirmadasOverride !== undefined
+    ? ventasFirmadasOverride
+    : (current?.facturacion ?? 0);
   const cashTotal = current?.cash_total ?? 0;
   const cashVentasNuevas = current?.cash_ventas_nuevas ?? 0;
   const cashRenovaciones = current?.cash_renovaciones ?? 0;
@@ -340,15 +347,28 @@ export default function HomeAdmin({
       {/* Proyeccion del Mes */}
       {(() => {
         const RENEWAL_RATE = 0.4;
-        const renewalExpected = revPrediction.renewalCount * revPrediction.renewalAvgValue * RENEWAL_RATE;
-        const projected = revPrediction.cashCollected + revPrediction.cuotasPendientes + renewalExpected;
-        const maxProjected = projected + revPrediction.pipelineTotal * 0.3;
-        const pctCollected = maxProjected > 0 ? (revPrediction.cashCollected / maxProjected) * 100 : 0;
-        const pctCuotas = maxProjected > 0 ? (revPrediction.cuotasPendientes / maxProjected) * 100 : 0;
+        // Si el admin seleccionó un mes PASADO, no aplica la prediccion (ya cerró);
+        // usamos cash_total del mes seleccionado como "cobrado" y 0 en cuotas/renew/pipeline.
+        const todayStr = toDateString(new Date());
+        const isPastMonth = !isCurrentRealMonth && getFiscalEnd(parseLocalDate(selectedMonth)) < parseLocalDate(todayStr);
+        const cashCollectedM = isCurrentRealMonth
+          ? revPrediction.cashCollected
+          : (current?.cash_total ?? 0);
+        const cuotasPendientesM = isCurrentRealMonth ? revPrediction.cuotasPendientes : 0;
+        const pipelineTotalM = isCurrentRealMonth ? revPrediction.pipelineTotal : 0;
+        const pipelineCountM = isCurrentRealMonth ? revPrediction.pipelineCount : 0;
+        const renewalCountM = isCurrentRealMonth ? revPrediction.renewalCount : 0;
+        const renewalExpected = renewalCountM * revPrediction.renewalAvgValue * RENEWAL_RATE;
+        const projected = cashCollectedM + cuotasPendientesM + renewalExpected;
+        const maxProjected = projected + pipelineTotalM * 0.3;
+        const pctCollected = maxProjected > 0 ? (cashCollectedM / maxProjected) * 100 : 0;
+        const pctCuotas = maxProjected > 0 ? (cuotasPendientesM / maxProjected) * 100 : 0;
         const pctRenewals = maxProjected > 0 ? (renewalExpected / maxProjected) * 100 : 0;
-        const pctPipeline = maxProjected > 0 ? ((revPrediction.pipelineTotal * 0.3) / maxProjected) * 100 : 0;
-
-        const pctOfMax = maxProjected > 0 ? Math.round((revPrediction.cashCollected / maxProjected) * 100) : 0;
+        const pctPipeline = maxProjected > 0 ? ((pipelineTotalM * 0.3) / maxProjected) * 100 : 0;
+        // En meses pasados pct = 100% (mes cerrado)
+        const pctOfMax = isPastMonth
+          ? 100
+          : maxProjected > 0 ? Math.round((cashCollectedM / maxProjected) * 100) : 0;
 
         return (
           <div className="relative bg-[var(--card-bg)] border-2 border-[var(--purple)]/40 rounded-xl p-6 overflow-hidden">
@@ -359,19 +379,20 @@ export default function HomeAdmin({
                 <span className="text-2xl font-bold text-[var(--purple-light)]">{pctOfMax}% del objetivo</span>
               </div>
               <p className="text-sm text-[var(--muted)] mb-5">
-                Cobrado: <span className="text-[var(--green)] font-semibold">{formatUSD(revPrediction.cashCollected)}</span> / Proyectado: <span className="text-white font-semibold">{formatUSD(Math.round(maxProjected))}</span>
+                Cobrado: <span className="text-[var(--green)] font-semibold">{formatUSD(cashCollectedM)}</span> / Proyectado: <span className="text-white font-semibold">{formatUSD(Math.round(maxProjected))}</span>
+                {isPastMonth && <span className="text-[var(--muted)] ml-2 text-xs">(mes cerrado)</span>}
               </p>
 
               <div className="w-full h-10 rounded-full bg-white/10 overflow-hidden flex mb-5 shadow-inner">
                 <div
                   className="h-full bg-[var(--green)] transition-all duration-500 progress-bar-animated"
                   style={{ width: `${Math.min(pctCollected, 100)}%` }}
-                  title={`Cobrado: ${formatUSD(revPrediction.cashCollected)}`}
+                  title={`Cobrado: ${formatUSD(cashCollectedM)}`}
                 />
                 <div
                   className="h-full bg-[var(--yellow)]/70 border-l-2 border-dashed border-[var(--yellow)]"
                   style={{ width: `${Math.min(pctCuotas, 100 - pctCollected)}%` }}
-                  title={`Cuotas esperadas: ${formatUSD(revPrediction.cuotasPendientes)}`}
+                  title={`Cuotas esperadas: ${formatUSD(cuotasPendientesM)}`}
                 />
                 <div
                   className="h-full bg-emerald-500/60 border-l-2 border-dashed border-emerald-400"
@@ -381,7 +402,7 @@ export default function HomeAdmin({
                 <div
                   className="h-full bg-blue-500/30 border-l-2 border-dashed border-blue-400"
                   style={{ width: `${Math.min(pctPipeline, 100 - pctCollected - pctCuotas - pctRenewals)}%` }}
-                  title={`Pipeline: ${formatUSD(Math.round(revPrediction.pipelineTotal * 0.3))}`}
+                  title={`Pipeline: ${formatUSD(Math.round(pipelineTotalM * 0.3))}`}
                 />
               </div>
 
@@ -389,14 +410,14 @@ export default function HomeAdmin({
                 <div className="flex items-center gap-2 bg-[var(--green)]/10 rounded-lg px-3 py-2">
                   <span className="w-3 h-3 rounded-sm bg-[var(--green)]" />
                   <div>
-                    <p className="text-white font-semibold">{formatUSD(revPrediction.cashCollected)}</p>
+                    <p className="text-white font-semibold">{formatUSD(cashCollectedM)}</p>
                     <p className="text-[var(--muted)] text-xs">Cobrado</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 bg-[var(--yellow)]/10 rounded-lg px-3 py-2">
                   <span className="w-3 h-3 rounded-sm bg-[var(--yellow)] border border-dashed border-[var(--yellow)]" />
                   <div>
-                    <p className="text-white font-semibold">{formatUSD(revPrediction.cuotasPendientes)}</p>
+                    <p className="text-white font-semibold">{formatUSD(cuotasPendientesM)}</p>
                     <p className="text-[var(--muted)] text-xs">Cuotas esperadas</p>
                   </div>
                 </div>
@@ -404,14 +425,14 @@ export default function HomeAdmin({
                   <span className="w-3 h-3 rounded-sm bg-emerald-500" />
                   <div>
                     <p className="text-white font-semibold">{formatUSD(Math.round(renewalExpected))}</p>
-                    <p className="text-[var(--muted)] text-xs">Renovaciones ({revPrediction.renewalCount})</p>
+                    <p className="text-[var(--muted)] text-xs">Renovaciones ({renewalCountM})</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 bg-blue-500/10 rounded-lg px-3 py-2">
                   <span className="w-3 h-3 rounded-sm bg-blue-500/50" />
                   <div>
-                    <p className="text-white font-semibold">{formatUSD(revPrediction.pipelineTotal)}</p>
-                    <p className="text-[var(--muted)] text-xs">Pipeline ({revPrediction.pipelineCount} leads)</p>
+                    <p className="text-white font-semibold">{formatUSD(pipelineTotalM)}</p>
+                    <p className="text-[var(--muted)] text-xs">Pipeline ({pipelineCountM} leads)</p>
                   </div>
                 </div>
               </div>
