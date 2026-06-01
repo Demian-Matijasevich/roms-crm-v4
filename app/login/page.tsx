@@ -63,10 +63,12 @@ export default function LoginPage() {
       clearTimeout(timeoutId);
 
       if (res.ok) {
-        // Hard reload \u2014 evita la race condition de Next App Router donde
-        // router.push() puede usar cache RSC sin la cookie nueva y dejar
-        // el spinner colgado para siempre.
-        window.location.assign("/");
+        // Si es admin, mostrar selector de vista (ROMS Normal / Pol\u00edtica / Todos).
+        // Para no-admins, va directo al dashboard.
+        const data = await res.json().catch(() => ({}));
+        const isAdmin = !!data?.session?.is_admin;
+        // Hard reload \u2014 evita race condition de Next App Router con cache RSC.
+        window.location.assign(isAdmin ? "/seleccionar-vista" : "/");
         return;
       }
 

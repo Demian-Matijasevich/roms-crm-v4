@@ -5,7 +5,6 @@ import { usePathname, useRouter } from "next/navigation";
 import type { AuthSession } from "@/lib/types";
 import { isPushSupported, subscribeToPush, getPushPermission } from "@/lib/push-notifications";
 import { ThemeToggle } from "@/app/components/ui";
-import VistaSelector from "@/app/components/VistaSelector";
 
 type Vista = "todos" | "general" | "politica";
 
@@ -372,13 +371,19 @@ export default function Sidebar({ session, vista = "todos" }: { session: AuthSes
         } lg:translate-x-0 overflow-y-auto`}
       >
         <div className="p-4 border-b border-[var(--card-border)]">
-          <h2 className="text-lg font-bold text-white">ROMS CRM</h2>
+          <h2 className="text-lg font-bold text-white">
+            ROMS CRM
+            {vista === "politica" && <span className="ml-2 text-xs font-semibold text-purple-300">· 🏛 Política</span>}
+            {vista === "general" && <span className="ml-2 text-xs font-semibold text-green-300">· 🛒 Normal</span>}
+          </h2>
           <p className="text-xs text-[var(--muted)]">{session.nombre} — {session.roles.join(", ")}</p>
           {session.is_admin && (
-            <div className="mt-3">
-              <p className="text-[10px] uppercase text-[var(--muted)] font-semibold mb-1">Vista</p>
-              <VistaSelector current={vista} />
-            </div>
+            <a
+              href="/seleccionar-vista"
+              className="mt-3 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-[var(--card-border)] hover:border-[var(--purple)] bg-white/5 hover:bg-[var(--purple)]/10 text-sm text-white font-medium transition-colors"
+            >
+              🔄 Cambiar app
+            </a>
           )}
         </div>
 
