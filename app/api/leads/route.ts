@@ -5,6 +5,12 @@ import { syncLeadToSheet } from "@/lib/sheet-sync";
 
 export const dynamic = "force-dynamic";
 
+function normalizeTel(t: string | null | undefined): string | null {
+  if (!t) return null;
+  const digits = String(t).replace(/\D/g, "");
+  return digits.length >= 6 ? digits : null;
+}
+
 const ADMIN_ONLY_FIELDS = new Set([
   "closer_id", "cobrador_id", "nombre", "email", "telefono",
   "fecha_agendado", "fecha_llamada", "ticket_total", "programa_pitcheado",
@@ -64,6 +70,10 @@ export async function POST(req: NextRequest) {
     for (const k of allowed) {
       if (k in body && body[k] !== undefined && body[k] !== "") insertData[k] = body[k];
     }
+    // Normalizar telefono automáticamente
+    if (insertData.telefono) {
+      insertData.telefono_normalizado = normalizeTel(insertData.telefono as string);
+    }
 
     const sb = createServerClient();
     const { data, error } = await sb.from("leads").insert(insertData).select().single();
@@ -101,9 +111,16 @@ export async function PATCH(req: NextRequest) {
       "se_presento", "cerrado_en_llamada", "transcripcion_url",
       // 021 — Iñaki
       "fecha_cierre_estimada",
+      // 029 — Tel normalizado
+      "telefono_normalizado",
     ];
     const patch: Record<string, unknown> = {};
     for (const k of allowed) if (k in updates) patch[k] = updates[k];
+
+    // Si cambió el teléfono, auto-recomputar el normalizado
+    if ("telefono" in patch) {
+      patch.telefono_normalizado = normalizeTel(patch.telefono as string | null);
+    }
 
     if (Object.keys(patch).length === 0) return NextResponse.json({ error: "nada para actualizar" }, { status: 400 });
 
@@ -128,8 +145,16 @@ export async function PATCH(req: NextRequest) {
     }
 
     const sb = createServerClient();
+    // Snapshot ANTES para audit
+    const { data: oldRow } = await sb.from("leads").select("*").eq("id", id).maybeSingle();
     const { data, error } = await sb.from("leads").update(patch).eq("id", id).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Audit log
+    if (oldRow && data) {
+      const { logAuditPatch } = await import("@/lib/audit");
+      await logAuditPatch(session, "lead", id, oldRow as Record<string, unknown>, patch);
+    }
 
     if (data?.id) await syncLeadToSheet(data.id);
 

@@ -32,7 +32,7 @@ export default function ForecastClient({ snapshot, session }: Props) {
   const [snoozeDias, setSnoozeDias] = useState("7");
   const [snoozeMotivo, setSnoozeMotivo] = useState("");
 
-  const { thisMonth, threeMonths, meta_cash_mensual_usd, meta_ventas_mensual, ventas_mes, aov_avg, cuotas_en_riesgo_detalle, por_closer } = snapshot;
+  const { thisMonth, threeMonths, meta_cash_mensual_usd, meta_ventas_mensual, ventas_mes, aov_avg, cuotas_en_riesgo_detalle, por_closer, historico, gastos_mes, burn_rate_status, salud_financiera } = snapshot;
 
   const cashRestante = meta_cash_mensual_usd - thisMonth.proyectado_total;
   const pctMeta = meta_cash_mensual_usd > 0 ? (thisMonth.proyectado_total / meta_cash_mensual_usd) * 100 : 0;
@@ -369,11 +369,11 @@ export default function ForecastClient({ snapshot, session }: Props) {
         )}
       </div>
 
-      {/* CARD: Forecast por closer */}
+      {/* CARD: Forecast por closer + E2 forecast 30d */}
       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
         <div className="p-4 border-b border-[var(--card-border)]">
-          <h2 className="text-base font-semibold text-white">👤 Forecast por closer (mes actual)</h2>
-          <p className="text-xs text-[var(--muted)]">Cash real + cuotas pendientes propias ponderadas.</p>
+          <h2 className="text-base font-semibold text-white">👤 Forecast por closer</h2>
+          <p className="text-xs text-[var(--muted)]">Cash mes + proyectado + cash y comisión esperada próximos 30d.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -381,9 +381,11 @@ export default function ForecastClient({ snapshot, session }: Props) {
               <tr className="text-left text-[10px] uppercase text-[var(--muted)] border-b border-[var(--card-border)]">
                 <th className="px-4 py-2">Closer</th>
                 <th className="px-3 py-2 text-right">Cash real</th>
-                <th className="px-3 py-2 text-right">Proyectado</th>
+                <th className="px-3 py-2 text-right">Proyectado mes</th>
                 <th className="px-3 py-2 text-right">Cierres</th>
                 <th className="px-3 py-2 text-right">AOV</th>
+                <th className="px-3 py-2 text-right">Cash 30d est.</th>
+                <th className="px-3 py-2 text-right">Comisión 30d</th>
               </tr>
             </thead>
             <tbody>
@@ -394,10 +396,109 @@ export default function ForecastClient({ snapshot, session }: Props) {
                   <td className="px-3 py-2.5 text-right text-[var(--purple-light)] font-medium" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(c.cash_mes_proyectado)}</td>
                   <td className="px-3 py-2.5 text-right text-[var(--muted)]">{c.cierres_mes}</td>
                   <td className="px-3 py-2.5 text-right text-[var(--muted)]" style={{ fontVariantNumeric: "tabular-nums" }}>{c.aov > 0 ? fmt(c.aov) : "—"}</td>
+                  <td className="px-3 py-2.5 text-right text-blue-300" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(c.cash_30d_estimado)}</td>
+                  <td className="px-3 py-2.5 text-right text-green-300 font-medium" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(c.com_30d_estimada)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* E1: HISTÓRICO mes a mes */}
+      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl overflow-hidden">
+        <div className="p-4 border-b border-[var(--card-border)]">
+          <h2 className="text-base font-semibold text-white">📊 Histórico últimos 6 meses</h2>
+          <p className="text-xs text-[var(--muted)]">Cash real, % de cuotas cobradas vs vencidas, refunds. Para medir consistencia.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[10px] uppercase text-[var(--muted)] border-b border-[var(--card-border)]">
+                <th className="px-4 py-2">Mes</th>
+                <th className="px-3 py-2 text-right">Cash total</th>
+                <th className="px-3 py-2 text-right">Cuotas vencidas</th>
+                <th className="px-3 py-2 text-right">Cobradas</th>
+                <th className="px-3 py-2 text-right">% cobro</th>
+                <th className="px-3 py-2 text-right">Refunds</th>
+              </tr>
+            </thead>
+            <tbody>
+              {historico.map((h) => (
+                <tr key={h.ym} className="border-b border-[var(--card-border)]/40 hover:bg-white/5">
+                  <td className="px-4 py-2.5 text-white font-medium">{h.label}</td>
+                  <td className="px-3 py-2.5 text-right text-white" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(h.cash_total)}</td>
+                  <td className="px-3 py-2.5 text-right text-[var(--muted)]">{h.cuotas_vencieron}</td>
+                  <td className="px-3 py-2.5 text-right text-green-300">{h.cuotas_cobradas}</td>
+                  <td className={`px-3 py-2.5 text-right ${h.pct_cobro >= 80 ? "text-green-300" : h.pct_cobro >= 60 ? "text-amber-300" : "text-[var(--red)]"}`}>
+                    {h.pct_cobro}%
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-[var(--red)]" style={{ fontVariantNumeric: "tabular-nums" }}>{h.refunds > 0 ? `−${fmt(h.refunds)}` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* E3 + E4: Burn rate + Score salud */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className={`bg-[var(--card-bg)] border rounded-xl p-5 ${
+          burn_rate_status === "critical" ? "border-red-500/50" :
+          burn_rate_status === "warning" ? "border-amber-500/50" : "border-green-500/30"
+        }`}>
+          <h3 className="text-sm font-semibold text-white mb-3">🔥 Burn rate del mes</h3>
+          <div className="flex items-baseline justify-between">
+            <div>
+              <p className="text-2xl font-bold text-white" style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(gastos_mes)}</p>
+              <p className="text-[10px] text-[var(--muted)]">gastos del mes</p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-[var(--muted)]">vs proyectado</p>
+              <p className={`text-lg font-semibold ${
+                burn_rate_status === "critical" ? "text-red-300" :
+                burn_rate_status === "warning" ? "text-amber-300" : "text-green-300"
+              }`}>
+                {fmt(snapshot.cash_mes_proyectado)}
+              </p>
+            </div>
+          </div>
+          <p className={`text-xs mt-3 ${
+            burn_rate_status === "critical" ? "text-red-300" :
+            burn_rate_status === "warning" ? "text-amber-300" : "text-green-300"
+          }`}>
+            {burn_rate_status === "critical" && "🚨 Gastos exceden el cash proyectado. Riesgo de cash flow."}
+            {burn_rate_status === "warning" && "⚠️ Gastos cerca del límite del cash. Atento."}
+            {burn_rate_status === "ok" && "✅ Cash flow saludable."}
+          </p>
+        </div>
+
+        <div className={`bg-[var(--card-bg)] border rounded-xl p-5 ${
+          salud_financiera.level === "critico" ? "border-red-500/50" :
+          salud_financiera.level === "alerta" ? "border-amber-500/50" :
+          salud_financiera.level === "atencion" ? "border-yellow-500/30" : "border-green-500/30"
+        }`}>
+          <h3 className="text-sm font-semibold text-white mb-3">💎 Score salud financiera</h3>
+          <div className="flex items-center gap-4">
+            <div className={`text-5xl font-bold ${
+              salud_financiera.level === "critico" ? "text-red-300" :
+              salud_financiera.level === "alerta" ? "text-amber-300" :
+              salud_financiera.level === "atencion" ? "text-yellow-300" : "text-green-300"
+            }`} style={{ fontVariantNumeric: "tabular-nums" }}>
+              {salud_financiera.score}
+            </div>
+            <div className="flex-1">
+              <p className="text-sm text-white font-medium capitalize">{salud_financiera.level}</p>
+              <p className="text-[10px] text-[var(--muted)]">
+                Refunds: {salud_financiera.refunds_pct}% · Atrasadas: {salud_financiera.atrasadas_pct}% · Gastos: {salud_financiera.gastos_vs_ingresos_pct}%
+              </p>
+            </div>
+          </div>
+          {salud_financiera.motivos.length > 0 && (
+            <ul className="mt-3 text-[10px] text-[var(--muted)] space-y-0.5">
+              {salud_financiera.motivos.map((m, i) => <li key={i}>• {m}</li>)}
+            </ul>
+          )}
         </div>
       </div>
     </div>
