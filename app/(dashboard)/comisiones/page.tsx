@@ -19,8 +19,8 @@ export default async function ComisionesPage() {
 
   const [paymentsRes, leadsRes, teamRes, campaignsRes] = await Promise.all([
     sb.from("payments")
-      .select("id, lead_id, monto_usd, fecha_pago, estado, numero_cuota, receptor")
-      .eq("estado", "pagado")
+      .select("id, lead_id, monto_usd, fecha_pago, estado, numero_cuota, receptor, es_renovacion, descuento_comision_closer_usd, descuento_comision_setter_usd, aplicado_en_comisiones_mes")
+      .in("estado", ["pagado", "refund"])
       .range(0, 9999),
     sb.from("leads")
       .select("id, nombre, closer_id, setter_id, utm_medium, utm_source, utm_content, programa_pitcheado, email, telefono, instagram, fecha_agendado, fecha_llamada, estado, lead_calificado, ticket_total, plan_pago, concepto, fuente, notas_internas, reporte_general")
@@ -53,6 +53,10 @@ export interface PaymentRow {
   estado: string;
   numero_cuota: number;
   receptor: string | null;
+  es_renovacion?: boolean;
+  descuento_comision_closer_usd?: number | null;
+  descuento_comision_setter_usd?: number | null;
+  aplicado_en_comisiones_mes?: string | null;
 }
 export interface LeadLite {
   id: string;

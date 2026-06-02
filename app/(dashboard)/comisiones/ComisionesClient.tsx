@@ -8,7 +8,9 @@ import AddLeadModal from "@/app/components/AddLeadModal";
 import PaymentEditModalShared, { type EditablePayment } from "@/app/components/PaymentEditModalShared";
 import { formatUSD } from "@/lib/format";
 import { computeValenCommission, SETTER_PCT } from "@/lib/commissions";
+import { computeComisionesDetail, formatComisionesWA } from "@/lib/comisiones-detail";
 import { getFiscalStart, getFiscalMonth, parseLocalDate } from "@/lib/date-utils";
+import { useToast } from "@/app/components/Toast";
 import type { PaymentRow, LeadLite, TeamLite, CampaignLite } from "./page";
 
 interface Props {
@@ -94,6 +96,7 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
     }
   }
 
+  const toast = useToast();
   const monthRange = useMemo(() => {
     const start = parseLocalDate(selectedMonth);
     const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
@@ -103,6 +106,90 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
   }, [selectedMonth]);
 
   const currentLabel = useMemo(() => getFiscalMonth(parseLocalDate(selectedMonth)), [selectedMonth]);
+
+  // YYYY-MM del mes seleccionado (para excluir refunds ya aplicados)
+  const targetYM = selectedMonth.slice(0, 7);
+  const [skipRefundIds, setSkipRefundIds] = useState<Set<string>>(new Set());
+  const [marking, setMarking] = useState(false);
+
+  // Cálculo detallado de comisiones para el mensaje WA
+  const detalleComisiones = useMemo(() => {
+    return computeComisionesDetail({
+      targetYM,
+      leads: leads.map((l) => ({
+        id: l.id,
+        nombre: l.nombre,
+        closer_id: l.closer_id,
+        setter_id: l.setter_id,
+        utm_medium: l.utm_medium,
+        programa_pitcheado: l.programa_pitcheado,
+      })),
+      payments: payments.map((p) => ({
+        id: p.id,
+        lead_id: p.lead_id,
+        numero_cuota: p.numero_cuota,
+        monto_usd: p.monto_usd,
+        fecha_pago: p.fecha_pago,
+        estado: p.estado,
+        es_renovacion: p.es_renovacion || false,
+        descuento_comision_closer_usd: p.descuento_comision_closer_usd ?? null,
+        descuento_comision_setter_usd: p.descuento_comision_setter_usd ?? null,
+        aplicado_en_comisiones_mes: p.aplicado_en_comisiones_mes ?? null,
+      })),
+      team,
+      campaigns,
+      skipRefundIds,
+      skipRefundsAplicados: true,
+    });
+  }, [targetYM, leads, payments, team, campaigns, skipRefundIds]);
+
+  const mensajeWA = useMemo(() => formatComisionesWA(detalleComisiones), [detalleComisiones]);
+
+  async function copyMensajeWA() {
+    try {
+      await navigator.clipboard.writeText(mensajeWA);
+      toast.success("Mensaje copiado al portapapeles");
+    } catch {
+      toast.error("No se pudo copiar");
+    }
+  }
+
+  async function marcarRefundsAplicados() {
+    if (detalleComisiones.refunds.length === 0) {
+      toast.info("No hay refunds en este mes para marcar");
+      return;
+    }
+    const refundIds = detalleComisiones.refunds.map((r) => r.payment_id);
+    setMarking(true);
+    try {
+      const res = await fetch("/api/comisiones/aplicar-refunds", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ payment_ids: refundIds, mes: targetYM }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(`${data.updated || 0} refunds marcados como aplicados en ${targetYM}. No se descontarán en próximos meses.`);
+        // Refresh local state
+        setPayments((prev) => prev.map((p) =>
+          refundIds.includes(p.id) ? { ...p, aplicado_en_comisiones_mes: targetYM } : p
+        ));
+      } else {
+        toast.error("No se pudo marcar");
+      }
+    } finally {
+      setMarking(false);
+    }
+  }
+
+  function excluirRefund(id: string) {
+    setSkipRefundIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const leadById = useMemo(() => new Map(leads.map(l => [l.id, l])), [leads]);
   const mediumToSetter = useMemo(() => {
@@ -251,6 +338,73 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
           <MonthSelector77 value={selectedMonth} onChange={setSelectedMonth} />
         </div>
       </div>
+
+      {/* 📋 Mensaje WhatsApp listo para copiar */}
+      {isAdmin && (
+        <div className="bg-[var(--card-bg)] border-2 border-[var(--purple)]/40 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <h2 className="text-base font-semibold text-white">📋 Mensaje WhatsApp — listo para mandar</h2>
+              <p className="text-xs text-[var(--muted)] mt-0.5">
+                Formato detallado con desglose por programa, refunds y descuentos. Excluye refunds ya marcados como aplicados.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={copyMensajeWA}
+                className="text-sm bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white px-4 py-2 rounded-lg font-medium"
+              >
+                📋 Copiar mensaje
+              </button>
+              {detalleComisiones.refunds.length > 0 && (
+                <button
+                  onClick={marcarRefundsAplicados}
+                  disabled={marking}
+                  className="text-sm bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 px-4 py-2 rounded-lg disabled:opacity-50"
+                  title="Marca los refunds de este mes como ya aplicados para que NO se descuenten otra vez en cierres futuros"
+                >
+                  {marking ? "..." : "✓ Marcar refunds aplicados"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Lista de refunds con toggle excluir */}
+          {detalleComisiones.refunds.length > 0 && (
+            <div className="mb-3 p-3 bg-amber-500/5 border border-amber-500/20 rounded-lg">
+              <p className="text-xs text-amber-300 font-semibold mb-2">🔄 Refunds del mes ({detalleComisiones.refunds.length}):</p>
+              <div className="space-y-1">
+                {detalleComisiones.refunds.map((r) => {
+                  const isExcluded = skipRefundIds.has(r.payment_id);
+                  return (
+                    <div key={r.payment_id} className="flex items-center justify-between gap-2 text-xs">
+                      <span className={isExcluded ? "text-[var(--muted)] line-through" : "text-white"}>
+                        {r.cliente} — ${r.monto.toLocaleString()} · {r.closer_nombre && `closer −$${Math.round(r.desc_closer).toLocaleString()}`} {r.setter_nombre && `· setter −$${Math.round(r.desc_setter).toLocaleString()}`}
+                      </span>
+                      <button
+                        onClick={() => excluirRefund(r.payment_id)}
+                        className={`text-[10px] px-2 py-0.5 rounded ${isExcluded ? "bg-white/10 text-white" : "bg-amber-500/30 text-amber-200"}`}
+                      >
+                        {isExcluded ? "Incluir" : "Excluir"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-[var(--muted)] mt-2">
+                Marcá "Excluir" si el refund ya se descontó en otro mes. Luego usá "Marcar refunds aplicados" para que no aparezcan en cierres futuros.
+              </p>
+            </div>
+          )}
+
+          <textarea
+            readOnly
+            value={mensajeWA}
+            className="w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg p-3 text-[11px] font-mono text-white whitespace-pre"
+            rows={Math.min(30, mensajeWA.split("\n").length + 1)}
+          />
+        </div>
+      )}
 
       {/* Resumen rápido */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

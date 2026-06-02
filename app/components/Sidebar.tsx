@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import type { AuthSession } from "@/lib/types";
 import { isPushSupported, subscribeToPush, getPushPermission } from "@/lib/push-notifications";
 import { ThemeToggle } from "@/app/components/ui";
+import NotificationBell from "@/app/components/NotificationBell";
 
 type Vista = "todos" | "general" | "politica";
 
@@ -371,11 +372,16 @@ export default function Sidebar({ session, vista = "todos" }: { session: AuthSes
         } lg:translate-x-0 overflow-y-auto`}
       >
         <div className="p-4 border-b border-[var(--card-border)]">
-          <h2 className="text-lg font-bold text-white">
-            ROMS CRM
-            {vista === "politica" && <span className="ml-2 text-xs font-semibold text-purple-300">· 🏛 Política</span>}
-          </h2>
-          <p className="text-xs text-[var(--muted)]">{session.nombre} — {session.roles.join(", ")}</p>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-lg font-bold text-white">
+                ROMS CRM
+                {vista === "politica" && <span className="ml-2 text-xs font-semibold text-purple-300">· 🏛 Política</span>}
+              </h2>
+              <p className="text-xs text-[var(--muted)] truncate">{session.nombre} — {session.roles.join(", ")}</p>
+            </div>
+            <NotificationBell />
+          </div>
           {session.is_admin && (
             <a
               href="/seleccionar-vista"

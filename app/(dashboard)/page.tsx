@@ -8,6 +8,8 @@ import { computeTeamCommissions } from "@/lib/commissions";
 import HomeAdmin from "./HomeAdmin";
 import HomeCloser from "./HomeCloser";
 import HomeSetter from "./HomeSetter";
+import HomeCobranzas from "./HomeCobranzas";
+import { getNichoFilter } from "@/lib/vista";
 import type { MonthlyCash, Payment, Client, Lead, CloserKPI, Commission, RenewalQueueRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +19,105 @@ export default async function DashboardPage() {
   if (!session) redirect("/login");
 
   const supabase = createServerClient();
+
+  // Cobranzas (Mel típico): si es is_cobranzas Y NO es jefe de ventas → home cobranzas
+  // Incluso si es admin, prioriza la vista de cobranzas porque es lo que más usa.
+  if (session.roles.includes("cobranzas") && !session.is_jefe_ventas) {
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    const startWeek = new Date(today);
+    startWeek.setDate(today.getDate() - today.getDay() + 1); // lunes
+    const startWeekStr = startWeek.toISOString().slice(0, 10);
+    const startMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+    const endWeek = new Date(startWeek);
+    endWeek.setDate(startWeek.getDate() + 6);
+    const endWeekStr = endWeek.toISOString().slice(0, 10);
+
+    const nicho = await getNichoFilter();
+    let leadsQ = supabase.from("leads").select("id, nombre, telefono, nicho").range(0, 9999);
+    if (nicho) leadsQ = leadsQ.eq("nicho", nicho);
+    const { data: leadsAll } = await leadsQ;
+    const leadIdsAllowed = nicho ? new Set((leadsAll || []).map((l: { id: string }) => l.id)) : null;
+    const leadByIdMap = new Map((leadsAll || []).map((l: { id: string; nombre: string | null; telefono: string | null }) => [l.id, l]));
+
+    const { data: pendientesAll } = await supabase
+      .from("payments")
+      .select("id, lead_id, monto_usd, fecha_vencimiento, numero_cuota, snoozed_until, snooze_count")
+      .eq("estado", "pendiente")
+      .not("fecha_vencimiento", "is", null)
+      .range(0, 9999);
+    const pendientes = (pendientesAll || []).filter((p) => p.lead_id && (!leadIdsAllowed || leadIdsAllowed.has(p.lead_id)));
+
+    const mapCuota = (p: { id: string; lead_id: string | null; monto_usd: number; fecha_vencimiento: string | null; numero_cuota: number; snoozed_until: string | null; snooze_count: number | null }) => {
+      const lead = p.lead_id ? leadByIdMap.get(p.lead_id) : null;
+      return {
+        id: p.id,
+        lead_id: p.lead_id,
+        monto_usd: Number(p.monto_usd || 0),
+        fecha_vencimiento: p.fecha_vencimiento,
+        numero_cuota: p.numero_cuota,
+        snoozed_until: p.snoozed_until,
+        snooze_count: p.snooze_count || 0,
+        lead_nombre: (lead as { nombre?: string } | undefined)?.nombre || "(s/n)",
+        lead_telefono: (lead as { telefono?: string } | undefined)?.telefono || null,
+      };
+    };
+
+    const cuotasHoy = pendientes.filter((p) => p.fecha_vencimiento === todayStr).map(mapCuota);
+    const cuotasSemana = pendientes
+      .filter((p) => p.fecha_vencimiento && p.fecha_vencimiento >= todayStr && p.fecha_vencimiento <= endWeekStr)
+      .sort((a, b) => (a.fecha_vencimiento || "").localeCompare(b.fecha_vencimiento || ""))
+      .map(mapCuota);
+    const cuotasAtrasadas = pendientes
+      .filter((p) => p.fecha_vencimiento && p.fecha_vencimiento < todayStr && (!p.snoozed_until || p.snoozed_until < todayStr))
+      .sort((a, b) => (a.fecha_vencimiento || "").localeCompare(b.fecha_vencimiento || ""))
+      .map(mapCuota);
+
+    // Pagados hoy/semana/mes
+    const { data: pagadosAll } = await supabase
+      .from("payments")
+      .select("id, lead_id, monto_usd, fecha_pago, metodo_pago, lead:leads!payments_lead_id_fkey(nombre)")
+      .eq("estado", "pagado")
+      .gte("fecha_pago", startMonth)
+      .lte("fecha_pago", todayStr)
+      .range(0, 999);
+    const pagadosFiltrados = (pagadosAll || []).filter((p) => p.lead_id && (!leadIdsAllowed || leadIdsAllowed.has(p.lead_id)));
+
+    const mapPago = (p: { id: string; monto_usd: number; fecha_pago: string | null; metodo_pago: string | null; lead?: unknown }) => ({
+      id: p.id,
+      monto_usd: Number(p.monto_usd || 0),
+      fecha_pago: p.fecha_pago || "",
+      cliente: (Array.isArray(p.lead) ? (p.lead[0] as { nombre?: string } | undefined)?.nombre : (p.lead as { nombre?: string } | null)?.nombre) || "(s/n)",
+      metodo_pago: p.metodo_pago,
+    });
+    const pagadasHoy = pagadosFiltrados.filter((p) => p.fecha_pago === todayStr).map(mapPago);
+    const pagadasMes = pagadosFiltrados.map(mapPago);
+    const cashHoy = pagadasHoy.reduce((s, p) => s + p.monto_usd, 0);
+    const cashSemana = pagadosFiltrados.filter((p) => p.fecha_pago && p.fecha_pago >= startWeekStr).reduce((s, p) => s + Number(p.monto_usd || 0), 0);
+    const cashMes = pagadasMes.reduce((s, p) => s + p.monto_usd, 0);
+
+    const { data: rate } = await supabase.from("team_members").select("observaciones").eq("nombre", "__SYSTEM_CONFIG__").maybeSingle();
+    let usdRate = 1250;
+    if (rate?.observaciones) {
+      try { const s = JSON.parse(rate.observaciones); if (Number(s.usd_ars_rate)) usdRate = Number(s.usd_ars_rate); } catch {}
+    }
+
+    return (
+      <HomeCobranzas
+        nombre={session.nombre}
+        cuotasHoy={cuotasHoy}
+        cuotasSemana={cuotasSemana}
+        cuotasAtrasadas={cuotasAtrasadas}
+        pagadasHoy={pagadasHoy}
+        pagadasMes={pagadasMes}
+        cashHoy={cashHoy}
+        cashSemana={cashSemana}
+        cashMes={cashMes}
+        usdRate={usdRate}
+        todayStr={todayStr}
+      />
+    );
+  }
 
   if (session.is_admin) {
     // Fetch admin data

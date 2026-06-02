@@ -50,6 +50,8 @@ export async function POST(req: NextRequest) {
       const motivo = String(r?.motivo || "").trim();
       const numeroCuota = Number(r?.numero_cuota || 1);
       const metodoPago = (r?.metodo_pago as MetodoPago | undefined) || ("transferencia" as MetodoPago);
+      const descCloser = Number(r?.descuento_comision_closer_usd || 0);
+      const descSetter = Number(r?.descuento_comision_setter_usd || 0);
 
       if (!leadName || !monto || !fecha) {
         report.push({ lead_name: leadName || "(vacio)", status: "error", error: "Faltan lead_name, monto_usd o fecha" });
@@ -90,7 +92,9 @@ export async function POST(req: NextRequest) {
           cobrador_id: session.team_member_id,
           verificado: false,
           es_renovacion: false,
-        })
+          descuento_comision_closer_usd: descCloser,
+          descuento_comision_setter_usd: descSetter,
+        } as Record<string, unknown>)
         .select()
         .single();
 
