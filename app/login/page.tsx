@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 
-const TEAM = [
+const TEAM_ALL = [
   { nombre: "Fran", role: "admin", color: "#3b82f6" },
   { nombre: "Juanma", role: "admin", color: "#3b82f6" },
   { nombre: "Mati", role: "jefe_ventas", color: "#f59e0b" },
@@ -14,6 +14,14 @@ const TEAM = [
   { nombre: "Igna", role: "setter", color: "#22c55e" },
   { nombre: "Mel", role: "cobranzas", color: "#ec4899" },
 ];
+
+// En el subdominio pol\u00edtica solo aparecen estos
+const POLITICA_TEAM = TEAM_ALL.filter((t) => ["Fran", "Juanma", "Mati"].includes(t.nombre));
+
+function getInPolitica(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.location.host.startsWith("politica.");
+}
 
 function getInitials(name: string) {
   return name.slice(0, 2).toUpperCase();
@@ -37,8 +45,18 @@ export default function LoginPage() {
   const [pin, setPin] = useState<string[]>(["", "", "", ""]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isPolitica, setIsPolitica] = useState(false);
   const pinRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+  useEffect(() => {
+    setIsPolitica(getInPolitica());
+    // Mensaje si fue redirigido por denied
+    if (typeof window !== "undefined" && window.location.search.includes("denied=politica")) {
+      setError("Acceso denegado a este subdominio");
+    }
+  }, []);
+
+  const TEAM = isPolitica ? POLITICA_TEAM : TEAM_ALL;
   const selectedMember = TEAM.find((t) => t.nombre === selected);
 
   const fullPin = pin.join("");
@@ -141,10 +159,10 @@ export default function LoginPage() {
         {/* Brand */}
         <div className="text-center space-y-2">
           <h1 className="text-4xl md:text-5xl font-black login-brand tracking-tight">
-            ROMS CRM
+            {isPolitica ? "🏛 ROMS Política" : "ROMS CRM"}
           </h1>
           <p className="text-sm text-zinc-400">
-            Sistema de Gesti\u00f3n — 7ROMS
+            {isPolitica ? "Acceso restringido a equipo política" : "Sistema de Gesti\u00f3n — 7ROMS"}
           </p>
         </div>
 

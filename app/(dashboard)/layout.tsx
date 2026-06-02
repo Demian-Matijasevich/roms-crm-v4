@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
-import { getVista } from "@/lib/vista";
+import { getVista, isPoliticaSubdomain } from "@/lib/vista";
 import Sidebar from "@/app/components/Sidebar";
 import { RealtimeProvider } from "@/app/components/RealtimeProvider";
 import SaleBanner from "@/app/components/SaleBanner";
@@ -16,13 +16,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
     if (!session) redirect("/login");
 
     const vista = await getVista();
+    const isPoliticaLocked = await isPoliticaSubdomain();
 
     return (
       <ToastProvider>
         <ConfirmProvider>
           <MeshBackground />
           <div className="min-h-screen relative" style={{ zIndex: 1 }}>
-            <Sidebar session={session} vista={vista} />
+            <Sidebar session={session} vista={vista} isPoliticaLocked={isPoliticaLocked} />
             <CommandPalette />
             <QuickCallLog session={session} />
             <RealtimeProvider>

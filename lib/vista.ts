@@ -9,7 +9,7 @@
  *
  * Para verticales nuevos en el futuro: agregar al type, al selector y a este helper.
  */
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 export type Vista = "todos" | "general" | "politica";
 
@@ -20,12 +20,34 @@ export const VISTA_LABELS: Record<Vista, string> = {
   politica: "🏛 ROMS Política",
 };
 
-/** Devuelve la vista actual seteada por el admin. Default 'todos'. */
+/**
+ * Devuelve la vista actual.
+ * - Si la request viene del subdominio política (header x-roms-vista=politica del middleware),
+ *   FORZAR politica (no se puede cambiar dentro de ese subdominio).
+ * - Sino, leer la cookie.
+ */
 export async function getVista(): Promise<Vista> {
+  // Subdominio política tiene prioridad
+  try {
+    const h = await headers();
+    if (h.get("x-roms-vista") === "politica") return "politica";
+  } catch {
+    // headers() puede fallar en contextos no-request
+  }
   const c = await cookies();
   const raw = c.get(VISTA_COOKIE)?.value;
   if (raw === "general" || raw === "politica" || raw === "todos") return raw;
   return "todos";
+}
+
+/** True si la request entra desde el subdominio política (locked). */
+export async function isPoliticaSubdomain(): Promise<boolean> {
+  try {
+    const h = await headers();
+    return h.get("x-roms-vista") === "politica";
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -290,7 +290,7 @@ function getBottomNav(session: AuthSession): BottomNavItem[] {
   ];
 }
 
-export default function Sidebar({ session, vista = "todos" }: { session: AuthSession; vista?: Vista }) {
+export default function Sidebar({ session, vista = "todos", isPoliticaLocked = false }: { session: AuthSession; vista?: Vista; isPoliticaLocked?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -380,20 +380,31 @@ export default function Sidebar({ session, vista = "todos" }: { session: AuthSes
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
               <h2 className="text-lg font-bold text-white">
-                ROMS CRM
-                {vista === "politica" && <span className="ml-2 text-xs font-semibold text-purple-300">· 🏛 Política</span>}
+                {isPoliticaLocked ? (
+                  <span className="text-purple-300">🏛 ROMS Política</span>
+                ) : (
+                  <>
+                    ROMS CRM
+                    {vista === "politica" && <span className="ml-2 text-xs font-semibold text-purple-300">· 🏛 Política</span>}
+                  </>
+                )}
               </h2>
               <p className="text-xs text-[var(--muted)] truncate">{session.nombre} — {session.roles.join(", ")}</p>
             </div>
             <NotificationBell />
           </div>
-          {session.is_admin && (
+          {session.is_admin && !isPoliticaLocked && (
             <a
               href="/seleccionar-vista"
               className="mt-3 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-[var(--card-border)] hover:border-[var(--purple)] bg-white/5 hover:bg-[var(--purple)]/10 text-sm text-white font-medium transition-colors"
             >
               🔄 Cambiar app
             </a>
+          )}
+          {isPoliticaLocked && (
+            <p className="mt-3 text-[10px] text-purple-300/70 text-center">
+              Subdominio aislado — solo política
+            </p>
           )}
         </div>
 
