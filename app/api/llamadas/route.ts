@@ -6,6 +6,7 @@ import { createPayment, createPaymentVerbose } from "@/lib/queries/payments";
 import { createServerClient } from "@/lib/supabase-server";
 import { getToday, toDateString } from "@/lib/date-utils";
 import { syncLeadToSheet } from "@/lib/sheet-sync";
+import { getVista } from "@/lib/vista";
 import { z } from "zod";
 import type { LeadEstado, LeadCalificacion, Programa, MetodoPago } from "@/lib/types";
 
@@ -89,6 +90,8 @@ export async function POST(req: NextRequest) {
     }
     if (transcripcion_url) leadUpdate.transcripcion_url = transcripcion_url;
     if (nicho) leadUpdate.nicho = nicho;
+    // Si la sesión está en vista política y el form no envió nicho explícito, marcar política.
+    else if ((await getVista()) === "politica") leadUpdate.nicho = "politica";
 
     const updatedLead = await updateLead(lead_id, leadUpdate);
     if (!updatedLead) {

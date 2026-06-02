@@ -4,6 +4,7 @@ import { pagoSchema } from "@/lib/schemas";
 import { createPayment, uploadComprobante } from "@/lib/queries/payments";
 import { createServerClient } from "@/lib/supabase-server";
 import { syncLeadToSheet } from "@/lib/sheet-sync";
+import { getVista } from "@/lib/vista";
 import type { MetodoPago, PaymentEstado } from "@/lib/types";
 
 function addDays(dateStr: string, days: number): string {
@@ -231,6 +232,18 @@ export async function POST(req: NextRequest) {
               .update({ estado: "inactivo" })
               .eq("lead_id", payment.lead_id);
           }
+        }
+      }
+    }
+
+    // Si la sesión está en vista política o subdominio política, propagar el nicho al lead.
+    // Esto soluciona el bug "cargo desde política y no aparece" porque el lead seguía en general.
+    if (payment.lead_id) {
+      const vistaActual = await getVista();
+      if (vistaActual === "politica") {
+        const { data: leadActual } = await sb.from("leads").select("nicho").eq("id", payment.lead_id).maybeSingle();
+        if (leadActual && leadActual.nicho !== "politica") {
+          await sb.from("leads").update({ nicho: "politica" }).eq("id", payment.lead_id);
         }
       }
     }
