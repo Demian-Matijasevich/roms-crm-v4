@@ -57,37 +57,27 @@ function extractInstagram(qa: Record<string, string> | undefined): string | null
 }
 
 /**
- * Detecta si el lead es nicho política — busca en Q&A si la respuesta
- * a la pregunta "¿Tu negocio es política o consultoría?" (o similar)
- * incluye keywords relacionadas con política.
- * Heurísticas:
- *   1. Q&A: campo cuya pregunta mencione "política" o cuya respuesta lo mencione
- *   2. Q&A: respuestas con keywords electoral (intendente, concejal, campaña, candidato, partido)
- *   3. event.name o eventType incluya "politica"
+ * Detecta si el lead es nicho política basándose en:
+ *   1. Evento de iClosed: event.name o eventType contiene "politic"
+ *      (ej. "Llamada Política", "politica-call", etc.)
+ *   2. UTM tracking: cualquiera de utm_source/medium/content/campaign
+ *      contiene "politic" (ej. utm_source=politica, utm_campaign=campaña-2026)
+ *
+ * NO se pregunta al cliente en el form — la clasificación es interna
+ * por configuración del setter / landing.
  */
 function detectNicho(payload: IClosedPayload): "politica" | "general" {
-  const qa = payload.questionsAndAnswers || {};
   const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-  const KEYWORDS = ["politica", "campaña", "campana", "intendente", "concejal", "candidato", "partido", "electoral", "diputado", "senador", "gobernador", "ministro"];
 
-  for (const [k, v] of Object.entries(qa)) {
-    const kn = norm(String(k || ""));
-    const vn = norm(String(v || ""));
-    // Pregunta sobre negocio política/consultoría
-    if (kn.includes("politica") || kn.includes("rubro") || kn.includes("nicho") || kn.includes("negocio")) {
-      if (vn.includes("politic")) return "politica";
-      if (vn.includes("consultor")) return "general";
-    }
-    // Respuesta con keywords electorales
-    for (const kw of KEYWORDS) {
-      if (vn.includes(kw)) return "politica";
-    }
-  }
-
-  // Event name o tipo
+  // 1) Evento de iClosed
   const eventName = norm(String(payload.event?.name || ""));
   const eventType = norm(String(payload.event?.eventType || ""));
   if (eventName.includes("politic") || eventType.includes("politic")) return "politica";
+
+  // 2) UTM (cualquiera de los 4)
+  const t = payload.tracking || {};
+  const utms = [t.utm_source, t.utm_medium, t.utm_content, t.utm_campaign].map((v) => norm(String(v || "")));
+  if (utms.some((u) => u.includes("politic"))) return "politica";
 
   return "general";
 }
