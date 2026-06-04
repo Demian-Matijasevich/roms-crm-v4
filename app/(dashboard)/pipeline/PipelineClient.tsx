@@ -7,6 +7,7 @@ import { LEAD_ESTADOS_LABELS, PROGRAMS } from "@/lib/constants";
 import { formatUSD } from "@/lib/format";
 import { getFiscalMonthOptions, getFiscalEnd, parseLocalDate } from "@/lib/date-utils";
 import LeadDetailPanel from "./LeadDetailPanel";
+import CerrarPoliticaModal from "./CerrarPoliticaModal";
 
 interface Props {
   leads: LeadWithTeam[];
@@ -121,6 +122,7 @@ export default function PipelineClient({
   const [savingEtapa, setSavingEtapa] = useState<string | null>(null);
   const [misLeadsOnly, setMisLeadsOnly] = useState<boolean>(false);
   const [tomandoId, setTomandoId] = useState<string | null>(null);
+  const [cerrandoLead, setCerrandoLead] = useState<LeadWithTeam | null>(null);
 
   async function tomarLead(leadId: string) {
     setTomandoId(leadId);
@@ -288,8 +290,17 @@ export default function PipelineClient({
                 onDrop={(e) => {
                   e.preventDefault();
                   const leadId = e.dataTransfer.getData("text/plain");
-                  if (leadId) moveEtapaPolitica(leadId, col.key);
                   setDraggedId(null);
+                  if (!leadId) return;
+                  // Si arrastran a "Cerrado", abrir modal de handoff en vez de mover directo
+                  if (col.key === "cerrado") {
+                    const lead = leads.find((l) => l.id === leadId);
+                    if (lead) {
+                      setCerrandoLead(lead);
+                      return;
+                    }
+                  }
+                  moveEtapaPolitica(leadId, col.key);
                 }}
               >
                 <div className={`rounded-t-lg px-3 py-2 ${col.headerColor} border ${col.borderColor} border-b-0`}>
@@ -422,6 +433,21 @@ export default function PipelineClient({
           usdRate={usdRate}
           onClose={() => setSelectedLeadId(null)}
           onEstadoChange={handleEstadoChange}
+        />
+      )}
+
+      {/* Modal handoff a Hugo cuando se cierra un deal política */}
+      {cerrandoLead && (
+        <CerrarPoliticaModal
+          leadId={cerrandoLead.id}
+          leadNombre={cerrandoLead.nombre || "Sin nombre"}
+          ticketSugerido={cerrandoLead.ticket_total || undefined}
+          onClose={() => setCerrandoLead(null)}
+          onSuccess={() => {
+            // Actualizar local: etapa=cerrado + ticket si vino + closer
+            setLeads((prev) => prev.map((l) => l.id === cerrandoLead.id ? ({ ...l, etapa_politica: "cerrado", estado: "cerrado" } as LeadWithTeam) : l));
+            setCerrandoLead(null);
+          }}
         />
       )}
     </div>

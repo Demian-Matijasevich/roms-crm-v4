@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSettings, setSetting } from "@/lib/queries/settings";
 import { createServerClient } from "@/lib/supabase-server";
 import { upsertLeadToSheet } from "@/lib/sheets-write";
+import { createNotificationsForPolitica } from "@/lib/notifications";
 
 const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
 
@@ -208,6 +209,17 @@ async function processEvent(payload: IClosedPayload) {
     const { data: ins } = await sb.from("leads").insert(data).select("id").single();
     leadId = ins?.id || null;
     action = "created";
+  }
+
+  // Notif al equipo política cuando llega un lead nuevo del nicho política
+  if (action === "created" && nichoDetectado === "politica" && leadId) {
+    await createNotificationsForPolitica({
+      tipo: "info",
+      titulo: `🆕 Nuevo lead política: ${nombre || payload.email}`,
+      mensaje: payload.tracking?.utm_source ? `Fuente: ${payload.tracking.utm_source}` : "Llegó desde iClosed",
+      link: `/pipeline?lead=${leadId}`,
+      meta: { lead_id: leadId, source: "iclosed" },
+    });
   }
 
   // Sync to Sheet (best-effort, don't fail the webhook)

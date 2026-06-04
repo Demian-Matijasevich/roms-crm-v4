@@ -6,10 +6,11 @@ import type { ObjectiveData } from "./HomeCloser";
 import { getUsdRate } from "@/lib/queries/settings";
 import { computeTeamCommissions } from "@/lib/commissions";
 import HomeAdmin from "./HomeAdmin";
+import HomeAdminPolitica from "./HomeAdminPolitica";
 import HomeCloser from "./HomeCloser";
 import HomeSetter from "./HomeSetter";
 import HomeCobranzas from "./HomeCobranzas";
-import { getNichoFilter } from "@/lib/vista";
+import { getNichoFilter, getVista } from "@/lib/vista";
 import { computeMonthlyCash } from "@/lib/queries/monthly-cash";
 import type { MonthlyCash, Payment, Client, Lead, CloserKPI, Commission, RenewalQueueRow } from "@/lib/types";
 
@@ -262,8 +263,11 @@ export default async function DashboardPage() {
     const ventasFirmadas = ((leadsForVentasRows ?? []) as Array<{ id: string; ticket_total: number }>)
       .reduce((s, l) => s + (l.ticket_total || 0), 0);
 
+    const vista = await getVista();
+    const isPolitica = vista === "politica";
+    const Home = isPolitica ? HomeAdminPolitica : HomeAdmin;
     return (
-      <HomeAdmin
+      <Home
         monthlyCash={monthlyCash}
         payments={payments}
         overduePayments={overduePayments}
