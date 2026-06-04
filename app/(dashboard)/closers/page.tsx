@@ -25,8 +25,10 @@ export default async function ClosersPage() {
   if (nicho) leadsQuery = leadsQuery.eq("nicho", nicho);
 
   const [kpisRes, leadsRes, paymentsRes, teamRes, campaignsRes] = await Promise.all([
-    // TODO nicho: v_closer_kpis agrega por closer/mes sin column nicho — muestra totales globales
-    supabase.from("v_closer_kpis").select("*"),
+    // v_closer_kpis_by_nicho cuando hay filtro; sino la global.
+    nicho
+      ? supabase.from("v_closer_kpis_by_nicho").select("*").eq("nicho", nicho)
+      : supabase.from("v_closer_kpis").select("*"),
     leadsQuery,
     supabase
       .from("payments")

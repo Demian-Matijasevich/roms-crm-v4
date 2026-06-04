@@ -48,10 +48,14 @@ export default async function FinanzasPage() {
 
   const [monthlyCashRes, treasuryRes, gastosRes, paymentsRes, ingresosRes, leadsForCommRes, teamRes, campaignsRes, usdRate] =
     await Promise.all([
-      // TODO nicho: v_monthly_cash agrega por mes sin column nicho — muestra totales globales
-      supabase.from("v_monthly_cash").select("*"),
-      // TODO nicho: v_treasury agrega por receptor/mes sin column nicho — muestra totales globales
-      supabase.from("v_treasury").select("*"),
+      // v_monthly_cash_by_nicho cuando hay filtro; sino la vista global histórica.
+      nicho
+        ? supabase.from("v_monthly_cash_by_nicho").select("*").eq("nicho", nicho)
+        : supabase.from("v_monthly_cash").select("*"),
+      // v_treasury_by_nicho cuando hay filtro; sino la global.
+      nicho
+        ? supabase.from("v_treasury_by_nicho").select("*").eq("nicho", nicho)
+        : supabase.from("v_treasury").select("*"),
       supabase.from("gastos").select("*").order("fecha", { ascending: false }),
       supabase
         .from("payments")
