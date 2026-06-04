@@ -48,7 +48,9 @@ export default async function FinanzasPage() {
 
   const [monthlyCashRes, treasuryRes, gastosRes, paymentsRes, ingresosRes, leadsForCommRes, teamRes, campaignsRes, usdRate] =
     await Promise.all([
+      // TODO nicho: v_monthly_cash agrega por mes sin column nicho — muestra totales globales
       supabase.from("v_monthly_cash").select("*"),
+      // TODO nicho: v_treasury agrega por receptor/mes sin column nicho — muestra totales globales
       supabase.from("v_treasury").select("*"),
       supabase.from("gastos").select("*").order("fecha", { ascending: false }),
       supabase
@@ -72,11 +74,16 @@ export default async function FinanzasPage() {
     ]);
 
   // Clients para revenue devengado
-  const clientsRes = await supabase
+  let clientsQuery = supabase
     .from("clients")
     .select("id, lead_id, programa, fecha_onboarding, fecha_offboarding, total_dias_programa, estado")
     .not("fecha_onboarding", "is", null)
     .range(0, 4999);
+  if (leadIdsNicho) {
+    const ids = Array.from(leadIdsNicho);
+    clientsQuery = clientsQuery.in("lead_id", ids.length > 0 ? ids : ["00000000-0000-0000-0000-000000000000"]);
+  }
+  const clientsRes = await clientsQuery;
 
   // USD rate history para mostrar/editar en finanzas
   const usdRatesRes = await supabase.from("usd_rate_history").select("*").order("mes", { ascending: false });
@@ -199,8 +206,8 @@ export default async function FinanzasPage() {
       gastos={(gastosRes.data as GastoRow[]) ?? []}
       ingresos={ingresos}
       usdRate={usdRate}
-      payments={
-        (paymentsRes.data as {
+      payments={(() => {
+        const raw = (paymentsRes.data as {
           id: string;
           monto_usd: number;
           receptor: string | null;
@@ -208,8 +215,9 @@ export default async function FinanzasPage() {
           estado: string;
           metodo_pago: string | null;
           lead_id?: string | null;
-        }[]) ?? []
-      }
+        }[]) ?? [];
+        return leadIdsNicho ? raw.filter((p) => p.lead_id && leadIdsNicho!.has(p.lead_id)) : raw;
+      })()}
       leadsForPro={leadsForPro}
       clientsForPro={clientsForPro}
       usdRateHistory={(usdRatesRes.data ?? []) as Array<{ mes: string; rate: number }>}

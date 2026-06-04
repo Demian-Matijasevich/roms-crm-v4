@@ -1,4 +1,5 @@
 import { createServerClient } from "@/lib/supabase-server";
+import { getNichoLeadIds } from "@/lib/queries/leads";
 import type { Client, Payment, TrackerSession, ClientFollowUp, RenewalHistory, SessionAvailability } from "@/lib/types";
 
 export interface ClientWithRelations extends Client {
@@ -9,7 +10,9 @@ export interface ClientWithRelations extends Client {
   session_availability: SessionAvailability | null;
 }
 
-export async function fetchClients(): Promise<Client[]> {
+type NichoOpt = { skipNichoFilter?: boolean };
+
+export async function fetchClients(opts: NichoOpt = {}): Promise<Client[]> {
   const supabase = createServerClient();
   const { data, error } = await supabase
     .from("clients")
@@ -20,7 +23,11 @@ export async function fetchClients(): Promise<Client[]> {
     console.error("[fetchClients]", error);
     return [];
   }
-  return data as Client[];
+  const all = (data ?? []) as Client[];
+  if (opts.skipNichoFilter) return all;
+  const leadIds = await getNichoLeadIds();
+  if (!leadIds) return all;
+  return all.filter((c) => c.lead_id && leadIds.has(c.lead_id));
 }
 
 export async function fetchClientById(id: string): Promise<ClientWithRelations | null> {

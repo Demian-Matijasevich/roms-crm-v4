@@ -8,6 +8,7 @@ const TEAM_ALL = [
   { nombre: "Mati", role: "jefe_ventas", color: "#f59e0b" },
   { nombre: "Seba", role: "admin", color: "#3b82f6" },
   { nombre: "Nacho", role: "admin", color: "#3b82f6" },
+  { nombre: "Nicolás", role: "admin", color: "#3b82f6" },
   { nombre: "Valentino", role: "closer+setter", color: "#8b5cf6" },
   { nombre: "Agust\u00edn", role: "closer", color: "#60a5fa" },
   { nombre: "Juan Mart\u00edn", role: "closer", color: "#60a5fa" },
@@ -18,7 +19,7 @@ const TEAM_ALL = [
 ];
 
 // En el subdominio pol\u00edtica solo aparecen estos
-const POLITICA_TEAM = TEAM_ALL.filter((t) => ["Fran", "Juanma", "Mati", "Seba", "Nacho"].includes(t.nombre));
+const POLITICA_TEAM = TEAM_ALL.filter((t) => ["Fran", "Juanma", "Mati", "Seba", "Nacho", "Nicolás"].includes(t.nombre));
 
 function getInPolitica(): boolean {
   if (typeof window === "undefined") return false;

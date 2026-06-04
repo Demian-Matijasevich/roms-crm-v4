@@ -2,6 +2,8 @@ import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@/lib/supabase-server";
 import { getToday, toDateString } from "@/lib/date-utils";
+import { getNichoFilter } from "@/lib/vista";
+import { getNichoLeadIds } from "@/lib/queries/leads";
 import CalendarioClient from "./CalendarioClient";
 import type { CalendarLead, CalendarPayment, CalendarRenewal } from "./CalendarioClient";
 
@@ -12,6 +14,8 @@ export default async function CalendarioPage() {
   if (!session) redirect("/login");
 
   const supabase = createServerClient();
+  const nicho = await getNichoFilter();
+  const leadIdsNicho = await getNichoLeadIds();
 
   // Fetch data for the current month range (we'll fetch 3 months to allow navigation)
   const now = getToday();
@@ -31,6 +35,7 @@ export default async function CalendarioPage() {
     .from("leads")
     .select("id, nombre, fecha_agendado, fecha_llamada, estado, instagram, telefono, programa_pitcheado, link_llamada, ticket_total, closer_id, setter_id, closer:team_members!leads_closer_id_fkey(nombre), setter:team_members!leads_setter_id_fkey(nombre)")
     .or(`and(fecha_agendado.gte.${startStr}T00:00:00,fecha_agendado.lte.${endStr}T23:59:59),and(fecha_llamada.gte.${startStr}T00:00:00,fecha_llamada.lte.${endStr}T23:59:59)`);
+  if (nicho) leadsQuery = leadsQuery.eq("nicho", nicho);
   if (!isAdmin) {
     leadsQuery = leadsQuery.or(`closer_id.eq.${myId},setter_id.eq.${myId}`);
   }
@@ -50,16 +55,32 @@ export default async function CalendarioPage() {
     .eq("estado", "pagado")
     .range(0, 4999);
 
+  let clientsQuery = supabase
+    .from("clients")
+    .select("id, lead_id, nombre, programa, fecha_onboarding, total_dias_programa, estado_contacto, health_score, telefono")
+    .eq("estado", "activo")
+    .not("fecha_onboarding", "is", null);
+  if (leadIdsNicho) {
+    const ids = Array.from(leadIdsNicho);
+    if (ids.length === 0) {
+      clientsQuery = clientsQuery.eq("lead_id", "00000000-0000-0000-0000-000000000000");
+    } else {
+      clientsQuery = clientsQuery.in("lead_id", ids);
+    }
+  }
+
   const [leadsRes, paymentsRes, paidPaymentsRes, renewalsRes] = await Promise.all([
     leadsQuery,
     pendingQuery,
     paidQuery,
-    supabase
-      .from("clients")
-      .select("id, nombre, programa, fecha_onboarding, total_dias_programa, estado_contacto, health_score, telefono")
-      .eq("estado", "activo")
-      .not("fecha_onboarding", "is", null),
+    clientsQuery,
   ]);
+
+  // Aplicar filtro nicho a payments por lead_id (post-fetch)
+  const filterByNicho = (rows: unknown[]): unknown[] => {
+    if (!leadIdsNicho) return rows;
+    return (rows as Array<{ lead_id?: string | null }>).filter((p) => p.lead_id && leadIdsNicho.has(p.lead_id));
+  };
 
   // Filter payments client-side by lead's closer/setter (server-side OR on joined tables is tricky)
   const filterPayment = (p: { lead?: { closer_id?: string | null; setter_id?: string | null } | null }) => {
@@ -112,8 +133,8 @@ export default async function CalendarioPage() {
     ticket_total: (l.ticket_total as number) || 0,
   }));
 
-  // Map payments to CalendarPayment (with role filter)
-  const payments: CalendarPayment[] = (paymentsRes.data ?? []).filter(filterPayment as (p: unknown) => boolean).map((p: Record<string, unknown>) => {
+  // Map payments to CalendarPayment (with role filter + nicho filter)
+  const payments: CalendarPayment[] = (filterByNicho(paymentsRes.data ?? []) as Record<string, unknown>[]).filter(filterPayment as (p: unknown) => boolean).map((p: Record<string, unknown>) => {
     const lead = p.lead as Record<string, unknown> | null;
     const client = p.client as Record<string, unknown> | null;
     return {
@@ -130,7 +151,7 @@ export default async function CalendarioPage() {
     };
   });
 
-  const paidPayments = (paidPaymentsRes.data ?? []).filter(filterPayment as (p: unknown) => boolean).map((p: Record<string, unknown>) => {
+  const paidPayments = (filterByNicho(paidPaymentsRes.data ?? []) as Record<string, unknown>[]).filter(filterPayment as (p: unknown) => boolean).map((p: Record<string, unknown>) => {
     const lead = p.lead as Record<string, unknown> | null;
     const client = p.client as Record<string, unknown> | null;
     return {

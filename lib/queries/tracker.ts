@@ -1,18 +1,28 @@
 import { createServerClient } from "@/lib/supabase-server";
+import { getNichoLeadIds } from "@/lib/queries/leads";
 import type { TrackerSession, SessionAvailability } from "@/lib/types";
 
-export async function fetchSessions(): Promise<TrackerSession[]> {
+type NichoOpt = { skipNichoFilter?: boolean };
+
+export async function fetchSessions(opts: NichoOpt = {}): Promise<TrackerSession[]> {
   const supabase = createServerClient();
   const { data, error } = await supabase
     .from("tracker_sessions")
-    .select("*, client:clients(id, nombre, programa)")
+    .select("*, client:clients(id, nombre, programa, lead_id)")
     .order("fecha", { ascending: false });
 
   if (error) {
     console.error("[fetchSessions]", error);
     return [];
   }
-  return data as TrackerSession[];
+  const all = (data ?? []) as TrackerSession[];
+  if (opts.skipNichoFilter) return all;
+  const leadIds = await getNichoLeadIds();
+  if (!leadIds) return all;
+  return all.filter((s) => {
+    const lid = (s as unknown as { client?: { lead_id?: string } }).client?.lead_id;
+    return lid && leadIds.has(lid);
+  });
 }
 
 export async function fetchSessionsByClient(clientId: string): Promise<TrackerSession[]> {

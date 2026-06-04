@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase-server";
 import { getToday } from "@/lib/date-utils";
+import { getNichoLeadIds } from "@/lib/queries/leads";
 import type { RenewalQueueRow } from "@/lib/types";
 import RenovacionesClient from "./RenovacionesClient";
 
@@ -13,6 +14,27 @@ export default async function RenovacionesPage() {
   if (!session.is_admin) redirect("/");
 
   const supabase = createServerClient();
+  const leadIdsNicho = await getNichoLeadIds();
+
+  // Si hay nicho, traemos clients del nicho primero para tener su set de IDs
+  let clientIdsNicho: Set<string> | null = null;
+  if (leadIdsNicho) {
+    const idsArr = Array.from(leadIdsNicho);
+    const { data: cs } = await supabase
+      .from("clients")
+      .select("id, lead_id")
+      .in("lead_id", idsArr.length > 0 ? idsArr : ["00000000-0000-0000-0000-000000000000"]);
+    clientIdsNicho = new Set((cs || []).map((c: { id: string }) => c.id));
+  }
+
+  let clientsQuery = supabase
+    .from("clients")
+    .select("id, lead_id, nombre, programa, estado, fecha_onboarding, fecha_offboarding, total_dias_programa, health_score")
+    .in("estado", ["activo", "inactivo"]);
+  if (clientIdsNicho) {
+    const ids = Array.from(clientIdsNicho);
+    clientsQuery = clientsQuery.in("id", ids.length > 0 ? ids : ["00000000-0000-0000-0000-000000000000"]);
+  }
 
   const [
     { data: renewalQueue },
@@ -28,11 +50,16 @@ export default async function RenovacionesPage() {
       .select("*, client:clients(id, nombre, programa), responsable:team_members(id, nombre)")
       .order("fecha_renovacion", { ascending: false })
       .limit(100),
-    supabase
-      .from("clients")
-      .select("id, nombre, programa, estado, fecha_onboarding, fecha_offboarding, total_dias_programa, health_score")
-      .in("estado", ["activo", "inactivo"]),
+    clientsQuery,
   ]);
+
+  // Filtrar v_renewal_queue por client_id (la vista expone .id como client_id) y renewal_history por client_id
+  const filteredQueue = clientIdsNicho
+    ? (renewalQueue ?? []).filter((q: { id: string }) => clientIdsNicho!.has(q.id))
+    : (renewalQueue ?? []);
+  const filteredHistory = clientIdsNicho
+    ? (renewalHistory ?? []).filter((r: { client_id: string | null }) => r.client_id && clientIdsNicho!.has(r.client_id))
+    : (renewalHistory ?? []);
 
   // Calculate metrics
   const allClients = clients ?? [];
@@ -54,7 +81,7 @@ export default async function RenovacionesPage() {
     return v && v < today;
   }).length;
 
-  const allRenewals = (renewalHistory ?? []) as any[];
+  const allRenewals = (filteredHistory ?? []) as any[];
 
   // Dedup renewals: misma client_id + mismo mes_renovacion → una sola
   const seen = new Set<string>();
@@ -98,7 +125,7 @@ export default async function RenovacionesPage() {
 
   // Dedup queue (mismo cliente nombre normalizado solo aparece 1 vez)
   const queueSeen = new Set<string>();
-  const dedupedQueue = (renewalQueue ?? []).filter((q: any) => {
+  const dedupedQueue = (filteredQueue ?? []).filter((q: any) => {
     const key = (q.nombre || "").toLowerCase().trim();
     if (!key || queueSeen.has(key)) return false;
     queueSeen.add(key);

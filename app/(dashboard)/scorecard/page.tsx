@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase-server";
 import { getToday } from "@/lib/date-utils";
+import { getNichoFilter } from "@/lib/vista";
+import { getNichoLeadIds } from "@/lib/queries/leads";
 import ScorecardClient from "./ScorecardClient";
 import type { Lead, Payment, TeamMember } from "@/lib/types";
 
@@ -34,12 +36,18 @@ export default async function ScorecardPage() {
 
   const fmt = (d: Date) => d.toISOString().split("T")[0];
 
+  const nicho = await getNichoFilter();
+  const leadIdsNicho = await getNichoLeadIds();
+
+  let leadsQuery = supabase
+    .from("leads")
+    .select("*, closer:team_members!leads_closer_id_fkey(id,nombre), setter:team_members!leads_setter_id_fkey(id,nombre)")
+    .gte("fecha_llamada", fmt(twoWeeksAgoMonday))
+    .lt("fecha_llamada", fmt(thisMonday));
+  if (nicho) leadsQuery = leadsQuery.eq("nicho", nicho);
+
   const [leadsRes, paymentsRes, teamRes] = await Promise.all([
-    supabase
-      .from("leads")
-      .select("*, closer:team_members!leads_closer_id_fkey(id,nombre), setter:team_members!leads_setter_id_fkey(id,nombre)")
-      .gte("fecha_llamada", fmt(twoWeeksAgoMonday))
-      .lt("fecha_llamada", fmt(thisMonday)),
+    leadsQuery,
     supabase
       .from("payments")
       .select("*")
@@ -51,10 +59,15 @@ export default async function ScorecardPage() {
       .eq("activo", true),
   ]);
 
+  const paymentsRaw = (paymentsRes.data as Payment[]) ?? [];
+  const payments = leadIdsNicho
+    ? paymentsRaw.filter((p) => p.lead_id && leadIdsNicho.has(p.lead_id))
+    : paymentsRaw;
+
   return (
     <ScorecardClient
       leads={(leadsRes.data as Lead[]) ?? []}
-      payments={(paymentsRes.data as Payment[]) ?? []}
+      payments={payments}
       team={(teamRes.data as TeamMember[]) ?? []}
       lastMondayStr={fmt(lastMonday)}
       twoWeeksAgoMondayStr={fmt(twoWeeksAgoMonday)}

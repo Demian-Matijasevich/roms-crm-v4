@@ -1,4 +1,5 @@
 import { createServerClient } from "@/lib/supabase-server";
+import { getNichoFilter } from "@/lib/vista";
 import type { Lead, TeamMember } from "@/lib/types";
 
 export interface LeadWithTeam extends Omit<Lead, "setter" | "closer"> {
@@ -7,13 +8,19 @@ export interface LeadWithTeam extends Omit<Lead, "setter" | "closer"> {
 }
 
 /**
- * Fetch leads with setter/closer joined, ordered by created_at desc.
- * Default limit 2000 — los más recientes son los relevantes para la UI.
- * Páginas viejas se acceden con limit/offset si hace falta.
+ * Filtro de nicho automático según la vista del usuario.
+ * Si `opts.skipNichoFilter=true` se ignora (útil para admin / scripts).
  */
-export async function fetchLeads(limit = 2000, offset = 0): Promise<LeadWithTeam[]> {
+type NichoOpt = { skipNichoFilter?: boolean };
+
+/**
+ * Fetch leads con filtro automático por nicho según vista.
+ * Default limit 2000 — los más recientes son los relevantes para la UI.
+ */
+export async function fetchLeads(limit = 2000, offset = 0, opts: NichoOpt = {}): Promise<LeadWithTeam[]> {
   const supabase = createServerClient();
-  const { data, error } = await supabase
+  const nicho = opts.skipNichoFilter ? null : await getNichoFilter();
+  let q = supabase
     .from("leads")
     .select(`
       *,
@@ -22,7 +29,9 @@ export async function fetchLeads(limit = 2000, offset = 0): Promise<LeadWithTeam
     `)
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
+  if (nicho) q = q.eq("nicho", nicho);
 
+  const { data, error } = await q;
   if (error) {
     console.error("[fetchLeads]", error.message);
     return [];
@@ -31,7 +40,7 @@ export async function fetchLeads(limit = 2000, offset = 0): Promise<LeadWithTeam
 }
 
 /**
- * Fetch a single lead by ID with setter/closer.
+ * Fetch un lead por id (sin filtro de nicho — solo controla acceso por id).
  */
 export async function fetchLeadById(id: string): Promise<LeadWithTeam | null> {
   const supabase = createServerClient();
@@ -54,10 +63,12 @@ export async function fetchLeadById(id: string): Promise<LeadWithTeam | null> {
 
 /**
  * Fetch leads filtered by closer_id (for non-admin closers).
+ * Aplica filtro de nicho.
  */
-export async function fetchLeadsByCloser(closerId: string): Promise<LeadWithTeam[]> {
+export async function fetchLeadsByCloser(closerId: string, opts: NichoOpt = {}): Promise<LeadWithTeam[]> {
   const supabase = createServerClient();
-  const { data, error } = await supabase
+  const nicho = opts.skipNichoFilter ? null : await getNichoFilter();
+  let q = supabase
     .from("leads")
     .select(`
       *,
@@ -66,7 +77,9 @@ export async function fetchLeadsByCloser(closerId: string): Promise<LeadWithTeam
     `)
     .eq("closer_id", closerId)
     .order("created_at", { ascending: false });
+  if (nicho) q = q.eq("nicho", nicho);
 
+  const { data, error } = await q;
   if (error) {
     console.error("[fetchLeadsByCloser]", error.message);
     return [];
@@ -76,10 +89,12 @@ export async function fetchLeadsByCloser(closerId: string): Promise<LeadWithTeam
 
 /**
  * Fetch leads filtered by setter_id (for non-admin setters).
+ * Aplica filtro de nicho.
  */
-export async function fetchLeadsBySetter(setterId: string): Promise<LeadWithTeam[]> {
+export async function fetchLeadsBySetter(setterId: string, opts: NichoOpt = {}): Promise<LeadWithTeam[]> {
   const supabase = createServerClient();
-  const { data, error } = await supabase
+  const nicho = opts.skipNichoFilter ? null : await getNichoFilter();
+  let q = supabase
     .from("leads")
     .select(`
       *,
@@ -88,12 +103,26 @@ export async function fetchLeadsBySetter(setterId: string): Promise<LeadWithTeam
     `)
     .eq("setter_id", setterId)
     .order("created_at", { ascending: false });
+  if (nicho) q = q.eq("nicho", nicho);
 
+  const { data, error } = await q;
   if (error) {
     console.error("[fetchLeadsBySetter]", error.message);
     return [];
   }
   return (data ?? []) as LeadWithTeam[];
+}
+
+/**
+ * Helper interno: devuelve el Set de leadIds del nicho actual.
+ * Null si vista=todos (sin filtro).
+ */
+export async function getNichoLeadIds(): Promise<Set<string> | null> {
+  const nicho = await getNichoFilter();
+  if (!nicho) return null;
+  const sb = createServerClient();
+  const { data } = await sb.from("leads").select("id").eq("nicho", nicho).range(0, 19999);
+  return new Set((data || []).map((l) => l.id));
 }
 
 /**

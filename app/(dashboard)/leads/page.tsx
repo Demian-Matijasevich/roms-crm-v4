@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase-server";
+import { getNichoFilter } from "@/lib/vista";
 import LeadsClient from "./LeadsClient";
 
 export const dynamic = "force-dynamic";
@@ -11,13 +12,17 @@ export default async function LeadsPage() {
   if (!session.is_admin) redirect("/");
 
   const sb = createServerClient();
+  const nicho = await getNichoFilter();
+
+  let leadsQuery = sb
+    .from("leads")
+    .select("id, nombre, instagram, email, telefono, setter_id, closer_id, estado, utm_source, utm_medium, utm_content, fecha_agendado, fecha_llamada, sheets_row_index, fuente, programa_pitcheado, ticket_total, lead_calificado")
+    .order("fecha_agendado", { ascending: false, nullsFirst: false })
+    .range(0, 9999);
+  if (nicho) leadsQuery = leadsQuery.eq("nicho", nicho);
 
   const [leadsRes, teamRes] = await Promise.all([
-    sb
-      .from("leads")
-      .select("id, nombre, instagram, email, telefono, setter_id, closer_id, estado, utm_source, utm_medium, utm_content, fecha_agendado, fecha_llamada, sheets_row_index, fuente, programa_pitcheado, ticket_total, lead_calificado")
-      .order("fecha_agendado", { ascending: false, nullsFirst: false })
-      .range(0, 9999),
+    leadsQuery,
     sb.from("team_members").select("id, nombre, is_setter, is_closer").eq("activo", true).order("nombre"),
   ]);
 

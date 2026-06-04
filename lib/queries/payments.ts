@@ -1,10 +1,14 @@
 import { createServerClient } from "@/lib/supabase-server";
+import { getNichoLeadIds } from "@/lib/queries/leads";
 import type { Payment } from "@/lib/types";
+
+type NichoOpt = { skipNichoFilter?: boolean };
 
 /**
  * Fetch all payments ordered by created_at desc.
+ * Aplica filtro de nicho automáticamente (filtra por lead_id ∈ nicho actual).
  */
-export async function fetchPayments(): Promise<Payment[]> {
+export async function fetchPayments(opts: NichoOpt = {}): Promise<Payment[]> {
   const supabase = createServerClient();
   const { data, error } = await supabase
     .from("payments")
@@ -16,7 +20,11 @@ export async function fetchPayments(): Promise<Payment[]> {
     console.error("[fetchPayments]", error.message);
     return [];
   }
-  return (data ?? []) as Payment[];
+  const all = (data ?? []) as Payment[];
+  if (opts.skipNichoFilter) return all;
+  const leadIds = await getNichoLeadIds();
+  if (!leadIds) return all;
+  return all.filter((p) => p.lead_id && leadIds.has(p.lead_id));
 }
 
 /**

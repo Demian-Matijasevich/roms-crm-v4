@@ -12,6 +12,9 @@ export default async function TesoreriaPage() {
   if (!session.is_admin) redirect("/");
 
   const supabase = createServerClient();
+  // TODO nicho: v_treasury agrega por receptor/mes_fiscal/metodo_pago sin column nicho ni lead_id.
+  // Para filtrar correctamente habría que reconstruir desde payments JOIN leads.
+  // Por ahora muestra totales globales (mezcla todos los nichos).
   const { data } = await supabase.from("v_treasury").select("*");
 
   return <TesoreriaClient rows={(data as TreasuryRow[]) ?? []} />;
