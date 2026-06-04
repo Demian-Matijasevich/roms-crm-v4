@@ -10,6 +10,7 @@ import HomeCloser from "./HomeCloser";
 import HomeSetter from "./HomeSetter";
 import HomeCobranzas from "./HomeCobranzas";
 import { getNichoFilter } from "@/lib/vista";
+import { computeMonthlyCash } from "@/lib/queries/monthly-cash";
 import type { MonthlyCash, Payment, Client, Lead, CloserKPI, Commission, RenewalQueueRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -124,6 +125,14 @@ export default async function DashboardPage() {
     const fiscalStart = getFiscalStart();
     const fiscalEnd = getFiscalEnd();
     const today = toDateString(getToday());
+    const nicho = await getNichoFilter();
+
+    // Leads del nicho (todos los leads si vista=todos)
+    let leadsNichoQuery = supabase.from("leads").select("id, ticket_total, nicho").range(0, 9999);
+    if (nicho) leadsNichoQuery = leadsNichoQuery.eq("nicho", nicho);
+    const { data: leadsNichoRows } = await leadsNichoQuery;
+    const leadsNichoList = (leadsNichoRows ?? []) as Array<{ id: string; ticket_total: number }>;
+    const leadIdsNicho = nicho ? new Set(leadsNichoList.map((l) => l.id)) : null;
 
     const [cashRes, paymentsRes, overdueRes, atRiskRes, commissionsRes, pendingPaymentsRes, pipelineLeadsRes, renewalQueueRes, leadsForCommRes, teamRes, campaignsRes] = await Promise.all([
       supabase.from("v_monthly_cash").select("*"),
@@ -146,25 +155,27 @@ export default async function DashboardPage() {
       // Revenue prediction: pending payments in fiscal period
       supabase
         .from("payments")
-        .select("monto_usd")
+        .select("monto_usd, lead_id")
         .eq("estado", "pendiente")
         .gte("fecha_vencimiento", toDateString(fiscalStart))
         .lte("fecha_vencimiento", toDateString(fiscalEnd)),
-      // Revenue prediction: pipeline leads
-      supabase
-        .from("leads")
-        .select("id, nombre, ticket_total, estado")
-        .in("estado", ["pendiente", "seguimiento", "reserva"]),
+      // Revenue prediction: pipeline leads (filtrado por nicho si aplica)
+      (() => {
+        let q = supabase.from("leads").select("id, nombre, ticket_total, estado, nicho").in("estado", ["pendiente", "seguimiento", "reserva"]);
+        if (nicho) q = q.eq("nicho", nicho);
+        return q;
+      })(),
       // Revenue prediction: renewal queue
       supabase
         .from("v_renewal_queue")
         .select("*")
         .in("semaforo", ["urgente", "proximo"]),
-      // Leads para cálculo de comisiones (closer/setter attribution)
-      supabase
-        .from("leads")
-        .select("id, closer_id, setter_id, utm_medium, programa_pitcheado")
-        .range(0, 9999),
+      // Leads para cálculo de comisiones (filtrado por nicho si aplica)
+      (() => {
+        let q = supabase.from("leads").select("id, closer_id, setter_id, utm_medium, programa_pitcheado, nicho").range(0, 9999);
+        if (nicho) q = q.eq("nicho", nicho);
+        return q;
+      })(),
       supabase
         .from("team_members")
         .select("id, nombre, is_closer, is_setter")
@@ -174,14 +185,51 @@ export default async function DashboardPage() {
         .select("medium, setter_id"),
     ]);
 
-    // Revenue prediction calculations
+    // Aplicar filtro de nicho a todos los datasets que vienen de v_* o sin filtro
+    const allPayments = (paymentsRes.data ?? []) as Payment[];
+    const allOverdue = (overdueRes.data ?? []) as Payment[];
+    const allAtRisk = (atRiskRes.data ?? []) as Client[];
+    const allCash = (cashRes.data as MonthlyCash[] ?? []);
+    const allCommissions = (commissionsRes.data as Commission[] ?? []);
+    const allRenewals = (renewalQueueRes.data as RenewalQueueRow[] ?? []);
+    const allPendingPayments = (pendingPaymentsRes.data ?? []) as Array<{ monto_usd: number; lead_id: string | null }>;
+
+    // Filtrados por nicho (si aplica)
+    const payments = leadIdsNicho ? allPayments.filter((p) => p.lead_id && leadIdsNicho.has(p.lead_id)) : allPayments;
+    const overduePayments = leadIdsNicho ? allOverdue.filter((p) => p.lead_id && leadIdsNicho.has(p.lead_id)) : allOverdue;
+    const atRiskClients = leadIdsNicho ? allAtRisk.filter((c) => c.lead_id && leadIdsNicho.has(c.lead_id)) : allAtRisk;
+    const pendingPayments = leadIdsNicho ? allPendingPayments.filter((p) => p.lead_id && leadIdsNicho.has(p.lead_id)) : allPendingPayments;
+
+    // monthlyCash: si hay filtro, recomputar desde payments + leadsNicho; sino, usar la vista
+    const monthlyCash: MonthlyCash[] = leadIdsNicho
+      ? computeMonthlyCash(payments as never[], leadsNichoList)
+      : allCash;
+
+    // commissions: las comisiones por persona ya están agregadas globales en v_commissions.
+    // Si hay filtro de nicho, dejamos las comisiones de la vista (es el cálculo total real de cada persona).
+    // Comisiones por nicho se podrían recomputar también, pero para Fase 1 lo dejamos así.
+    const commissions = allCommissions;
+
+    // renewalQueue: la vista v_renewal_queue usa client.id como id.
+    // Si hay nicho, filtramos por los client.id cuyo lead pertenece al nicho.
+    let renewals: RenewalQueueRow[] = allRenewals;
+    if (leadIdsNicho) {
+      const { data: clientsNicho } = await supabase
+        .from("clients")
+        .select("id, lead_id")
+        .in("lead_id", Array.from(leadIdsNicho));
+      const clientIdsNicho = new Set((clientsNicho ?? []).map((c) => c.id));
+      renewals = allRenewals.filter((r) => clientIdsNicho.has((r as unknown as { id: string }).id));
+    }
+
+    // Revenue prediction calculations (todo basado en data filtrada por nicho)
     const currentFiscalLabel = getFiscalMonth(getToday());
-    const currentCash = (cashRes.data as MonthlyCash[] ?? []).find(m => m.mes_fiscal === currentFiscalLabel);
+    const currentCash = monthlyCash.find(m => m.mes_fiscal === currentFiscalLabel);
     const cashCollected = currentCash?.cash_total ?? 0;
-    const pendingPaymentsTotal = (pendingPaymentsRes.data ?? []).reduce((s: number, p: { monto_usd: number }) => s + p.monto_usd, 0);
+    const pendingPaymentsTotal = pendingPayments.reduce((s, p) => s + Number(p.monto_usd || 0), 0);
     const pipelineLeads = (pipelineLeadsRes.data ?? []) as Pick<Lead, "id" | "nombre" | "ticket_total" | "estado">[];
     const pipelineTotal = pipelineLeads.reduce((s, l) => s + (l.ticket_total || 0), 0);
-    const renewalQueue = (renewalQueueRes.data ?? []) as RenewalQueueRow[];
+    const renewalQueue = renewals;
 
     // Build commissions using Valen scheme (7/5/7 × multiplier, cap 10%) + setter 3%
     // Fiscal month range = calendar month for ROMS
@@ -189,7 +237,7 @@ export default async function DashboardPage() {
     const fiscalMonthEnd = toDateString(fiscalEnd);
     const currentCommissions = computeTeamCommissions({
       leads: (leadsForCommRes.data ?? []) as Array<{ id: string; closer_id: string | null; setter_id: string | null; utm_medium: string | null; programa_pitcheado: string | null }>,
-      payments: (paymentsRes.data ?? []) as Array<{ lead_id: string | null; monto_usd: number; fecha_pago: string | null; estado: string }>,
+      payments: payments as Array<{ lead_id: string | null; monto_usd: number; fecha_pago: string | null; estado: string }>,
       team: (teamRes.data ?? []) as Array<{ id: string; nombre: string; is_closer: boolean; is_setter: boolean }>,
       campaigns: (campaignsRes.data ?? []) as Array<{ medium: string | null; setter_id: string | null }>,
       monthStart: fiscalMonthStart,
@@ -198,9 +246,8 @@ export default async function DashboardPage() {
 
     // Facturación del mes (criterio contable, mismo que /finanzas y /cierre-mes):
     // ticket_total de leads cuya cuota#1 se cobró en el mes.
-    const paysRows = (paymentsRes.data ?? []) as Array<{ lead_id: string | null; numero_cuota: number; fecha_pago: string | null; estado: string }>;
     const leadsCuota1Mes = new Set<string>();
-    for (const p of paysRows) {
+    for (const p of payments) {
       if (p.estado !== "pagado") continue;
       if (!p.lead_id || !p.fecha_pago) continue;
       if (p.numero_cuota !== 1) continue;
@@ -217,11 +264,11 @@ export default async function DashboardPage() {
 
     return (
       <HomeAdmin
-        monthlyCash={(cashRes.data as MonthlyCash[]) ?? []}
-        payments={(paymentsRes.data as Payment[]) ?? []}
-        overduePayments={(overdueRes.data as Payment[]) ?? []}
-        atRiskClients={(atRiskRes.data as Client[]) ?? []}
-        commissions={(commissionsRes.data as Commission[]) ?? []}
+        monthlyCash={monthlyCash}
+        payments={payments}
+        overduePayments={overduePayments}
+        atRiskClients={atRiskClients}
+        commissions={commissions}
         teamCommissions={currentCommissions}
         ventasFirmadasOverride={ventasFirmadas}
         revPrediction={{
