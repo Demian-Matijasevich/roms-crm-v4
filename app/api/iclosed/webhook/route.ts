@@ -55,6 +55,42 @@ function extractInstagram(qa: Record<string, string> | undefined): string | null
   return null;
 }
 
+/**
+ * Detecta si el lead es nicho política — busca en Q&A si la respuesta
+ * a la pregunta "¿Tu negocio es política o consultoría?" (o similar)
+ * incluye keywords relacionadas con política.
+ * Heurísticas:
+ *   1. Q&A: campo cuya pregunta mencione "política" o cuya respuesta lo mencione
+ *   2. Q&A: respuestas con keywords electoral (intendente, concejal, campaña, candidato, partido)
+ *   3. event.name o eventType incluya "politica"
+ */
+function detectNicho(payload: IClosedPayload): "politica" | "general" {
+  const qa = payload.questionsAndAnswers || {};
+  const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const KEYWORDS = ["politica", "campaña", "campana", "intendente", "concejal", "candidato", "partido", "electoral", "diputado", "senador", "gobernador", "ministro"];
+
+  for (const [k, v] of Object.entries(qa)) {
+    const kn = norm(String(k || ""));
+    const vn = norm(String(v || ""));
+    // Pregunta sobre negocio política/consultoría
+    if (kn.includes("politica") || kn.includes("rubro") || kn.includes("nicho") || kn.includes("negocio")) {
+      if (vn.includes("politic")) return "politica";
+      if (vn.includes("consultor")) return "general";
+    }
+    // Respuesta con keywords electorales
+    for (const kw of KEYWORDS) {
+      if (vn.includes(kw)) return "politica";
+    }
+  }
+
+  // Event name o tipo
+  const eventName = norm(String(payload.event?.name || ""));
+  const eventType = norm(String(payload.event?.eventType || ""));
+  if (eventName.includes("politic") || eventType.includes("politic")) return "politica";
+
+  return "general";
+}
+
 async function processEvent(payload: IClosedPayload) {
   if (!payload.email) return { skipped: "no email" };
   const sb = createServerClient();
@@ -132,6 +168,9 @@ async function processEvent(payload: IClosedPayload) {
   const isBookedOnly = iclosedStatusUpper.includes("BOOKED");
   const scheduledDateTime = payload.latestCall?.dateTime || null;
 
+  // Routing por nicho (política vs general)
+  const nichoDetectado = detectNicho(payload);
+
   const data: Record<string, unknown> = {
     nombre: nombre || null,
     email: payload.email,
@@ -146,7 +185,13 @@ async function processEvent(payload: IClosedPayload) {
     utm_medium: payload.tracking?.utm_medium || null,
     utm_content: payload.tracking?.utm_content || null,
     fuente: (payload.tracking?.utm_source || "").toLowerCase() === "inbound" ? "instagram" : "otro",
+    nicho: nichoDetectado,
   };
+  // Si es política, inicializar etapa_politica='nuevo' al crear (no pisar si ya tiene)
+  if (nichoDetectado === "politica" && !lead) {
+    data.etapa_politica = "nuevo";
+    data.closer_id = null; // Bandeja entrada — el equipo política se asigna desde el board
+  }
 
   const marker = `[iClosed id:${payload.id || "—"} call:${payload.latestCall?.id || "—"}]`;
   const currentNotes = lead?.notas_internas || "";
