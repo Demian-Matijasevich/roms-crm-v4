@@ -119,6 +119,26 @@ export default function PipelineClient({
   const [monthFilter, setMonthFilter] = useState<string>("todos");
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [savingEtapa, setSavingEtapa] = useState<string | null>(null);
+  const [misLeadsOnly, setMisLeadsOnly] = useState<boolean>(false);
+  const [tomandoId, setTomandoId] = useState<string | null>(null);
+
+  async function tomarLead(leadId: string) {
+    setTomandoId(leadId);
+    try {
+      const res = await fetch(`/api/leads/${leadId}/tomar`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`No se pudo tomar: ${err.error || res.statusText}`);
+        return;
+      }
+      // refresh local: setear closer_id en lead
+      setLeads((prev) => prev.map((l) => l.id === leadId ? ({ ...l, closer_id: session.team_member_id } as LeadWithTeam) : l));
+    } catch (err) {
+      alert(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setTomandoId(null);
+    }
+  }
 
   async function moveEtapaPolitica(leadId: string, etapa: EtapaPolitica) {
     setSavingEtapa(leadId);
@@ -153,6 +173,10 @@ export default function PipelineClient({
     return leads.filter((lead) => {
       if (closerFilter !== "todos" && lead.closer_id !== closerFilter) return false;
       if (setterFilter !== "todos" && lead.setter_id !== setterFilter) return false;
+      // Filtro "Mis leads": muestra los que asigné yo + los sin asignar (bandeja entrada)
+      if (isPolitica && misLeadsOnly && session.team_member_id) {
+        if (lead.closer_id && lead.closer_id !== session.team_member_id) return false;
+      }
 
       if (monthFilter !== "todos" && lead.fecha_llamada) {
         const llamadaDate = parseLocalDate(lead.fecha_llamada);
@@ -163,7 +187,7 @@ export default function PipelineClient({
 
       return true;
     });
-  }, [leads, closerFilter, setterFilter, monthFilter]);
+  }, [leads, closerFilter, setterFilter, monthFilter, isPolitica, misLeadsOnly, session.team_member_id]);
 
   const buckets = useMemo(() => {
     if (isPolitica) {
@@ -199,9 +223,19 @@ export default function PipelineClient({
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold">{isAdmin ? "Pipeline" : "Mi Pipeline"}</h1>
+          <h1 className="text-xl font-bold">{isPolitica ? "Pipeline Política" : (isAdmin ? "Pipeline" : "Mi Pipeline")}</h1>
           <p className="text-sm text-[var(--muted)]">{filtered.length} leads en total</p>
         </div>
+
+        {isPolitica && session.team_member_id && (
+          <button
+            onClick={() => setMisLeadsOnly((v) => !v)}
+            className={`px-3 py-2 text-sm rounded-lg border transition-colors ${misLeadsOnly ? "bg-[var(--purple)]/20 border-[var(--purple)]/40 text-[var(--purple)]" : "bg-[var(--card-bg)] border-[var(--card-border)] text-[var(--muted)] hover:text-[var(--foreground)]"}`}
+            title="Solo míos + sin asignar"
+          >
+            {misLeadsOnly ? "👤 Mis leads" : "🌐 Todos"}
+          </button>
+        )}
 
         {isAdmin && (
           <div className="flex flex-wrap gap-2">
@@ -289,11 +323,17 @@ export default function PipelineClient({
                       {lead.ticket_total > 0 && (
                         <p className="text-xs text-green-400 font-medium mt-1">{formatUSD(lead.ticket_total)}</p>
                       )}
-                      {isAdmin && lead.closer?.nombre && (
-                        <p className="text-[10px] text-[var(--muted)] mt-1.5">C: {lead.closer.nombre}</p>
+                      {lead.closer?.nombre && (
+                        <p className="text-[10px] text-[var(--muted)] mt-1.5">👤 {lead.closer.nombre}</p>
                       )}
-                      {!lead.closer?.nombre && (
-                        <p className="text-[10px] text-amber-400/80 mt-1.5">Sin asignar</p>
+                      {!lead.closer?.nombre && session.team_member_id && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); tomarLead(lead.id); }}
+                          disabled={tomandoId === lead.id}
+                          className="mt-1.5 w-full text-[10px] py-1 rounded bg-amber-400/10 hover:bg-amber-400/20 border border-amber-400/30 text-amber-300 transition-colors disabled:opacity-50"
+                        >
+                          {tomandoId === lead.id ? "Tomando…" : "🙋 Tomar este lead"}
+                        </button>
                       )}
                     </div>
                   ))}
