@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import type { AuthSession, TeamMember, Payment, LeadEstado, LeadScore } from "@/lib/types";
+import type { AuthSession, TeamMember, Payment, LeadEstado, LeadScore, EtapaPolitica } from "@/lib/types";
 import type { LeadWithTeam } from "@/lib/queries/leads";
 import { LEAD_ESTADOS_LABELS, PROGRAMS } from "@/lib/constants";
 import { formatUSD } from "@/lib/format";
@@ -16,6 +16,7 @@ interface Props {
   usdRate: number;
   session: AuthSession;
   isAdmin: boolean;
+  isPolitica?: boolean;
 }
 
 const SCORE_COLORS: Record<string, string> = {
@@ -64,11 +65,31 @@ const COLUMNS: Column[] = [
   },
 ];
 
+type PolColumn = {
+  key: EtapaPolitica;
+  title: string;
+  headerColor: string;
+  borderColor: string;
+};
+
+const COLUMNS_POLITICA: PolColumn[] = [
+  { key: "nuevo",       title: "Nuevo",       headerColor: "bg-blue-500/20 text-blue-300",     borderColor: "border-blue-500/30" },
+  { key: "caliente",    title: "Caliente",    headerColor: "bg-orange-500/20 text-orange-300", borderColor: "border-orange-500/30" },
+  { key: "aserrado",    title: "Aserrado",    headerColor: "bg-yellow-500/20 text-yellow-300", borderColor: "border-yellow-500/30" },
+  { key: "preserrado",  title: "Preserrado",  headerColor: "bg-emerald-500/20 text-emerald-300", borderColor: "border-emerald-500/30" },
+  { key: "cerrado",     title: "Cerrado",     headerColor: "bg-green-500/20 text-green-400",   borderColor: "border-green-500/30" },
+  { key: "perdido",     title: "Perdido",     headerColor: "bg-red-500/20 text-red-400",       borderColor: "border-red-500/30" },
+];
+
 function classifyLead(estado: LeadEstado): string {
   for (const col of COLUMNS) {
     if (col.matchEstados.includes(estado)) return col.key;
   }
   return "pendiente";
+}
+
+function classifyPolitica(etapa: EtapaPolitica | null | undefined): EtapaPolitica {
+  return etapa || "nuevo";
 }
 
 function LeadScoreBadge({ score }: { score: LeadScore | null }) {
@@ -82,18 +103,46 @@ function LeadScoreBadge({ score }: { score: LeadScore | null }) {
 }
 
 export default function PipelineClient({
-  leads,
+  leads: leadsProp,
   paymentsByLead,
   closers,
   setters,
   usdRate,
   session,
   isAdmin,
+  isPolitica = false,
 }: Props) {
+  const [leads, setLeads] = useState<LeadWithTeam[]>(leadsProp);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [closerFilter, setCloserFilter] = useState<string>("todos");
   const [setterFilter, setSetterFilter] = useState<string>("todos");
   const [monthFilter, setMonthFilter] = useState<string>("todos");
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [savingEtapa, setSavingEtapa] = useState<string | null>(null);
+
+  async function moveEtapaPolitica(leadId: string, etapa: EtapaPolitica) {
+    setSavingEtapa(leadId);
+    // Optimistic update
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? ({ ...l, etapa_politica: etapa } as LeadWithTeam) : l)));
+    try {
+      const res = await fetch(`/api/leads/${leadId}/etapa-politica`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ etapa }),
+      });
+      if (!res.ok) {
+        // Revertir
+        setLeads(leadsProp);
+        const err = await res.json().catch(() => ({}));
+        alert(`Error: ${err.error || res.statusText}`);
+      }
+    } catch (err) {
+      setLeads(leadsProp);
+      alert(`Error de red: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSavingEtapa(null);
+    }
+  }
 
   const monthOptions = useMemo(() => getFiscalMonthOptions(12), []);
 
@@ -117,18 +166,21 @@ export default function PipelineClient({
   }, [leads, closerFilter, setterFilter, monthFilter]);
 
   const buckets = useMemo(() => {
-    const map: Record<string, LeadWithTeam[]> = {
-      pendiente: [],
-      seguimiento: [],
-      cerrado: [],
-      perdido: [],
-    };
+    if (isPolitica) {
+      const map: Record<string, LeadWithTeam[]> = { nuevo: [], caliente: [], aserrado: [], preserrado: [], cerrado: [], perdido: [] };
+      for (const lead of filtered) {
+        const key = classifyPolitica((lead as unknown as { etapa_politica?: EtapaPolitica }).etapa_politica);
+        map[key].push(lead);
+      }
+      return map;
+    }
+    const map: Record<string, LeadWithTeam[]> = { pendiente: [], seguimiento: [], cerrado: [], perdido: [] };
     for (const lead of filtered) {
       const key = classifyLead(lead.estado);
       map[key].push(lead);
     }
     return map;
-  }, [filtered]);
+  }, [filtered, isPolitica]);
 
   const selectedLead = selectedLeadId
     ? leads.find((l) => l.id === selectedLeadId) || null
@@ -189,7 +241,71 @@ export default function PipelineClient({
         )}
       </div>
 
-      {/* Kanban Board */}
+      {/* Kanban Board — Política (6 columnas con drag&drop) */}
+      {isPolitica && (
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+          {COLUMNS_POLITICA.map((col) => {
+            const items = buckets[col.key] || [];
+            return (
+              <div
+                key={col.key}
+                className="flex flex-col"
+                onDragOver={(e) => { e.preventDefault(); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const leadId = e.dataTransfer.getData("text/plain");
+                  if (leadId) moveEtapaPolitica(leadId, col.key);
+                  setDraggedId(null);
+                }}
+              >
+                <div className={`rounded-t-lg px-3 py-2 ${col.headerColor} border ${col.borderColor} border-b-0`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold">{col.title}</span>
+                    <span className="text-xs font-mono opacity-80">{items.length}</span>
+                  </div>
+                </div>
+                <div className={`flex-1 border ${col.borderColor} border-t-0 rounded-b-lg bg-[var(--card-bg)]/30 p-2 space-y-2 min-h-[200px] max-h-[70vh] overflow-y-auto`}>
+                  {items.length === 0 && (
+                    <p className="text-xs text-[var(--muted)] text-center py-6">Soltá un lead acá</p>
+                  )}
+                  {items.map((lead) => (
+                    <div
+                      key={lead.id}
+                      draggable
+                      onDragStart={(e) => { e.dataTransfer.setData("text/plain", lead.id); setDraggedId(lead.id); }}
+                      onDragEnd={() => setDraggedId(null)}
+                      onClick={() => setSelectedLeadId(lead.id)}
+                      className={`w-full text-left bg-[#0d0d0f] border border-[var(--card-border)] rounded-lg p-3 hover:border-[var(--purple)]/40 hover:bg-[#111113] transition-all cursor-grab active:cursor-grabbing ${draggedId === lead.id ? "opacity-40" : ""} ${savingEtapa === lead.id ? "ring-1 ring-[var(--purple)]/60" : ""}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold text-sm truncate">{lead.nombre || "Sin nombre"}</p>
+                        <LeadScoreBadge score={lead.lead_score} />
+                      </div>
+                      {lead.programa_pitcheado && (
+                        <p className="text-[10px] text-[var(--muted)] mt-1">
+                          {PROGRAMS[lead.programa_pitcheado]?.label || lead.programa_pitcheado}
+                        </p>
+                      )}
+                      {lead.ticket_total > 0 && (
+                        <p className="text-xs text-green-400 font-medium mt-1">{formatUSD(lead.ticket_total)}</p>
+                      )}
+                      {isAdmin && lead.closer?.nombre && (
+                        <p className="text-[10px] text-[var(--muted)] mt-1.5">C: {lead.closer.nombre}</p>
+                      )}
+                      {!lead.closer?.nombre && (
+                        <p className="text-[10px] text-amber-400/80 mt-1.5">Sin asignar</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Kanban Board — General (4 columnas) */}
+      {!isPolitica && (
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {COLUMNS.map((col) => {
           const items = buckets[col.key];
@@ -256,6 +372,7 @@ export default function PipelineClient({
           );
         })}
       </div>
+      )}
 
       {/* Lead Detail Panel */}
       {selectedLead && (

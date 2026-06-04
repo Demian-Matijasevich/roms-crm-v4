@@ -114,12 +114,16 @@ export interface Lead {
   se_presento?: "si" | "no" | "cancelado" | null;
   cerrado_en_llamada?: boolean | null;
   transcripcion_url?: string | null;
+  nicho?: string | null;
+  etapa_politica?: "nuevo" | "caliente" | "aserrado" | "preserrado" | "cerrado" | "perdido" | null;
   created_at: string;
   updated_at: string;
   // Joined fields
   setter?: TeamMember;
   closer?: TeamMember;
 }
+
+export type EtapaPolitica = "nuevo" | "caliente" | "aserrado" | "preserrado" | "cerrado" | "perdido";
 
 export interface Payment {
   id: string;
