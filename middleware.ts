@@ -14,7 +14,7 @@ const POLITICA_HOSTS = new Set([
 ]);
 
 // Solo estos team_members pueden entrar al subdominio política.
-const POLITICA_ALLOWED_NOMBRES = ["Juanma", "Mati", "Fran"];
+const POLITICA_ALLOWED_NOMBRES = ["Juanma", "Mati", "Fran", "Seba", "Nacho"];
 
 export async function middleware(req: NextRequest) {
   const token = req.cookies.get("roms_session")?.value;
