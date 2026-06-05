@@ -116,6 +116,7 @@ export interface Lead {
   transcripcion_url?: string | null;
   nicho?: string | null;
   etapa_politica?: "nuevo" | "caliente" | "aserrado" | "preserrado" | "cerrado" | "perdido" | null;
+  kanban_order?: number | null;
   created_at: string;
   updated_at: string;
   // Joined fields

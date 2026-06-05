@@ -45,8 +45,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { error } = await sb.from("leads").update(updates).eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Notif al equipo política cuando cambia de etapa (excluye al propio actor)
+  // Activity log + Notif al equipo política cuando cambia de etapa
   if (lead.etapa_politica !== etapa) {
+    const from = lead.etapa_politica || "—";
+    await sb.from("lead_activity").insert({
+      lead_id: id,
+      actor_id: auth.session.team_member_id || null,
+      actor_nombre: auth.session.nombre,
+      tipo: "etapa_change",
+      mensaje: `movió de ${from} a ${etapa}`,
+      meta: { from, to: etapa },
+    });
+
     const icono = ICONO_ETAPA[etapa] || "📋";
     await createNotificationsForPolitica({
       tipo: etapa === "cerrado" ? "venta" : "info",
