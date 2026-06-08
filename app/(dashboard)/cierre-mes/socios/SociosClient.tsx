@@ -104,6 +104,41 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
       gastosDetalle[key].push(g);
     }
 
+    // Pagos al equipo detectados en gastos: cualquier gasto cuya categoría o concepto sea
+    // "sueldo", "salario", "comisi", "pago [nombre]", "pago sueldo", etc.
+    // Agrupamos por miembro del equipo detectado en concepto + pagado_a.
+    type PagoEquipo = { nombre: string; monto: number; concepto: string; fecha: string };
+    const pagosAlEquipo: PagoEquipo[] = [];
+    const reSueldo = /(sueldo|salario|fijo|pago.*(mel|melanie|valen|igna|guille|agus|juan|fran|nacho|seba|nico|hugo|turco))/i;
+    for (const g of gastos) {
+      const cat = (g.categoria || "").toLowerCase();
+      const concepto = (g.concepto || "").toLowerCase();
+      const pagadoA = (g.pagado_a || "").trim();
+      const esEquipo =
+        cat.includes("comisi") || cat.includes("sueldo") || cat.includes("salar") ||
+        reSueldo.test(concepto);
+      if (!esEquipo) continue;
+      // Detectar nombre del beneficiario
+      let nombre = pagadoA;
+      if (!nombre) {
+        const m = concepto.match(/(mel(?:anie)?|valen(?:tino)?|igna|guille|agus(?:t[ií]n)?|juan(?:ma)?|fran|nacho|seba|nico(?:l[áa]s)?|hugo|turco)/i);
+        if (m) nombre = m[1];
+      }
+      nombre = nombre ? nombre[0].toUpperCase() + nombre.slice(1).toLowerCase() : "Sin atribuir";
+      // Normalizar: "Melanie" → "Mel"
+      if (/^mel/i.test(nombre)) nombre = "Mel";
+      pagosAlEquipo.push({
+        nombre,
+        monto: Number(g.monto_usd || 0),
+        concepto: g.concepto || "",
+        fecha: g.fecha,
+      });
+    }
+    const pagosEquipoPorNombre = new Map<string, number>();
+    for (const p of pagosAlEquipo) {
+      pagosEquipoPorNombre.set(p.nombre, (pagosEquipoPorNombre.get(p.nombre) || 0) + p.monto);
+    }
+
     const totalCash = cashPorSocio.Juanma + cashPorSocio.Fran + cashPorSocio.otros + cashPorSocio.nulo;
     const totalGastos = gastosPorSocio.Juanma + gastosPorSocio.Fran + gastosPorSocio.otros + gastosPorSocio.nulo;
     const totalComisiones = teamCommissions.reduce((s, c) => s + c.comision_total, 0);
@@ -152,6 +187,8 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
       transferDe,
       transferA,
       transferMonto,
+      pagosAlEquipo,
+      pagosEquipoPorNombre,
     };
   }, [payments, refunds, gastos, teamCommissions]);
 
@@ -162,7 +199,7 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
 
   function buildWhatsAppMessage() {
     const f = (n: number) => formatUSD(Math.round(n));
-    const lines = [
+    const lines: string[] = [
       `*🤝 Split Socios — ${mesLabel}*`,
       "",
       "━━━━━━━━━━━━━━━━━━━━",
@@ -181,7 +218,32 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
       `*Total gastos:* ${f(data.totalGastos)}`,
       "",
       "━━━━━━━━━━━━━━━━━━━━",
-      `*Comisiones a pagar al equipo:* ${f(data.totalComisiones)}`,
+      "*💼 Pagos al equipo del mes*",
+    ];
+
+    // Comisiones a pagar (calculadas por Valen scheme)
+    if (teamCommissions.length > 0) {
+      lines.push("_(comisiones a pagar — Valen scheme)_");
+      const sorted = [...teamCommissions].sort((a, b) => b.comision_total - a.comision_total);
+      for (const c of sorted) {
+        if (c.comision_total > 0) lines.push(`• ${c.nombre}: ${f(c.comision_total)}`);
+      }
+      lines.push(`*Total comisiones:* ${f(data.totalComisiones)}`);
+    } else {
+      lines.push("_(sin comisiones calculadas este mes)_");
+    }
+
+    // Sueldos / pagos fijos detectados en gastos
+    if (data.pagosEquipoPorNombre.size > 0) {
+      lines.push("");
+      lines.push("_(sueldos / pagos al equipo ya cargados en gastos)_");
+      const sorted = Array.from(data.pagosEquipoPorNombre.entries()).sort((a, b) => b[1] - a[1]);
+      for (const [nombre, monto] of sorted) {
+        if (monto > 0) lines.push(`• ${nombre}: ${f(monto)}`);
+      }
+    }
+
+    lines.push(
       "",
       "━━━━━━━━━━━━━━━━━━━━",
       `*Pool neto a repartir (50/50):* ${f(data.poolNeto)}`,
@@ -192,9 +254,10 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
       "",
       data.transferDe && data.transferA
         ? `💸 *${data.transferDe} le pasa ${f(data.transferMonto)} a ${data.transferA}* para igualar.`
-        : "✅ Ya están iguales — no hay que pasarse nada.",
-    ].filter(Boolean);
-    return lines.join("\n");
+        : "✅ Ya están iguales — no hay que pasarse nada."
+    );
+
+    return lines.filter(Boolean).join("\n");
   }
 
   async function copyMsg() {
@@ -288,22 +351,63 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
         </div>
       )}
 
-      {/* Detalles colapsables */}
-      <details className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
-        <summary className="cursor-pointer text-sm font-semibold">Comisiones del mes ({teamCommissions.length} personas)</summary>
-        <div className="mt-3 space-y-1 text-sm">
-          {teamCommissions.length === 0 ? (
-            <p className="text-xs text-[var(--muted)]">Sin comisiones cargadas este mes</p>
-          ) : (
-            teamCommissions.map((c) => (
-              <div key={c.id} className="flex justify-between border-b border-[var(--card-border)] py-1.5">
-                <span>{c.nombre}</span>
-                <span className="font-mono text-[var(--muted)]">{formatUSD(Math.round(c.comision_total))}</span>
+      {/* Pagos al equipo (visible siempre, no colapsado) */}
+      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-5">
+        <h2 className="text-sm font-semibold mb-3">💼 Pagos al equipo del mes</h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Comisiones a pagar */}
+          <div>
+            <h3 className="text-xs uppercase text-[var(--muted)] mb-2">Comisiones a pagar ({teamCommissions.length})</h3>
+            {teamCommissions.length === 0 ? (
+              <p className="text-xs text-[var(--muted)] italic">Sin comisiones este mes</p>
+            ) : (
+              <div className="space-y-1 text-sm">
+                {[...teamCommissions].sort((a, b) => b.comision_total - a.comision_total).map((c) => (
+                  <div key={c.id} className="flex justify-between border-b border-[var(--card-border)] py-1.5">
+                    <span>{c.nombre}</span>
+                    <span className="font-mono">{formatUSD(Math.round(c.comision_total))}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between font-semibold border-t border-[var(--card-border)] pt-2 mt-2">
+                  <span>Total</span>
+                  <span className="font-mono text-amber-400">{formatUSD(Math.round(data.totalComisiones))}</span>
+                </div>
               </div>
-            ))
-          )}
+            )}
+          </div>
+
+          {/* Sueldos / pagos fijos ya cargados en gastos */}
+          <div>
+            <h3 className="text-xs uppercase text-[var(--muted)] mb-2">Sueldos / pagos ya cargados ({data.pagosEquipoPorNombre.size})</h3>
+            {data.pagosEquipoPorNombre.size === 0 ? (
+              <p className="text-xs text-[var(--muted)] italic">Sin sueldos/pagos detectados en gastos</p>
+            ) : (
+              <div className="space-y-1 text-sm">
+                {Array.from(data.pagosEquipoPorNombre.entries())
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([nombre, monto]) => (
+                    <div key={nombre} className="flex justify-between border-b border-[var(--card-border)] py-1.5">
+                      <span>{nombre}</span>
+                      <span className="font-mono">{formatUSD(Math.round(monto))}</span>
+                    </div>
+                  ))}
+                <div className="flex justify-between font-semibold border-t border-[var(--card-border)] pt-2 mt-2">
+                  <span>Total</span>
+                  <span className="font-mono">
+                    {formatUSD(Math.round(Array.from(data.pagosEquipoPorNombre.values()).reduce((s, n) => s + n, 0)))}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      </details>
+
+        <p className="text-[10px] text-[var(--muted)] mt-3">
+          Las comisiones a pagar se calculan con la fórmula Valen (7/5/7 × multiplicador, cap 10%).
+          Los sueldos se detectan en gastos por concepto/categoría/pagado_a (sueldo, salario, comisiones, nombre del miembro).
+        </p>
+      </div>
 
       <details className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
         <summary className="cursor-pointer text-sm font-semibold">Gastos del mes (detalle)</summary>
