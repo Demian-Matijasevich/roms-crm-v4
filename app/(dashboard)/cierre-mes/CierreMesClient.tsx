@@ -609,6 +609,10 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
         <div className="flex items-center gap-2 no-print">
           <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}
             className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm text-white" />
+          <a href={`/cierre-mes/socios?mes=${selectedMonth}-01`}
+            className="bg-[var(--card-bg)] border border-[var(--card-border)] hover:border-[var(--purple)]/40 text-white px-4 py-2 rounded-lg text-sm">
+            🤝 Split Socios
+          </a>
           <button onClick={() => window.print()}
             className="bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white px-4 py-2 rounded-lg text-sm">
             🖨️ Exportar PDF
