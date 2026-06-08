@@ -213,6 +213,36 @@ export default function PipelineClient({
     }
   }
 
+  // Mapeo bucket general → estado por defecto al hacer drop.
+  const DEFAULT_ESTADO_POR_COL: Record<string, LeadEstado> = {
+    pendiente: "pendiente",
+    seguimiento: "seguimiento",
+    cerrado: "adentro_seguimiento", // "cerrado" exige cash — usamos adentro_seguimiento como default
+    perdido: "no_cierre",
+  };
+
+  async function moveEstadoGeneral(leadId: string, newEstado: LeadEstado) {
+    setSavingEtapa(leadId);
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? ({ ...l, estado: newEstado } as LeadWithTeam) : l)));
+    try {
+      const res = await fetch(`/api/llamadas`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lead_id: leadId, estado: newEstado }),
+      });
+      if (!res.ok) {
+        setLeads(leadsProp);
+        const err = await res.json().catch(() => ({}));
+        alert(`Error: ${err.error || res.statusText}`);
+      }
+    } catch (err) {
+      setLeads(leadsProp);
+      alert(`Error de red: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSavingEtapa(null);
+    }
+  }
+
   async function persistKanbanOrder(leadId: string, value: number) {
     try {
       await fetch(`/api/leads/${leadId}/kanban-order`, {
@@ -234,7 +264,7 @@ export default function PipelineClient({
     return leads.filter((lead) => {
       if (closerFilter !== "todos" && lead.closer_id !== closerFilter) return false;
       if (setterFilter !== "todos" && lead.setter_id !== setterFilter) return false;
-      if (isPolitica && misLeadsOnly && session.team_member_id) {
+      if (misLeadsOnly && session.team_member_id) {
         if (lead.closer_id && lead.closer_id !== session.team_member_id) return false;
       }
 
@@ -285,6 +315,7 @@ export default function PipelineClient({
       const key = classifyLead(lead.estado);
       map[key].push(lead);
     }
+    for (const k of Object.keys(map)) map[k].sort(sortByOrder);
     return map;
   }, [filtered, isPolitica]);
 
@@ -340,7 +371,7 @@ export default function PipelineClient({
           <p className="text-sm text-[var(--muted)]">{filtered.length} leads en total</p>
         </div>
 
-        {isPolitica && session.team_member_id && (
+        {session.team_member_id && (
           <button
             onClick={() => setMisLeadsOnly((v) => !v)}
             className={`px-3 py-2 text-sm rounded-lg border transition-colors ${misLeadsOnly ? "bg-[var(--purple)]/20 border-[var(--purple)]/40 text-[var(--purple)]" : "bg-[var(--card-bg)] border-[var(--card-border)] text-[var(--muted)] hover:text-[var(--foreground)]"}`}
@@ -614,13 +645,34 @@ export default function PipelineClient({
         </div>
       )}
 
-      {/* Kanban Board — General (4 columnas) */}
+      {/* Kanban Board — General (4 columnas) con drag&drop + indicadores Trello */}
       {!isPolitica && (
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {COLUMNS.map((col) => {
           const items = buckets[col.key];
           return (
-            <div key={col.key} className="flex flex-col">
+            <div
+              key={col.key}
+              className="flex flex-col"
+              onDragOver={(e) => { e.preventDefault(); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const leadId = e.dataTransfer.getData("text/plain");
+                setDraggedId(null);
+                if (!leadId) return;
+                const movedLead = leads.find((l) => l.id === leadId);
+                if (!movedLead) return;
+                const sourceCol = classifyLead(movedLead.estado);
+                if (sourceCol === col.key) {
+                  // Mismo columna: reordenar al final
+                  reorderWithinColumn(col.key, leadId, items.length);
+                  return;
+                }
+                const newEstado = DEFAULT_ESTADO_POR_COL[col.key];
+                if (!newEstado) return;
+                moveEstadoGeneral(leadId, newEstado);
+              }}
+            >
               <div className={`rounded-t-lg px-3 py-2 ${col.headerColor} border ${col.borderColor} border-b-0`}>
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold">{col.title}</span>
@@ -628,17 +680,37 @@ export default function PipelineClient({
                 </div>
               </div>
 
-              <div className={`flex-1 border ${col.borderColor} border-t-0 rounded-b-lg bg-[var(--card-bg)]/30 p-2 space-y-2 max-h-[70vh] overflow-y-auto`}>
+              <div className={`flex-1 border ${col.borderColor} border-t-0 rounded-b-lg bg-[var(--card-bg)]/30 p-2 space-y-2 min-h-[200px] max-h-[70vh] overflow-y-auto`}>
                 {items.length === 0 && (
-                  <p className="text-xs text-[var(--muted)] text-center py-6">Sin leads</p>
+                  <p className="text-xs text-[var(--muted)] text-center py-6">Soltá un lead acá</p>
                 )}
-                {items.map((lead) => {
+                {items.map((lead, idx) => {
                   const summary = summaryByLead[lead.id] || EMPTY_SUMMARY;
                   return (
-                    <button
+                    <div
                       key={lead.id}
+                      draggable
+                      onDragStart={(e) => { e.dataTransfer.setData("text/plain", lead.id); setDraggedId(lead.id); }}
+                      onDragEnd={() => setDraggedId(null)}
+                      onDragOver={(e) => { e.preventDefault(); }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const movedId = e.dataTransfer.getData("text/plain");
+                        setDraggedId(null);
+                        if (!movedId || movedId === lead.id) return;
+                        const movedLead = leads.find((l) => l.id === movedId);
+                        if (!movedLead) return;
+                        const sourceCol = classifyLead(movedLead.estado);
+                        if (sourceCol === col.key) {
+                          reorderWithinColumn(col.key, movedId, idx);
+                        } else {
+                          const newEstado = DEFAULT_ESTADO_POR_COL[col.key];
+                          if (newEstado) moveEstadoGeneral(movedId, newEstado);
+                        }
+                      }}
                       onClick={() => setSelectedLeadId(lead.id)}
-                      className={`w-full text-left bg-[#0d0d0f] border border-[var(--card-border)] rounded-lg ${compact ? "p-2" : "p-3"} hover:border-[var(--purple)]/40 hover:bg-[#111113] transition-all cursor-pointer`}
+                      className={`w-full text-left bg-[#0d0d0f] border border-[var(--card-border)] rounded-lg ${compact ? "p-2" : "p-3"} hover:border-[var(--purple)]/40 hover:bg-[#111113] transition-all cursor-grab active:cursor-grabbing ${draggedId === lead.id ? "opacity-40" : ""} ${savingEtapa === lead.id ? "ring-1 ring-[var(--purple)]/60" : ""}`}
                     >
                       {!compact && summary.labels.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-1.5">
@@ -696,15 +768,21 @@ export default function PipelineClient({
                             </p>
                           )}
 
-                          {isAdmin && (
-                            <div className="flex items-center gap-2 mt-1.5">
-                              {lead.setter?.nombre && (
-                                <span className="text-[10px] text-[var(--muted)]">S: {lead.setter.nombre}</span>
-                              )}
-                              {lead.closer?.nombre && (
-                                <span className="text-[10px] text-[var(--muted)]">C: {lead.closer.nombre}</span>
-                              )}
-                            </div>
+                          {lead.closer?.nombre && (
+                            <p className="text-[10px] text-[var(--muted)] mt-1.5">👤 {lead.closer.nombre}</p>
+                          )}
+                          {!lead.closer?.nombre && session.team_member_id && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); tomarLead(lead.id); }}
+                              disabled={tomandoId === lead.id}
+                              className="mt-1.5 w-full text-[10px] py-1 rounded bg-amber-400/10 hover:bg-amber-400/20 border border-amber-400/30 text-amber-300 transition-colors disabled:opacity-50"
+                            >
+                              {tomandoId === lead.id ? "Tomando…" : "🙋 Tomar este lead"}
+                            </button>
+                          )}
+
+                          {isAdmin && lead.setter?.nombre && (
+                            <p className="text-[10px] text-[var(--muted)] mt-1">S: {lead.setter.nombre}</p>
                           )}
 
                           {(summary.comments_count > 0 || summary.checklist_total > 0 || summary.attachments_count > 0) && (
@@ -722,7 +800,7 @@ export default function PipelineClient({
                           )}
                         </>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
