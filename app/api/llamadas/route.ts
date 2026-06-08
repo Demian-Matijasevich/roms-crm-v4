@@ -42,28 +42,41 @@ export async function POST(req: NextRequest) {
 
     const paymentMonto = Number((body.payment as { monto_usd?: number } | undefined)?.monto_usd ?? 0);
 
-    // ── Validaciones audit Iñaki (server-side) ──
-    // P2: estado "cerrado" exige cash cobrado.
-    if (estado === "cerrado" && !(paymentMonto > 0)) {
-      return NextResponse.json(
-        { error: "El estado Cerrado exige cargar el monto cobrado." },
-        { status: 400 }
-      );
-    }
-    // P6: una reserva exige fecha estimada de cierre.
-    if (estado === "reserva" && !fecha_cierre_estimada) {
-      return NextResponse.json(
-        { error: "Una reserva exige la fecha estimada de cierre." },
-        { status: 400 }
-      );
-    }
-    // 025 — Si el estado implica que se trabajó la llamada, exigir se_presento.
-    const ESTADOS_POST_LLAMADA = ["cerrado", "reserva", "seguimiento", "no_cierre", "no_calificado", "adentro_seguimiento"];
-    if (ESTADOS_POST_LLAMADA.includes(estado) && !se_presento) {
-      return NextResponse.json(
-        { error: "Indicá si el lead se presentó a la llamada (¿se presentó?)." },
-        { status: 400 }
-      );
+    // Detecta si el request viene del form completo de llamada (envía pago/cuotas/plan/etc.)
+    // vs un cambio rápido de estado desde el pipeline/panel (solo lead_id+estado+algún campo simple).
+    // Las validaciones audit Iñaki solo aplican al form completo — un cambio rápido no las exige.
+    const isFromCallForm = Boolean(
+      body.payment ||
+      body.cuotas ||
+      plan_pago ||
+      ticket_total ||
+      cerrado_en_llamada !== undefined && cerrado_en_llamada !== null
+    );
+
+    if (isFromCallForm) {
+      // ── Validaciones audit Iñaki (server-side) ──
+      // P2: estado "cerrado" exige cash cobrado.
+      if (estado === "cerrado" && !(paymentMonto > 0)) {
+        return NextResponse.json(
+          { error: "El estado Cerrado exige cargar el monto cobrado." },
+          { status: 400 }
+        );
+      }
+      // P6: una reserva exige fecha estimada de cierre.
+      if (estado === "reserva" && !fecha_cierre_estimada) {
+        return NextResponse.json(
+          { error: "Una reserva exige la fecha estimada de cierre." },
+          { status: 400 }
+        );
+      }
+      // 025 — Si el estado implica que se trabajó la llamada, exigir se_presento.
+      const ESTADOS_POST_LLAMADA = ["cerrado", "reserva", "seguimiento", "no_cierre", "no_calificado", "adentro_seguimiento"];
+      if (ESTADOS_POST_LLAMADA.includes(estado) && !se_presento) {
+        return NextResponse.json(
+          { error: "Indicá si el lead se presentó a la llamada (¿se presentó?)." },
+          { status: 400 }
+        );
+      }
     }
 
     // Update the lead
