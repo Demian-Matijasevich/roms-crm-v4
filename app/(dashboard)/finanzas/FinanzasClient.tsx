@@ -69,6 +69,7 @@ interface Props {
   usdRateHistory: Array<{ mes: string; rate: number }>;
   currentFiscalMonth: string;
   refunds: RefundRow[];
+  refundLeadOptions?: { id: string; nombre: string }[];
 }
 
 const RECEPTOR_COLORS: Record<string, string> = {
@@ -98,6 +99,7 @@ export default function FinanzasClient({
   usdRateHistory: initialRates,
   currentFiscalMonth,
   refunds,
+  refundLeadOptions,
 }: Props) {
   const toast = useToast();
   const confirm = useConfirm();
@@ -1684,10 +1686,12 @@ export default function FinanzasClient({
         </ResponsiveContainer>
       </div>
 
-      {/* Modal de refund */}
+      {/* Modal de refund — usa lista combinada que incluye clientes con nombre distinto al lead */}
       {showRefundModal && (
         <AddPaymentModal
-          leads={leadsForPro.map((l) => ({ id: l.id, nombre: l.nombre || "(sin nombre)" }))}
+          leads={refundLeadOptions && refundLeadOptions.length > 0
+            ? refundLeadOptions
+            : leadsForPro.map((l) => ({ id: l.id, nombre: l.nombre || "(sin nombre)" }))}
           defaultEstado="refund"
           onClose={() => setShowRefundModal(false)}
           onCreated={() => {

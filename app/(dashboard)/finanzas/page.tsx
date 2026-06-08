@@ -77,10 +77,10 @@ export default async function FinanzasPage() {
       getUsdRate(),
     ]);
 
-  // Clients para revenue devengado
+  // Clients para revenue devengado + lista combinada con leads para modal refund
   let clientsQuery = supabase
     .from("clients")
-    .select("id, lead_id, programa, fecha_onboarding, fecha_offboarding, total_dias_programa, estado")
+    .select("id, lead_id, nombre, programa, fecha_onboarding, fecha_offboarding, total_dias_programa, estado")
     .not("fecha_onboarding", "is", null)
     .range(0, 4999);
   if (leadIdsNicho) {
@@ -192,15 +192,54 @@ export default async function FinanzasPage() {
     estado: (l as { estado?: string }).estado ?? null,
     fecha_llamada: (l as { fecha_llamada?: string | null }).fecha_llamada ?? null,
   }));
+  // Trae todos los clients (con o sin onboarding) — para el lookup del modal refund
+  // necesitamos también los activos sin onboarding cargado.
+  const allClientsRes = await supabase
+    .from("clients")
+    .select("id, lead_id, nombre, programa, estado")
+    .range(0, 9999);
+
   const clientsForPro = ((clientsRes.data ?? []) as Array<{
     id: string;
     lead_id: string | null;
+    nombre?: string | null;
     programa: string | null;
     fecha_onboarding: string | null;
     fecha_offboarding: string | null;
     total_dias_programa: number;
     estado: string;
   }>);
+
+  // Lista combinada lead+client para el modal refund: cubre el caso donde el
+  // nombre del cliente no coincide con el lead (ej. lead "Martin Miño" pero
+  // cliente "Emilia Lopez"). El modal usa lead_id como ID del payment.
+  const allClients = ((allClientsRes.data ?? []) as Array<{
+    id: string;
+    lead_id: string | null;
+    nombre: string | null;
+    programa: string | null;
+    estado: string;
+  }>);
+  const leadNombreById = new Map(leadsForPro.map((l) => [l.id, l.nombre || ""]));
+  const refundLeadOptions: Array<{ id: string; nombre: string }> = [];
+  const refundSeenIds = new Set<string>();
+  // Primero todos los leads (orden alfabético natural)
+  for (const l of leadsForPro) {
+    if (!l.id) continue;
+    refundSeenIds.add(l.id);
+    refundLeadOptions.push({ id: l.id, nombre: l.nombre || "(sin nombre)" });
+  }
+  // Después clients cuyo nombre difiere del lead → agregar como entrada con "Cliente — lead: ..."
+  for (const c of allClients) {
+    if (!c.lead_id || !c.nombre) continue;
+    const leadNombre = leadNombreById.get(c.lead_id) || "";
+    const sameName = leadNombre && leadNombre.trim().toLowerCase() === c.nombre.trim().toLowerCase();
+    if (sameName) continue;
+    // Agregar como entrada con nombre del cliente — incluso si el lead_id ya existe en la lista,
+    // queremos que aparezca también por su nombre de cliente.
+    const label = leadNombre ? `${c.nombre} (lead: ${leadNombre})` : c.nombre;
+    refundLeadOptions.push({ id: c.lead_id, nombre: label });
+  }
 
   return (
     <FinanzasClient
@@ -224,6 +263,7 @@ export default async function FinanzasPage() {
       })()}
       leadsForPro={leadsForPro}
       clientsForPro={clientsForPro}
+      refundLeadOptions={refundLeadOptions}
       usdRateHistory={(usdRatesRes.data ?? []) as Array<{ mes: string; rate: number }>}
       currentFiscalMonth={currentFiscalMonth}
       refunds={refundsFiltered}
