@@ -39,7 +39,9 @@ export default function AddPaymentModal({ leads, defaultLeadId, defaultEstado, o
   const [motivo, setMotivo] = useState<string>("");
   const [metodoPago, setMetodoPago] = useState<string>("");
   const [metodoCustom, setMetodoCustom] = useState<string>("");
-  const [receptor, setReceptor] = useState<string>(defaultEstado === "refund" ? "Refund" : "");
+  // Refunds siempre los hace Juanma — el receptor default es JUANMA para que
+  // el split socios se atribuya correctamente sin requerir edición manual.
+  const [receptor, setReceptor] = useState<string>(defaultEstado === "refund" ? "JUANMA - Refund" : "");
   const [esRenovacion, setEsRenovacion] = useState<boolean>(false);
   // 027 — descuento comisión configurable
   const [descCloser, setDescCloser] = useState<string>("");
@@ -69,9 +71,12 @@ export default function AddPaymentModal({ leads, defaultLeadId, defaultEstado, o
     setMsg(null);
     try {
       const finalMetodo = metodoPago === "otro" ? metodoCustom.trim() : metodoPago;
+      // Para refunds prependeamos "JUANMA -" (los hace Juanma siempre) si el receptor
+      // todavía no incluye un socio identificable, así el split socios lo atribuye bien.
+      const refundPrefix = estado === "refund" && !/juanma|fran/i.test(receptor) ? "JUANMA - " : "";
       const finalReceptor = estado === "refund" && motivo.trim()
-        ? `Refund - ${motivo.trim()}`
-        : receptor || undefined;
+        ? `${refundPrefix}Refund - ${motivo.trim()}`
+        : (receptor ? `${refundPrefix}${receptor}` : (estado === "refund" ? "JUANMA - Refund" : undefined));
       const body = {
         lead_id: leadId,
         numero_cuota: numeroCuota,
