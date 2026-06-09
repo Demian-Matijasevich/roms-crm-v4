@@ -33,6 +33,7 @@ function getNav(session: AuthSession): NavSection[] {
         items: [
           { href: "/", label: "Dashboard", icon: "\u{1F4CA}" },
           { href: "/hoy", label: "Actividad hoy", icon: "\u{1F4C6}" },
+          { href: "/cerrar-dia", label: "Cerrar el día", icon: "\u{2705}" },
           { href: "/calendario", label: "Calendario", icon: "\u{1F4C5}" },
           { href: "/coaching", label: "Coaching", icon: "\u{1F3AF}" },
           { href: "/forecast", label: "Forecast", icon: "\u{1F4C8}" },
@@ -140,6 +141,7 @@ function getNav(session: AuthSession): NavSection[] {
         items: [
           { href: "/", label: "Mi Dashboard", icon: "\u{1F4CA}" },
           { href: "/hoy", label: "Actividad hoy", icon: "\u{1F4C6}" },
+          { href: "/cerrar-dia", label: "Cerrar el día", icon: "\u{2705}" },
           { href: "/calendario", label: "Calendario", icon: "\u{1F4C5}" },
           { href: "/pipeline", label: "Mi Pipeline", icon: "\u{1F4DE}" },
           { href: "/llamadas", label: "CRM Llamadas", icon: "\u{1F4CB}" },
@@ -174,6 +176,7 @@ function getNav(session: AuthSession): NavSection[] {
         items: [
           { href: "/", label: "Mi Dashboard", icon: "\u{1F4CA}" },
           { href: "/hoy", label: "Actividad hoy", icon: "\u{1F4C6}" },
+          { href: "/cerrar-dia", label: "Cerrar el día", icon: "\u{2705}" },
           { href: "/calendario", label: "Calendario", icon: "\u{1F4C5}" },
           { href: "/pipeline", label: "Mi Pipeline", icon: "\u{1F4DE}" },
           { href: "/llamadas", label: "CRM Llamadas", icon: "\u{1F4CB}" },

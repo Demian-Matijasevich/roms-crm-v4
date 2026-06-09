@@ -1,0 +1,80 @@
+/**
+ * Cerrar el día — vista del closer para marcar rápido los estados de las
+ * llamadas que tuvo hoy. Sin fricción: kanban de 4 columnas + drag&drop.
+ *
+ * Reglas:
+ *  - Si is_admin: mostrar TODOS los leads del día (puede filtrar por closer)
+ *  - Si is_closer: solo los suyos
+ *  - Si is_setter o cobranzas: redirige a /
+ */
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/auth";
+import { createServerClient } from "@/lib/supabase-server";
+import { getNichoFilter } from "@/lib/vista";
+import { getToday, toDateString } from "@/lib/date-utils";
+import CerrarDiaClient from "./CerrarDiaClient";
+
+export const dynamic = "force-dynamic";
+
+export default async function CerrarDiaPage({ searchParams }: { searchParams: Promise<{ d?: string; closer?: string }> }) {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  if (!session.is_admin && !session.roles.includes("closer")) redirect("/");
+
+  const sp = await searchParams;
+  const today = toDateString(getToday());
+  const targetDate = sp.d || today;
+
+  const sb = createServerClient();
+  const nicho = await getNichoFilter();
+
+  // Leads del día (fecha_llamada = targetDate o fecha_agendado = targetDate)
+  let leadsQuery = sb
+    .from("leads")
+    .select(
+      "id, nombre, fecha_agendado, fecha_llamada, estado, closer_id, setter_id, programa_pitcheado, ticket_total, plan_pago, se_presento, lead_score, notas_internas, contexto_setter, reporte_general, telefono, nicho, closer:team_members!leads_closer_id_fkey(id, nombre), setter:team_members!leads_setter_id_fkey(id, nombre)"
+    )
+    .or(`fecha_llamada.eq.${targetDate},fecha_agendado.eq.${targetDate}`)
+    .range(0, 999);
+  if (nicho) leadsQuery = leadsQuery.eq("nicho", nicho);
+  // Si es closer (no admin) solo los suyos
+  if (!session.is_admin && session.team_member_id) {
+    leadsQuery = leadsQuery.eq("closer_id", session.team_member_id);
+  } else if (session.is_admin && sp.closer) {
+    leadsQuery = leadsQuery.eq("closer_id", sp.closer);
+  }
+
+  const [leadsRes, teamRes] = await Promise.all([
+    leadsQuery,
+    sb
+      .from("team_members")
+      .select("id, nombre, is_closer")
+      .eq("activo", true)
+      .eq("is_closer", true)
+      .order("nombre"),
+  ]);
+
+  // Aplanar closer/setter (PostgREST devuelve arrays para joins single-row)
+  type RawLead = { closer?: { id: string; nombre: string }[] | { id: string; nombre: string } | null; setter?: { id: string; nombre: string }[] | { id: string; nombre: string } | null; [k: string]: unknown };
+  const leadsFlat = (leadsRes.data ?? []).map((l: unknown) => {
+    const r = l as RawLead;
+    return {
+      ...r,
+      closer: Array.isArray(r.closer) ? r.closer[0] || null : r.closer || null,
+      setter: Array.isArray(r.setter) ? r.setter[0] || null : r.setter || null,
+    };
+  });
+
+  return (
+    <CerrarDiaClient
+      leads={leadsFlat as never[]}
+      closers={teamRes.data ?? []}
+      currentDate={targetDate}
+      todayStr={today}
+      isAdmin={session.is_admin}
+      currentMemberId={session.team_member_id || null}
+      currentNombre={session.nombre}
+      filterCloser={sp.closer || ""}
+    />
+  );
+}
