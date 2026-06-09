@@ -95,21 +95,12 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
       cashPorSocioARS[key] -= Number(r.monto_ars || 0);
     }
 
-    // Gastos por socio (USD)
-    const gastosPorSocio: Record<Socio | "otros" | "nulo", number> = { Juanma: 0, Fran: 0, otros: 0, nulo: 0 };
-    const gastosDetalle: Record<Socio | "otros" | "nulo", Gasto[]> = { Juanma: [], Fran: [], otros: [], nulo: [] };
-    for (const g of gastos) {
-      const key = normPagador(g.pagado_por) || "nulo";
-      gastosPorSocio[key] += Number(g.monto_usd || 0);
-      gastosDetalle[key].push(g);
-    }
-
-    // Pagos al equipo detectados en gastos: cualquier gasto cuya categoría o concepto sea
-    // "sueldo", "salario", "comisi", "pago [nombre]", "pago sueldo", etc.
-    // Agrupamos por miembro del equipo detectado en concepto + pagado_a.
-    type PagoEquipo = { nombre: string; monto: number; concepto: string; fecha: string };
+    // Clasificar gastos en 2 buckets: "sueldos al equipo" vs "operativos"
+    type PagoEquipo = { nombre: string; monto: number; concepto: string; fecha: string; pagado_por_socio: Socio | "otros" | "nulo" };
     const pagosAlEquipo: PagoEquipo[] = [];
+    const gastosOperativos: Gasto[] = [];
     const reSueldo = /(sueldo|salario|fijo|pago.*(mel|melanie|valen|igna|guille|agus|juan|fran|nacho|seba|nico|hugo|turco))/i;
+
     for (const g of gastos) {
       const cat = (g.categoria || "").toLowerCase();
       const concepto = (g.concepto || "").toLowerCase();
@@ -117,30 +108,60 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
       const esEquipo =
         cat.includes("comisi") || cat.includes("sueldo") || cat.includes("salar") ||
         reSueldo.test(concepto);
-      if (!esEquipo) continue;
-      // Detectar nombre del beneficiario
-      let nombre = pagadoA;
-      if (!nombre) {
-        const m = concepto.match(/(mel(?:anie)?|valen(?:tino)?|igna|guille|agus(?:t[ií]n)?|juan(?:ma)?|fran|nacho|seba|nico(?:l[áa]s)?|hugo|turco)/i);
-        if (m) nombre = m[1];
+
+      if (esEquipo) {
+        let nombre = pagadoA;
+        if (!nombre) {
+          const m = concepto.match(/(mel(?:anie)?|valen(?:tino)?|igna|guille|agus(?:t[ií]n)?|juan(?:ma)?|fran|nacho|seba|nico(?:l[áa]s)?|hugo|turco)/i);
+          if (m) nombre = m[1];
+        }
+        nombre = nombre ? nombre[0].toUpperCase() + nombre.slice(1).toLowerCase() : "Sin atribuir";
+        if (/^mel/i.test(nombre)) nombre = "Mel";
+        pagosAlEquipo.push({
+          nombre,
+          monto: Number(g.monto_usd || 0),
+          concepto: g.concepto || "",
+          fecha: g.fecha,
+          pagado_por_socio: normPagador(g.pagado_por) || "nulo",
+        });
+      } else {
+        gastosOperativos.push(g);
       }
-      nombre = nombre ? nombre[0].toUpperCase() + nombre.slice(1).toLowerCase() : "Sin atribuir";
-      // Normalizar: "Melanie" → "Mel"
-      if (/^mel/i.test(nombre)) nombre = "Mel";
-      pagosAlEquipo.push({
-        nombre,
-        monto: Number(g.monto_usd || 0),
-        concepto: g.concepto || "",
-        fecha: g.fecha,
-      });
     }
+
+    // Gastos OPERATIVOS por socio (excluye sueldos)
+    const gastosOpPorSocio: Record<Socio | "otros" | "nulo", number> = { Juanma: 0, Fran: 0, otros: 0, nulo: 0 };
+    const gastosOpDetalle: Record<Socio | "otros" | "nulo", Gasto[]> = { Juanma: [], Fran: [], otros: [], nulo: [] };
+    for (const g of gastosOperativos) {
+      const key = normPagador(g.pagado_por) || "nulo";
+      gastosOpPorSocio[key] += Number(g.monto_usd || 0);
+      gastosOpDetalle[key].push(g);
+    }
+
+    // Sueldos pagados por socio (los que YA se pagaron y están en gastos)
+    const sueldosPorSocio: Record<Socio | "otros" | "nulo", number> = { Juanma: 0, Fran: 0, otros: 0, nulo: 0 };
+    for (const p of pagosAlEquipo) {
+      sueldosPorSocio[p.pagado_por_socio] += p.monto;
+    }
+
+    // Gastos TOTALES (operativos + sueldos) por socio — para mantener compatibilidad con el split
+    const gastosPorSocio: Record<Socio | "otros" | "nulo", number> = {
+      Juanma: gastosOpPorSocio.Juanma + sueldosPorSocio.Juanma,
+      Fran: gastosOpPorSocio.Fran + sueldosPorSocio.Fran,
+      otros: gastosOpPorSocio.otros + sueldosPorSocio.otros,
+      nulo: gastosOpPorSocio.nulo + sueldosPorSocio.nulo,
+    };
+    const gastosDetalle: Record<Socio | "otros" | "nulo", Gasto[]> = gastosOpDetalle;
+
     const pagosEquipoPorNombre = new Map<string, number>();
     for (const p of pagosAlEquipo) {
       pagosEquipoPorNombre.set(p.nombre, (pagosEquipoPorNombre.get(p.nombre) || 0) + p.monto);
     }
 
     const totalCash = cashPorSocio.Juanma + cashPorSocio.Fran + cashPorSocio.otros + cashPorSocio.nulo;
-    const totalGastos = gastosPorSocio.Juanma + gastosPorSocio.Fran + gastosPorSocio.otros + gastosPorSocio.nulo;
+    const totalGastosOp = gastosOpPorSocio.Juanma + gastosOpPorSocio.Fran + gastosOpPorSocio.otros + gastosOpPorSocio.nulo;
+    const totalSueldosPagados = sueldosPorSocio.Juanma + sueldosPorSocio.Fran + sueldosPorSocio.otros + sueldosPorSocio.nulo;
+    const totalGastos = totalGastosOp + totalSueldosPagados;
     const totalComisiones = teamCommissions.reduce((s, c) => s + c.comision_total, 0);
 
     // Pool a repartir 50/50 = cash − gastos − comisiones
@@ -177,6 +198,11 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
       cashPorSocioARS,
       gastosPorSocio,
       gastosDetalle,
+      gastosOpPorSocio,
+      gastosOpDetalle,
+      sueldosPorSocio,
+      totalGastosOp,
+      totalSueldosPagados,
       totalCash,
       totalGastos,
       totalComisiones,
@@ -211,37 +237,42 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
       `*Total cash:* ${f(data.totalCash)}`,
       "",
       "━━━━━━━━━━━━━━━━━━━━",
-      "*Gastos pagados*",
-      `• Juanma: ${f(data.gastosPorSocio.Juanma)}`,
-      `• Fran: ${f(data.gastosPorSocio.Fran)}`,
-      data.gastosPorSocio.otros > 0 ? `• Otros: ${f(data.gastosPorSocio.otros)}` : "",
-      `*Total gastos:* ${f(data.totalGastos)}`,
+      "*💸 Gastos operativos (sin sueldos)*",
+      `• Juanma: ${f(data.gastosOpPorSocio.Juanma)}`,
+      `• Fran: ${f(data.gastosOpPorSocio.Fran)}`,
+      data.gastosOpPorSocio.otros > 0 ? `• Otros: ${f(data.gastosOpPorSocio.otros)}` : "",
+      `*Total gastos op.:* ${f(data.totalGastosOp)}`,
       "",
       "━━━━━━━━━━━━━━━━━━━━",
-      "*💼 Pagos al equipo del mes*",
+      "*💼 Sueldos / pagos al equipo*",
     ];
 
-    // Comisiones a pagar (calculadas por Valen scheme)
-    if (teamCommissions.length > 0) {
-      lines.push("_(comisiones a pagar — Valen scheme)_");
-      const sorted = [...teamCommissions].sort((a, b) => b.comision_total - a.comision_total);
-      for (const c of sorted) {
-        if (c.comision_total > 0) lines.push(`• ${c.nombre}: ${f(c.comision_total)}`);
-      }
-      lines.push(`*Total comisiones:* ${f(data.totalComisiones)}`);
-    } else {
-      lines.push("_(sin comisiones calculadas este mes)_");
-    }
-
-    // Sueldos / pagos fijos detectados en gastos
+    // Sueldos ya pagados (cargados en gastos) — detalle por persona
     if (data.pagosEquipoPorNombre.size > 0) {
-      lines.push("");
-      lines.push("_(sueldos / pagos al equipo ya cargados en gastos)_");
+      lines.push("_Ya pagados (cargados en gastos):_");
       const sorted = Array.from(data.pagosEquipoPorNombre.entries()).sort((a, b) => b[1] - a[1]);
       for (const [nombre, monto] of sorted) {
         if (monto > 0) lines.push(`• ${nombre}: ${f(monto)}`);
       }
+      lines.push(`*Subtotal pagados:* ${f(data.totalSueldosPagados)}`);
+      lines.push("");
     }
+
+    // Comisiones que falta pagar (Valen scheme)
+    if (teamCommissions.length > 0) {
+      lines.push("_Falta pagar (comisiones del mes — Valen scheme):_");
+      const sorted = [...teamCommissions].sort((a, b) => b.comision_total - a.comision_total);
+      for (const c of sorted) {
+        if (c.comision_total > 0) lines.push(`• ${c.nombre}: ${f(c.comision_total)}`);
+      }
+      lines.push(`*Subtotal comisiones:* ${f(data.totalComisiones)}`);
+    } else {
+      lines.push("_(sin comisiones por pagar este mes)_");
+    }
+
+    const totalEquipoMes = data.totalSueldosPagados + data.totalComisiones;
+    lines.push("");
+    lines.push(`*Total equipo (sueldos pagados + comisiones a pagar):* ${f(totalEquipoMes)}`);
 
     lines.push(
       "",
@@ -293,9 +324,10 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
       </div>
 
       {/* KPIs grandes */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <KPI label="Cash mes" value={data.totalCash} color="text-green-400" />
-        <KPI label="Gastos mes" value={data.totalGastos} color="text-red-400" />
+        <KPI label="Gastos operativos" value={data.totalGastosOp} color="text-red-400" />
+        <KPI label="Sueldos pagados" value={data.totalSueldosPagados} color="text-orange-400" />
         <KPI label="Comisiones a pagar" value={data.totalComisiones} color="text-amber-400" />
         <KPI label="Pool neto (50/50)" value={data.poolNeto} color="text-[var(--purple)]" />
       </div>
@@ -305,14 +337,16 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
         <SocioCard
           nombre="Juanma"
           cash={data.cashPorSocio.Juanma}
-          gastos={data.gastosPorSocio.Juanma}
+          gastosOp={data.gastosOpPorSocio.Juanma}
+          sueldos={data.sueldosPorSocio.Juanma}
           tiene={data.tieneJuanma}
           toca={data.tocaCadaUno}
         />
         <SocioCard
           nombre="Fran"
           cash={data.cashPorSocio.Fran}
-          gastos={data.gastosPorSocio.Fran}
+          gastosOp={data.gastosOpPorSocio.Fran}
+          sueldos={data.sueldosPorSocio.Fran}
           tiene={data.tieneFran}
           toca={data.tocaCadaUno}
         />
@@ -410,28 +444,87 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
       </div>
 
       <details className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
-        <summary className="cursor-pointer text-sm font-semibold">Gastos del mes (detalle)</summary>
+        <summary className="cursor-pointer text-sm font-semibold">💸 Gastos operativos (detalle — excluye sueldos)</summary>
         <div className="mt-3 space-y-3">
           {SOCIOS.map((s) => (
             <div key={s}>
-              <h4 className="text-xs font-semibold text-[var(--muted)] mb-1">Pagados por {s} ({data.gastosDetalle[s].length})</h4>
-              {data.gastosDetalle[s].length === 0 ? (
-                <p className="text-xs text-[var(--muted)] italic">Sin gastos</p>
+              <h4 className="text-xs font-semibold text-[var(--muted)] mb-1">Pagados por {s} ({data.gastosOpDetalle[s].length}) — {formatUSD(Math.round(data.gastosOpPorSocio[s]))}</h4>
+              {data.gastosOpDetalle[s].length === 0 ? (
+                <p className="text-xs text-[var(--muted)] italic">Sin gastos operativos</p>
               ) : (
                 <ul className="text-xs space-y-1">
-                  {data.gastosDetalle[s].slice(0, 30).map((g) => (
+                  {data.gastosOpDetalle[s].slice(0, 30).map((g) => (
                     <li key={g.id} className="flex justify-between border-b border-[var(--card-border)] py-1">
                       <span className="truncate flex-1">{g.fecha?.slice(5)} · {g.concepto} {g.categoria && <span className="text-[var(--muted)]">({g.categoria})</span>}</span>
                       <span className="font-mono">{formatUSD(Math.round(g.monto_usd || 0))}</span>
                     </li>
                   ))}
-                  {data.gastosDetalle[s].length > 30 && (
-                    <li className="text-[var(--muted)] italic">+ {data.gastosDetalle[s].length - 30} más</li>
+                  {data.gastosOpDetalle[s].length > 30 && (
+                    <li className="text-[var(--muted)] italic">+ {data.gastosOpDetalle[s].length - 30} más</li>
                   )}
                 </ul>
               )}
             </div>
           ))}
+        </div>
+      </details>
+
+      <details className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
+        <summary className="cursor-pointer text-sm font-semibold">💼 Sueldos al equipo (detalle por persona y socio que pagó)</summary>
+        <div className="mt-3 space-y-3">
+          {data.pagosAlEquipo.length === 0 ? (
+            <p className="text-xs text-[var(--muted)]">Sin sueldos cargados este mes en gastos.</p>
+          ) : (
+            <>
+              {/* Agrupado por persona */}
+              <div>
+                <h4 className="text-xs font-semibold text-[var(--muted)] mb-1">Por persona</h4>
+                <ul className="text-xs space-y-1">
+                  {Array.from(data.pagosEquipoPorNombre.entries())
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([nombre, monto]) => {
+                      const items = data.pagosAlEquipo.filter((p) => p.nombre === nombre);
+                      return (
+                        <li key={nombre} className="border-b border-[var(--card-border)] py-1.5">
+                          <div className="flex justify-between">
+                            <span className="font-semibold">{nombre}</span>
+                            <span className="font-mono">{formatUSD(Math.round(monto))}</span>
+                          </div>
+                          <ul className="ml-3 mt-1 space-y-0.5 text-[var(--muted)]">
+                            {items.map((p, i) => (
+                              <li key={i} className="flex justify-between">
+                                <span>{p.fecha.slice(5)} · {p.concepto} <span className="opacity-60">({p.pagado_por_socio === "nulo" ? "?" : p.pagado_por_socio})</span></span>
+                                <span className="font-mono">{formatUSD(Math.round(p.monto))}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </li>
+                      );
+                    })}
+                </ul>
+              </div>
+
+              {/* Quién pagó cada sueldo */}
+              <div>
+                <h4 className="text-xs font-semibold text-[var(--muted)] mb-1">Por socio que pagó</h4>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {SOCIOS.map((s) => (
+                    <div key={s} className="bg-[#0d0d0f] rounded p-2">
+                      <p className="font-semibold mb-1">{s}: {formatUSD(Math.round(data.sueldosPorSocio[s]))}</p>
+                      <ul className="space-y-0.5 text-[var(--muted)]">
+                        {data.pagosAlEquipo.filter((p) => p.pagado_por_socio === s).map((p, i) => (
+                          <li key={i} className="flex justify-between">
+                            <span>{p.nombre} ({p.fecha.slice(5)})</span>
+                            <span className="font-mono">{formatUSD(Math.round(p.monto))}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </details>
     </div>
@@ -447,14 +540,15 @@ function KPI({ label, value, color }: { label: string; value: number; color?: st
   );
 }
 
-function SocioCard({ nombre, cash, gastos, tiene, toca }: { nombre: string; cash: number; gastos: number; tiene: number; toca: number }) {
+function SocioCard({ nombre, cash, gastosOp, sueldos, tiene, toca }: { nombre: string; cash: number; gastosOp: number; sueldos: number; tiene: number; toca: number }) {
   const dif = tiene - toca;
   return (
     <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
       <h3 className="text-lg font-bold mb-3">{nombre}</h3>
       <div className="space-y-1 text-sm">
         <div className="flex justify-between"><span className="text-[var(--muted)]">Cash cobrado</span><span className="font-mono text-green-400">{formatUSD(Math.round(cash))}</span></div>
-        <div className="flex justify-between"><span className="text-[var(--muted)]">Gastos pagados</span><span className="font-mono text-red-400">−{formatUSD(Math.round(gastos))}</span></div>
+        <div className="flex justify-between"><span className="text-[var(--muted)]">Gastos operativos</span><span className="font-mono text-red-400">−{formatUSD(Math.round(gastosOp))}</span></div>
+        <div className="flex justify-between"><span className="text-[var(--muted)]">Sueldos pagados</span><span className="font-mono text-orange-400">−{formatUSD(Math.round(sueldos))}</span></div>
         <div className="flex justify-between border-t border-[var(--card-border)] pt-2 mt-2 font-semibold"><span>Tiene</span><span className="font-mono">{formatUSD(Math.round(tiene))}</span></div>
         <div className="flex justify-between text-xs text-[var(--muted)]"><span>Debería tener</span><span className="font-mono">{formatUSD(Math.round(toca))}</span></div>
         <div className="flex justify-between text-xs pt-1">
