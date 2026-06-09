@@ -49,6 +49,7 @@ interface Props {
   refunds: Refund[];
   gastos: Gasto[];
   teamCommissions: TeamCommission[];
+  totalComisionesReal?: number;
 }
 
 const SOCIOS = ["Juanma", "Fran"] as const;
@@ -72,7 +73,7 @@ function normPagador(r: string | null): Socio | "otros" | null {
   return "otros";
 }
 
-export default function SociosClient({ mes, mesLabel, payments, refunds, gastos, teamCommissions }: Props) {
+export default function SociosClient({ mes, mesLabel, payments, refunds, gastos, teamCommissions, totalComisionesReal }: Props) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
   const monthOptions = useMemo(() => getFiscalMonthOptions(12), []);
@@ -162,7 +163,17 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
     const totalGastosOp = gastosOpPorSocio.Juanma + gastosOpPorSocio.Fran + gastosOpPorSocio.otros + gastosOpPorSocio.nulo;
     const totalSueldosPagados = sueldosPorSocio.Juanma + sueldosPorSocio.Fran + sueldosPorSocio.otros + sueldosPorSocio.nulo;
     const totalGastos = totalGastosOp + totalSueldosPagados;
-    const totalComisiones = teamCommissions.reduce((s, c) => s + c.comision_total, 0);
+    // Si viene `totalComisionesReal` (calculado con tier multiplier en /comisiones)
+    // lo usamos. Sino, fallback al cálculo simplificado de teamCommissions.
+    const totalComisiones = typeof totalComisionesReal === "number" && totalComisionesReal > 0
+      ? totalComisionesReal
+      : teamCommissions.reduce((s, c) => s + c.comision_total, 0);
+
+    // Detectar el sueldo de Mel (fijo, va aparte del bloque "Comisiones" en el mensaje)
+    const sueldoMel = pagosAlEquipo.filter((p) => p.nombre === "Mel").reduce((s, p) => s + p.monto, 0);
+    // Comisiones consolidadas = pagadas (sin Mel) + por pagar (Valen scheme)
+    const sueldosPagadosSinMel = totalSueldosPagados - sueldoMel;
+    const comisionesTotales = sueldosPagadosSinMel + totalComisiones;
 
     // Pool a repartir 50/50 = cash − gastos − comisiones
     const poolNeto = totalCash - totalGastos - totalComisiones;
@@ -206,6 +217,8 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
       totalCash,
       totalGastos,
       totalComisiones,
+      sueldoMel,
+      comisionesTotales,
       poolNeto,
       tocaCadaUno,
       tieneJuanma,
@@ -216,7 +229,7 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
       pagosAlEquipo,
       pagosEquipoPorNombre,
     };
-  }, [payments, refunds, gastos, teamCommissions]);
+  }, [payments, refunds, gastos, teamCommissions, totalComisionesReal]);
 
   function handleMesChange(value: string) {
     const url = `/cierre-mes/socios?mes=${value}`;
@@ -224,71 +237,77 @@ export default function SociosClient({ mes, mesLabel, payments, refunds, gastos,
   }
 
   function buildWhatsAppMessage() {
-    const f = (n: number) => formatUSD(Math.round(n));
+    // Formato simple sin "$" para que matche la estructura pedida.
+    const f = (n: number) => Math.round(n).toLocaleString("en-US");
+    const fDec = (n: number) =>
+      n.toLocaleString("es-AR", { maximumFractionDigits: 1, minimumFractionDigits: 0 });
+
+    // Cash atribuido a Juanma incluye lo cobrado bajo su nombre + "otros" (Valen/Mati)
+    // y "sin receptor" — porque la plata cae en su cuenta antes de cualquier reparto.
+    const cashJuanmaTotal = data.cashPorSocio.Juanma + data.cashPorSocio.otros + data.cashPorSocio.nulo;
+    const cashFranTotal = data.cashPorSocio.Fran;
+    const cashOtrosNote = data.cashPorSocio.otros + data.cashPorSocio.nulo;
+
+    // Totales de gastos por socio (operativos)
+    const gastosJuanmaOp = data.gastosOpPorSocio.Juanma;
+    const gastosFranOp = data.gastosOpPorSocio.Fran;
+
+    // Comisiones (pagadas + a pagar) van en bloque Juanma; Mel aparte
+    const comisiones = data.comisionesTotales;
+    const mel = data.sueldoMel;
+    const totalGastosJuanma = gastosJuanmaOp + comisiones + mel;
+
+    // Saldos
+    const saldoJuanma = cashJuanmaTotal - totalGastosJuanma;
+    const saldoFran = cashFranTotal - gastosFranOp;
+    const utilidad = saldoJuanma + saldoFran;
+    const cuota = utilidad / 2;
+    const diff = saldoJuanma - cuota; // positivo = Juanma le pasa a Fran
+
     const lines: string[] = [
-      `*🤝 Split Socios — ${mesLabel}*`,
-      "",
-      "━━━━━━━━━━━━━━━━━━━━",
-      "*Cash cobrado*",
-      `• Juanma: ${f(data.cashPorSocio.Juanma)}`,
-      `• Fran: ${f(data.cashPorSocio.Fran)}`,
-      data.cashPorSocio.otros > 0 ? `• Otros (Valen/Mati/etc): ${f(data.cashPorSocio.otros)}` : "",
-      data.cashPorSocio.nulo > 0 ? `• Sin receptor: ${f(data.cashPorSocio.nulo)}` : "",
-      `*Total cash:* ${f(data.totalCash)}`,
-      "",
-      "━━━━━━━━━━━━━━━━━━━━",
-      "*💸 Gastos operativos (sin sueldos)*",
-      `• Juanma: ${f(data.gastosOpPorSocio.Juanma)}`,
-      `• Fran: ${f(data.gastosOpPorSocio.Fran)}`,
-      data.gastosOpPorSocio.otros > 0 ? `• Otros: ${f(data.gastosOpPorSocio.otros)}` : "",
-      `*Total gastos op.:* ${f(data.totalGastosOp)}`,
-      "",
-      "━━━━━━━━━━━━━━━━━━━━",
-      "*💼 Sueldos / pagos al equipo*",
+      `Gastos Juanma:`,
+      `$${f(gastosJuanmaOp)} USD`,
+      `$${f(comisiones)} Comisiones (pagadas + a pagar)`,
+      `$${f(mel)} Sueldo Mel`,
+      ``,
+      `Total: $${f(totalGastosJuanma)} USD`,
+      ``,
+      `Gastos Fran:`,
+      `$${f(gastosFranOp)} USD`,
+      ``,
+      `Ingreso:`,
+      `CC ${mesLabel}: $${f(data.totalCash)} USD`,
+      ``,
+      cashOtrosNote > 0
+        ? `Juanma: $${f(cashJuanmaTotal)} USD (incluye $${f(cashOtrosNote)} Valen/JuanMa)`
+        : `Juanma: $${f(cashJuanmaTotal)} USD`,
+      `Fran: $${f(cashFranTotal)} USD`,
+      ``,
+      ``,
+      `Saldo Juanma:`,
+      `$${f(cashJuanmaTotal)} − $${f(totalGastosJuanma)} = $${f(saldoJuanma)} USD`,
+      ``,
+      `Saldo Fran:`,
+      `$${f(cashFranTotal)} − $${f(gastosFranOp)} = ${saldoFran < 0 ? "−$" + f(Math.abs(saldoFran)) : "$" + f(saldoFran)} USD`,
+      ``,
+      `Utilidad neta:`,
+      `$${f(utilidad)} USD`,
+      ``,
+      `Cuota cada uno (50/50):`,
+      `$${fDec(cuota)} USD`,
+      ``,
+      ``,
+      diff > 0.5
+        ? `👉 Juanma le pasa a Fran: $${f(diff)} USD`
+        : diff < -0.5
+        ? `👉 Fran le pasa a Juanma: $${f(Math.abs(diff))} USD`
+        : `✅ Ya están iguales.`,
+      ``,
+      `Quedan:`,
+      `$${fDec(cuota)} USD cada uno`,
     ];
 
-    // Sueldos ya pagados (cargados en gastos) — detalle por persona
-    if (data.pagosEquipoPorNombre.size > 0) {
-      lines.push("_Ya pagados (cargados en gastos):_");
-      const sorted = Array.from(data.pagosEquipoPorNombre.entries()).sort((a, b) => b[1] - a[1]);
-      for (const [nombre, monto] of sorted) {
-        if (monto > 0) lines.push(`• ${nombre}: ${f(monto)}`);
-      }
-      lines.push(`*Subtotal pagados:* ${f(data.totalSueldosPagados)}`);
-      lines.push("");
-    }
-
-    // Comisiones que falta pagar (Valen scheme)
-    if (teamCommissions.length > 0) {
-      lines.push("_Falta pagar (comisiones del mes — Valen scheme):_");
-      const sorted = [...teamCommissions].sort((a, b) => b.comision_total - a.comision_total);
-      for (const c of sorted) {
-        if (c.comision_total > 0) lines.push(`• ${c.nombre}: ${f(c.comision_total)}`);
-      }
-      lines.push(`*Subtotal comisiones:* ${f(data.totalComisiones)}`);
-    } else {
-      lines.push("_(sin comisiones por pagar este mes)_");
-    }
-
-    const totalEquipoMes = data.totalSueldosPagados + data.totalComisiones;
-    lines.push("");
-    lines.push(`*Total equipo (sueldos pagados + comisiones a pagar):* ${f(totalEquipoMes)}`);
-
-    lines.push(
-      "",
-      "━━━━━━━━━━━━━━━━━━━━",
-      `*Pool neto a repartir (50/50):* ${f(data.poolNeto)}`,
-      `*Le toca a cada uno:* ${f(data.tocaCadaUno)}`,
-      "",
-      `📦 *Juanma tiene:* ${f(data.tieneJuanma)}`,
-      `📦 *Fran tiene:* ${f(data.tieneFran)}`,
-      "",
-      data.transferDe && data.transferA
-        ? `💸 *${data.transferDe} le pasa ${f(data.transferMonto)} a ${data.transferA}* para igualar.`
-        : "✅ Ya están iguales — no hay que pasarse nada."
-    );
-
-    return lines.filter(Boolean).join("\n");
+    return lines.join("\n");
   }
 
   async function copyMsg() {

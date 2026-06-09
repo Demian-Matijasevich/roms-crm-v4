@@ -14,6 +14,7 @@ import { getSession } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase-server";
 import { getFiscalStart, getFiscalEnd, getFiscalMonth, getToday, toDateString } from "@/lib/date-utils";
 import { computeTeamCommissions } from "@/lib/commissions";
+import { computeComisionesDetail } from "@/lib/comisiones-detail";
 import SociosClient from "./SociosClient";
 
 export const dynamic = "force-dynamic";
@@ -37,8 +38,10 @@ export default async function CierreSocios({ searchParams }: { searchParams: Pro
 
   const supabase = createServerClient();
 
-  // ─ Payments del mes (cash collected)
-  const [paymentsRes, gastosRes, leadsRes, teamRes, campaignsRes] = await Promise.all([
+  const targetYM = startStr.slice(0, 7); // "2026-05"
+
+  // ─ Payments del mes (cash collected) + payments del mes completo (incluye refunds) para comisiones detalle
+  const [paymentsRes, gastosRes, leadsRes, leadsFullRes, teamRes, campaignsRes, allPaymentsForCommRes] = await Promise.all([
     supabase
       .from("payments")
       .select("id, lead_id, monto_usd, monto_ars, receptor, fecha_pago, estado, metodo_pago, numero_cuota, es_renovacion")
@@ -57,11 +60,23 @@ export default async function CierreSocios({ searchParams }: { searchParams: Pro
       .from("leads")
       .select("id, closer_id, setter_id, utm_medium, programa_pitcheado")
       .range(0, 9999),
+    // leads completos con nombre + ticket — para el cálculo de comisiones detalle
+    supabase
+      .from("leads")
+      .select("id, nombre, closer_id, setter_id, utm_medium, programa_pitcheado")
+      .range(0, 9999),
     supabase
       .from("team_members")
-      .select("id, nombre, is_closer, is_setter")
+      .select("id, user_id, nombre, etiqueta, rol, email, telefono, fecha_nacimiento, foto_url, observaciones, is_admin, is_closer, is_setter, is_cobranzas, is_seguimiento, comision_pct, pin, activo")
       .eq("activo", true),
     supabase.from("utm_campaigns").select("medium, setter_id"),
+    // payments del mes (pagados + refund) para computeComisionesDetail
+    supabase
+      .from("payments")
+      .select("id, lead_id, numero_cuota, monto_usd, fecha_pago, estado, es_renovacion, descuento_comision_closer_usd, descuento_comision_setter_usd, aplicado_en_comisiones_mes")
+      .gte("fecha_pago", startStr)
+      .lte("fecha_pago", endStr)
+      .range(0, 4999),
   ]);
 
   // Calcular comisiones del mes (Valen scheme 7/5/7 + setter 3%) — mismo método que /finanzas/cierre-mes.
@@ -80,6 +95,50 @@ export default async function CierreSocios({ searchParams }: { searchParams: Pro
     monthEnd: endStr,
   });
 
+  // Cálculo detallado con tier multiplier (mismo método que /comisiones).
+  // Da el total real a pagar — ej. Valentino x1.3 en lugar de 7% fijo.
+  const leadsFull = (leadsFullRes.data ?? []) as Array<{ id: string; nombre: string | null; closer_id: string | null; setter_id: string | null; utm_medium: string | null; programa_pitcheado: string | null }>;
+  const allPaymentsForComm = (allPaymentsForCommRes.data ?? []) as Array<{
+    id: string;
+    lead_id: string | null;
+    numero_cuota: number;
+    monto_usd: number;
+    fecha_pago: string | null;
+    estado: string;
+    es_renovacion: boolean;
+    descuento_comision_closer_usd?: number | null;
+    descuento_comision_setter_usd?: number | null;
+    aplicado_en_comisiones_mes?: string | null;
+  }>;
+  const teamFull = (teamRes.data ?? []) as Array<{
+    id: string;
+    user_id: string | null;
+    nombre: string;
+    etiqueta: string | null;
+    rol: string | null;
+    email: string | null;
+    telefono: string | null;
+    fecha_nacimiento: string | null;
+    foto_url: string | null;
+    observaciones: string | null;
+    is_admin: boolean;
+    is_closer: boolean;
+    is_setter: boolean;
+    is_cobranzas: boolean;
+    is_seguimiento: boolean;
+    comision_pct: number;
+    pin: string | null;
+    activo: boolean;
+  }>;
+  const comisionesDetalle = computeComisionesDetail({
+    targetYM,
+    leads: leadsFull,
+    payments: allPaymentsForComm,
+    team: teamFull,
+    campaigns,
+  });
+  const totalComisionesReal = comisionesDetalle.total_a_pagar;
+
   // Refunds del mes (descuento del cash)
   const refundsRes = await supabase
     .from("payments")
@@ -97,6 +156,7 @@ export default async function CierreSocios({ searchParams }: { searchParams: Pro
       refunds={refunds as never[]}
       gastos={(gastosRes.data ?? []) as never[]}
       teamCommissions={teamCommissions}
+      totalComisionesReal={totalComisionesReal}
     />
   );
 }
