@@ -186,9 +186,33 @@ export default function CerrarDiaClient({ leads: leadsProp, closers, currentDate
 
       {/* Empty state */}
       {leads.length === 0 && (
-        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-8 text-center">
-          <p className="text-lg font-semibold mb-1">🎉 No tenés llamadas agendadas hoy</p>
-          <p className="text-sm text-[var(--muted)]">Si te falta alguna, cambiá la fecha arriba. Hola {currentNombre}.</p>
+        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-8 text-center space-y-3">
+          {isAdmin ? (
+            <>
+              <p className="text-lg font-semibold mb-1">📭 Sin llamadas {currentDate === todayStr ? "hoy" : `el ${currentDate}`} para {filterCloser ? "este closer" : "el equipo"}</p>
+              <p className="text-sm text-[var(--muted)]">
+                {filterCloser
+                  ? "Probá poner 'Todos los closers' o cambiá la fecha."
+                  : "Cambiá la fecha arriba o filtrá por un closer específico."}
+              </p>
+              <div className="flex gap-2 justify-center flex-wrap pt-2">
+                <button onClick={() => setDate(todayStr)} className="text-xs px-3 py-1.5 rounded bg-[var(--purple)]/15 border border-[var(--purple)]/30 text-[var(--purple)] hover:bg-[var(--purple)]/25">Hoy</button>
+                <button onClick={() => {
+                  const y = new Date(todayStr + "T12:00:00"); y.setDate(y.getDate() - 1);
+                  setDate(y.toISOString().slice(0, 10));
+                }} className="text-xs px-3 py-1.5 rounded bg-[var(--card-bg)] border border-[var(--card-border)] hover:border-[var(--purple)]/40">Ayer</button>
+                <button onClick={() => {
+                  const y = new Date(todayStr + "T12:00:00"); y.setDate(y.getDate() - 7);
+                  setDate(y.toISOString().slice(0, 10));
+                }} className="text-xs px-3 py-1.5 rounded bg-[var(--card-bg)] border border-[var(--card-border)] hover:border-[var(--purple)]/40">Hace 1 semana</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-lg font-semibold mb-1">🎉 No tenés llamadas agendadas hoy</p>
+              <p className="text-sm text-[var(--muted)]">Si te falta alguna, cambiá la fecha arriba. Hola {currentNombre}.</p>
+            </>
+          )}
         </div>
       )}
 
