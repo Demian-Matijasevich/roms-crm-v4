@@ -67,6 +67,15 @@ export async function GET(req: NextRequest) {
     return d.toISOString().slice(0, 10);
   })();
 
+  // Rangos para matchear contra timestamps (las fechas en DB tienen hora)
+  const dayStart = `${targetDate}T00:00:00`;
+  const dayEndExclusive = `${tomorrow}T00:00:00`;
+  const tomorrowEndExclusive = (() => {
+    const d = new Date(tomorrow + "T12:00:00");
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10) + "T00:00:00";
+  })();
+
   const sb = createServerClient();
 
   const { data: closers } = await sb
@@ -79,7 +88,7 @@ export async function GET(req: NextRequest) {
   const { data: todayLeadsRaw } = await sb
     .from("leads")
     .select("id, nombre, fecha_agendado, fecha_llamada, estado, se_presento, closer_id, ticket_total, programa_pitcheado")
-    .or(`fecha_llamada.eq.${targetDate},fecha_agendado.eq.${targetDate}`)
+    .or(`and(fecha_llamada.gte.${dayStart},fecha_llamada.lt.${dayEndExclusive}),and(fecha_agendado.gte.${dayStart},fecha_agendado.lt.${dayEndExclusive})`)
     .range(0, 9999);
 
   const todayLeads: LeadDia[] = (todayLeadsRaw || []) as LeadDia[];
@@ -87,7 +96,7 @@ export async function GET(req: NextRequest) {
   const { data: tomorrowLeads } = await sb
     .from("leads")
     .select("id, nombre, closer_id, fecha_agendado")
-    .or(`fecha_llamada.eq.${tomorrow},fecha_agendado.eq.${tomorrow}`)
+    .or(`and(fecha_llamada.gte.${dayEndExclusive},fecha_llamada.lt.${tomorrowEndExclusive}),and(fecha_agendado.gte.${dayEndExclusive},fecha_agendado.lt.${tomorrowEndExclusive})`)
     .range(0, 9999);
 
   const { data: payments } = await sb

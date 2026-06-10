@@ -28,13 +28,20 @@ export default async function CerrarDiaPage({ searchParams }: { searchParams: Pr
   const sb = createServerClient();
   const nicho = await getNichoFilter();
 
-  // Leads del día (fecha_llamada = targetDate o fecha_agendado = targetDate)
+  // Leads del día — usamos rango porque las fechas en DB son timestamps con hora
+  // (no fechas planas), entonces .eq. no matcha con YYYY-MM-DD.
+  const dayStart = `${targetDate}T00:00:00`;
+  const dayEndExclusive = (() => {
+    const d = new Date(targetDate + "T12:00:00");
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10) + "T00:00:00";
+  })();
   let leadsQuery = sb
     .from("leads")
     .select(
       "id, nombre, fecha_agendado, fecha_llamada, estado, closer_id, setter_id, programa_pitcheado, ticket_total, plan_pago, se_presento, lead_score, notas_internas, contexto_setter, reporte_general, telefono, nicho, closer:team_members!leads_closer_id_fkey(id, nombre), setter:team_members!leads_setter_id_fkey(id, nombre)"
     )
-    .or(`fecha_llamada.eq.${targetDate},fecha_agendado.eq.${targetDate}`)
+    .or(`and(fecha_llamada.gte.${dayStart},fecha_llamada.lt.${dayEndExclusive}),and(fecha_agendado.gte.${dayStart},fecha_agendado.lt.${dayEndExclusive})`)
     .range(0, 999);
   if (nicho) leadsQuery = leadsQuery.eq("nicho", nicho);
   // Si es closer (no admin) solo los suyos
