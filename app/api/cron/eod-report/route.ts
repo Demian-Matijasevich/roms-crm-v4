@@ -1,25 +1,51 @@
 /**
  * GET /api/cron/eod-report?token=XXX&date=YYYY-MM-DD&target=phone
  *
- * Genera el reporte EOD del día y lo envía por WhatsApp (Evolution API)
- * al grupo EOD o al número de test.
- *
- * Para cada closer activo:
- *   - Llamadas agendadas hoy
- *   - Show ups vs no shows
- *   - Cerrados + cash collected del día
- *   - En seguimiento / reprogramadas
- *   - Próximas agendas mañana
- *
- * ENV vars requeridas:
- *   EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE
- *   EOD_CRON_TOKEN (auth simple para que n8n pueda invocarlo)
- *   EOD_TARGET_NUMBER (default; podés override con ?target=)
+ * Genera el reporte EOD y envía un mensaje WhatsApp por closer (más un resumen
+ * global al final). Cada mensaje muestra el detalle de cada llamada con su
+ * estado, en formato lista discriminada.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
+
+interface LeadDia {
+  id: string;
+  nombre: string | null;
+  fecha_agendado: string | null;
+  fecha_llamada: string | null;
+  estado: string;
+  se_presento: string | null;
+  closer_id: string | null;
+  ticket_total: number | null;
+  programa_pitcheado: string | null;
+}
+
+const ESTADO_LABEL: Record<string, string> = {
+  cerrado: "💰 Cerrado",
+  adentro_seguimiento: "💰 Cerrado (cobro en seg.)",
+  reserva: "📌 Reserva",
+  seguimiento: "⏰ Seguimiento",
+  no_cierre: "🚫 No cierre",
+  no_calificado: "🚫 No calificó",
+  broke_cancelado: "🚫 No tenía plata",
+  no_show: "❌ No show",
+  cancelada: "❌ Canceló",
+  reprogramada: "📅 Reprogramada",
+  pendiente: "⚠️ Sin marcar",
+};
+
+function labelEstado(l: LeadDia): string {
+  // Si no_show explícito por se_presento=no y estado pendiente: forzar no_show
+  if (l.se_presento === "no" && l.estado === "pendiente") return ESTADO_LABEL.no_show;
+  if (l.se_presento === "cancelado") return ESTADO_LABEL.cancelada;
+  return ESTADO_LABEL[l.estado] || `⚪ ${l.estado}`;
+}
+
+function f(n: number): string {
+  return n.toLocaleString("en-US");
+}
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -29,14 +55,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "auth" }, { status: 401 });
   }
 
-  // Fecha objetivo: default hoy en São Paulo (UTC-3)
   const targetDate = url.searchParams.get("date") || (() => {
     const now = new Date();
     const sp = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
     return sp.toISOString().slice(0, 10);
   })();
 
-  // Día siguiente para "Mañana"
   const tomorrow = (() => {
     const d = new Date(targetDate + "T12:00:00");
     d.setDate(d.getDate() + 1);
@@ -45,7 +69,6 @@ export async function GET(req: NextRequest) {
 
   const sb = createServerClient();
 
-  // Todos los closers activos
   const { data: closers } = await sb
     .from("team_members")
     .select("id, nombre")
@@ -53,21 +76,20 @@ export async function GET(req: NextRequest) {
     .eq("is_closer", true)
     .order("nombre");
 
-  // Leads del día (agendado o llamada hoy) — para todos
-  const { data: todayLeads } = await sb
+  const { data: todayLeadsRaw } = await sb
     .from("leads")
     .select("id, nombre, fecha_agendado, fecha_llamada, estado, se_presento, closer_id, ticket_total, programa_pitcheado")
     .or(`fecha_llamada.eq.${targetDate},fecha_agendado.eq.${targetDate}`)
     .range(0, 9999);
 
-  // Leads agendados para mañana
+  const todayLeads: LeadDia[] = (todayLeadsRaw || []) as LeadDia[];
+
   const { data: tomorrowLeads } = await sb
     .from("leads")
     .select("id, nombre, closer_id, fecha_agendado")
     .or(`fecha_llamada.eq.${tomorrow},fecha_agendado.eq.${tomorrow}`)
     .range(0, 9999);
 
-  // Cash collected del día (payments pagados con fecha_pago=hoy, cuota 1 (deals nuevos))
   const { data: payments } = await sb
     .from("payments")
     .select("monto_usd, lead_id, fecha_pago, estado, numero_cuota")
@@ -81,124 +103,167 @@ export async function GET(req: NextRequest) {
     cashByLead.set(p.lead_id, (cashByLead.get(p.lead_id) || 0) + Number(p.monto_usd || 0));
   }
 
-  // Armado del reporte por closer
-  const reporteCloser: Array<{ nombre: string; stats: Record<string, number>; cerrados: string[]; cash: number; manana: number }> = [];
+  const fechaLabel = new Date(targetDate + "T00:00:00").toLocaleDateString("es-AR", {
+    weekday: "long", day: "numeric", month: "long",
+  });
+  const fechaCap = fechaLabel.charAt(0).toUpperCase() + fechaLabel.slice(1);
+
+  // Mensajes a enviar: uno por closer + uno global al final
+  const mensajes: Array<{ tipo: string; nombre: string; texto: string }> = [];
+
+  // Stats globales mientras armamos por closer
+  let globalAgendados = 0;
+  let globalShow = 0;
+  let globalCerrados = 0;
+  let globalCash = 0;
+  let globalManana = 0;
 
   for (const c of closers || []) {
-    const míos = (todayLeads || []).filter((l) => l.closer_id === c.id);
+    const míos = todayLeads.filter((l) => l.closer_id === c.id);
     if (míos.length === 0) continue;
 
-    const stats: Record<string, number> = {
+    // Orden: cerrados primero, luego seguimiento, luego perdidos/no show, luego pendientes
+    const orden: Record<string, number> = {
+      cerrado: 1, adentro_seguimiento: 1, reserva: 2,
+      seguimiento: 3,
+      no_cierre: 4, no_calificado: 4, broke_cancelado: 4,
+      no_show: 5, cancelada: 5,
+      reprogramada: 6,
+      pendiente: 7,
+    };
+    míos.sort((a, b) => (orden[a.estado] || 9) - (orden[b.estado] || 9));
+
+    const stats = {
       agendados: míos.length,
       show: míos.filter((l) => l.se_presento === "si").length,
-      noShow: míos.filter((l) => l.se_presento === "no" || l.estado === "no_show").length,
-      cancelados: míos.filter((l) => l.estado === "cancelada" || l.se_presento === "cancelado").length,
-      cerrados: míos.filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento").length,
-      reservas: míos.filter((l) => l.estado === "reserva").length,
+      noShow: míos.filter((l) => l.estado === "no_show" || (l.se_presento === "no" && l.estado === "pendiente")).length,
+      cerrados: míos.filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento" || l.estado === "reserva").length,
       seguimiento: míos.filter((l) => l.estado === "seguimiento").length,
       no_cierre: míos.filter((l) => l.estado === "no_cierre" || l.estado === "no_calificado" || l.estado === "broke_cancelado").length,
-      pendientes: míos.filter((l) => l.estado === "pendiente").length,
+      pendientes: míos.filter((l) => l.estado === "pendiente" && l.se_presento !== "no").length,
     };
 
-    const cerrados = míos
-      .filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento" || l.estado === "reserva")
-      .map((l) => `${l.nombre || "—"} (${l.programa_pitcheado || "—"}, $${Number(l.ticket_total || 0).toLocaleString("en-US")})`);
+    const cashCloser = míos.reduce((s, l) => s + (cashByLead.get(l.id) || 0), 0);
+    const mananaCloser = (tomorrowLeads || []).filter((l) => l.closer_id === c.id).length;
 
-    const cash = míos.reduce((s, l) => s + (cashByLead.get(l.id) || 0), 0);
-    const manana = (tomorrowLeads || []).filter((l) => l.closer_id === c.id).length;
+    globalAgendados += stats.agendados;
+    globalShow += stats.show;
+    globalCerrados += stats.cerrados;
+    globalCash += cashCloser;
+    globalManana += mananaCloser;
 
-    reporteCloser.push({ nombre: c.nombre, stats, cerrados, cash, manana });
+    // Armar mensaje del closer
+    const lines: string[] = [
+      `📊 *EOD ${c.nombre} — ${fechaCap}*`,
+      ``,
+      `🎯 *Resumen*`,
+      `• Llamadas: ${stats.agendados}`,
+      `• Show ups: ${stats.show}/${stats.agendados}${stats.agendados ? ` (${Math.round((stats.show / stats.agendados) * 100)}%)` : ""}`,
+      `• Cerrados: ${stats.cerrados}`,
+      `• Cash collected: $${f(Math.round(cashCloser))}`,
+      mananaCloser > 0 ? `• Mañana: ${mananaCloser} agenda${mananaCloser === 1 ? "" : "s"}` : "",
+      ``,
+      `━━━━━━━━━━━━━━━━━━━━`,
+      `*📋 Detalle por llamada*`,
+    ];
+
+    for (const l of míos) {
+      const estado = labelEstado(l);
+      const nombre = (l.nombre || "—").slice(0, 35);
+      let extra = "";
+      const cash = cashByLead.get(l.id) || 0;
+      if ((l.estado === "cerrado" || l.estado === "adentro_seguimiento" || l.estado === "reserva")) {
+        const tic = Number(l.ticket_total || 0);
+        if (tic > 0) extra += ` ${l.programa_pitcheado || ""} $${f(tic)}`;
+        if (cash > 0) extra += ` (cobró $${f(Math.round(cash))})`;
+      }
+      lines.push(`• ${nombre} — ${estado}${extra}`);
+    }
+
+    if (stats.pendientes > 0) {
+      lines.push("");
+      lines.push(`⚠️ Tenés ${stats.pendientes} llamada${stats.pendientes === 1 ? "" : "s"} sin marcar. Cargá en /cerrar-dia.`);
+    }
+
+    lines.push("");
+    lines.push("🤖 ROMS CRM");
+
+    mensajes.push({ tipo: "closer", nombre: c.nombre, texto: lines.join("\n") });
   }
 
-  // Totales globales
-  const globalAgendados = reporteCloser.reduce((s, r) => s + r.stats.agendados, 0);
-  const globalShow = reporteCloser.reduce((s, r) => s + r.stats.show, 0);
-  const globalCerrados = reporteCloser.reduce((s, r) => s + r.stats.cerrados + r.stats.reservas, 0);
-  const globalCash = reporteCloser.reduce((s, r) => s + r.cash, 0);
-  const globalManana = reporteCloser.reduce((s, r) => s + r.manana, 0);
-
-  // Armar mensaje WhatsApp
-  const fechaLabel = new Date(targetDate + "T00:00:00").toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" });
-  const lines: string[] = [
-    `📊 *EOD — ${fechaLabel.charAt(0).toUpperCase() + fechaLabel.slice(1)}*`,
+  // Mensaje global al final
+  const globalLines: string[] = [
+    `📊 *EOD GLOBAL — ${fechaCap}*`,
     ``,
-    `🎯 *Resumen del día*`,
+    `🎯 *Resumen del equipo*`,
     `• Agendadas: ${globalAgendados}`,
-    `• Show ups: ${globalShow}/${globalAgendados}${globalAgendados > 0 ? ` (${Math.round((globalShow / globalAgendados) * 100)}%)` : ""}`,
+    `• Show ups: ${globalShow}/${globalAgendados}${globalAgendados ? ` (${Math.round((globalShow / globalAgendados) * 100)}%)` : ""}`,
     `• Cerrados: ${globalCerrados}`,
-    `• Cash collected: $${Math.round(globalCash).toLocaleString("en-US")}`,
+    `• Cash collected: $${f(Math.round(globalCash))}`,
     `• Para mañana: ${globalManana} agendas`,
     ``,
     `━━━━━━━━━━━━━━━━━━━━`,
+    `*👥 Por closer*`,
   ];
-
-  for (const r of reporteCloser) {
-    lines.push("");
-    lines.push(`👤 *${r.nombre}* — ${r.stats.agendados} llamada${r.stats.agendados === 1 ? "" : "s"}`);
-    lines.push(`✅ Show: ${r.stats.show}  ❌ No show: ${r.stats.noShow}`);
-    lines.push(`💰 Cerrados: ${r.stats.cerrados + r.stats.reservas}  💵 Cash: $${Math.round(r.cash).toLocaleString("en-US")}`);
-    if (r.cerrados.length > 0) {
-      for (const c of r.cerrados) lines.push(`   • ${c}`);
-    }
-    if (r.stats.seguimiento > 0) lines.push(`⏰ Seguimiento: ${r.stats.seguimiento}`);
-    if (r.stats.no_cierre > 0) lines.push(`🚫 No cierre: ${r.stats.no_cierre}`);
-    if (r.stats.pendientes > 0) lines.push(`⚠️ Pendientes de marcar: ${r.stats.pendientes}`);
-    if (r.manana > 0) lines.push(`📅 Mañana: ${r.manana} llamada${r.manana === 1 ? "" : "s"}`);
+  for (const m of mensajes) {
+    const closer = (closers || []).find((c) => c.nombre === m.nombre);
+    if (!closer) continue;
+    const míos = todayLeads.filter((l) => l.closer_id === closer.id);
+    const cerrados = míos.filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento" || l.estado === "reserva").length;
+    const cash = míos.reduce((s, l) => s + (cashByLead.get(l.id) || 0), 0);
+    globalLines.push(`• *${closer.nombre}*: ${míos.length} llamadas · ${cerrados} cerradas · $${f(Math.round(cash))} cash`);
   }
 
-  if (reporteCloser.length === 0) {
-    lines.push("");
-    lines.push("_Sin llamadas registradas hoy._");
+  if (mensajes.length === 0) {
+    globalLines.push("");
+    globalLines.push("_Sin llamadas registradas hoy._");
   }
+  globalLines.push("");
+  globalLines.push("🤖 ROMS CRM");
 
-  lines.push("");
-  lines.push("━━━━━━━━━━━━━━━━━━━━");
-  lines.push("🤖 Reporte automático ROMS CRM");
+  mensajes.push({ tipo: "global", nombre: "GLOBAL", texto: globalLines.join("\n") });
 
-  const mensaje = lines.join("\n");
-
-  // Enviar via Evolution API
+  // Enviar via Evolution API — uno por mensaje
   const evolUrl = process.env.EVOLUTION_API_URL;
   const evolKey = process.env.EVOLUTION_API_KEY;
   const evolInstance = process.env.EVOLUTION_INSTANCE;
-  const target = url.searchParams.get("target") || process.env.EOD_TARGET_NUMBER || "";
+  const target = (url.searchParams.get("target") || process.env.EOD_TARGET_NUMBER || "").trim().replace(/^﻿/, "");
 
-  let sentStatus: number | null = null;
-  let sendError: string | null = null;
+  const envios: Array<{ tipo: string; nombre: string; status: number | null; error: string | null }> = [];
 
   if (!evolUrl || !evolKey || !evolInstance) {
-    sendError = "Evolution API no configurado (faltan ENV vars)";
+    envios.push({ tipo: "config", nombre: "—", status: null, error: "Evolution API no configurado" });
   } else if (!target) {
-    sendError = "Falta EOD_TARGET_NUMBER o ?target=";
+    envios.push({ tipo: "config", nombre: "—", status: null, error: "Falta EOD_TARGET_NUMBER" });
   } else {
-    try {
-      const sendRes = await fetch(`${evolUrl}/message/sendText/${encodeURIComponent(evolInstance)}`, {
-        method: "POST",
-        headers: {
-          apikey: evolKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ number: target, text: mensaje }),
-      });
-      sentStatus = sendRes.status;
-      if (!sendRes.ok) {
-        const txt = await sendRes.text().catch(() => "");
-        sendError = `Evolution HTTP ${sendRes.status}: ${txt.slice(0, 200)}`;
+    for (const m of mensajes) {
+      try {
+        const sendRes = await fetch(`${evolUrl}/message/sendText/${encodeURIComponent(evolInstance)}`, {
+          method: "POST",
+          headers: { apikey: evolKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ number: target, text: m.texto, delay: 1500 }),
+        });
+        let err: string | null = null;
+        if (!sendRes.ok) {
+          const txt = await sendRes.text().catch(() => "");
+          err = `HTTP ${sendRes.status}: ${txt.slice(0, 150)}`;
+        }
+        envios.push({ tipo: m.tipo, nombre: m.nombre, status: sendRes.status, error: err });
+        // Pequeña pausa entre mensajes para que WhatsApp no los junte y queden ordenados
+        await new Promise((r) => setTimeout(r, 800));
+      } catch (e) {
+        envios.push({ tipo: m.tipo, nombre: m.nombre, status: null, error: e instanceof Error ? e.message : String(e) });
       }
-    } catch (e) {
-      sendError = e instanceof Error ? e.message : String(e);
     }
   }
 
   return NextResponse.json({
-    ok: !sendError,
+    ok: envios.every((e) => !e.error),
     date: targetDate,
     target,
-    closers_con_actividad: reporteCloser.length,
+    closers_con_actividad: mensajes.filter((m) => m.tipo === "closer").length,
     globalCerrados,
     globalCash,
-    sentStatus,
-    sendError,
-    mensaje,
+    envios,
   });
 }
