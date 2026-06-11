@@ -3,7 +3,7 @@ import { requireSession } from "@/lib/auth";
 import { pagoSchema } from "@/lib/schemas";
 import { createPayment, uploadComprobante } from "@/lib/queries/payments";
 import { createServerClient } from "@/lib/supabase-server";
-import { syncLeadToSheet } from "@/lib/sheet-sync";
+import { syncLeadToSheetSafe } from "@/lib/sheet-sync";
 import { getVista } from "@/lib/vista";
 import type { MetodoPago, PaymentEstado } from "@/lib/types";
 
@@ -249,7 +249,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Sync lead to Sheet ROMS
-    if (payment.lead_id) await syncLeadToSheet(payment.lead_id);
+    if (payment.lead_id) await syncLeadToSheetSafe(payment.lead_id);
 
     return NextResponse.json({
       ok: true,
@@ -314,7 +314,7 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    if (data?.lead_id) await syncLeadToSheet(data.lead_id);
+    if (data?.lead_id) await syncLeadToSheetSafe(data.lead_id);
     return NextResponse.json({ ok: true, payment: data, estadoAvanzado });
   } catch (err) {
     console.error("[PATCH /api/pagos]", err);
@@ -341,7 +341,7 @@ export async function DELETE(req: NextRequest) {
 
     // Resync lead al Sheet para reflejar el nuevo estado (sin el pago borrado)
     let sheetSync: { ok: boolean; error?: string } | null = null;
-    if (leadId) sheetSync = await syncLeadToSheet(leadId);
+    if (leadId) sheetSync = await syncLeadToSheetSafe(leadId);
 
     return NextResponse.json({ ok: true, sheetSync });
   } catch (err) {

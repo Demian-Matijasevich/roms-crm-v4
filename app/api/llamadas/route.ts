@@ -5,7 +5,7 @@ import { updateLead, updateLeadVerbose } from "@/lib/queries/leads";
 import { createPayment, createPaymentVerbose } from "@/lib/queries/payments";
 import { createServerClient } from "@/lib/supabase-server";
 import { getToday, toDateString } from "@/lib/date-utils";
-import { syncLeadToSheet } from "@/lib/sheet-sync";
+import { syncLeadToSheetSafe } from "@/lib/sheet-sync";
 import { getVista } from "@/lib/vista";
 import { z } from "zod";
 import type { LeadEstado, LeadCalificacion, Programa, MetodoPago } from "@/lib/types";
@@ -227,7 +227,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    await syncLeadToSheet(lead_id);
+    await syncLeadToSheetSafe(lead_id);
     return NextResponse.json({
       ok: !paymentError,
       lead: updatedLead,
@@ -285,7 +285,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: updateRes.error || "Error al actualizar lead" }, { status: 500 });
     }
 
-    await syncLeadToSheet(id);
+    await syncLeadToSheetSafe(id);
     return NextResponse.json({ ok: true, lead: updateRes.lead });
   } catch (err) {
     console.error("[PATCH /api/llamadas]", err);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase-server";
-import { syncLeadToSheet } from "@/lib/sheet-sync";
+import { syncLeadToSheetSafe } from "@/lib/sheet-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     const { data, error } = await sb.from("leads").insert(insertData).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    if (data?.id) await syncLeadToSheet(data.id);
+    if (data?.id) await syncLeadToSheetSafe(data.id);
     return NextResponse.json({ ok: true, lead: data });
   } catch (err) {
     console.error("[POST /api/leads]", err);
@@ -156,7 +156,7 @@ export async function PATCH(req: NextRequest) {
       await logAuditPatch(session, "lead", id, oldRow as Record<string, unknown>, patch);
     }
 
-    if (data?.id) await syncLeadToSheet(data.id);
+    if (data?.id) await syncLeadToSheetSafe(data.id);
 
     return NextResponse.json({ ok: true, lead: data });
   } catch (err) {

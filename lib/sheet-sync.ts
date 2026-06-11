@@ -3,9 +3,8 @@ import { upsertLeadToSheet } from "@/lib/sheets-write";
 
 /**
  * Helper to sync a lead to the Registro Calls Sheet.
- * Call this AFTER any lead/payment insert or update in API routes,
- * in a fire-and-forget manner (await the promise but catch errors so
- * failure doesn't block the primary write).
+ * Llamada después del insert/update primario. NO debe bloquear la respuesta
+ * al cliente — usar syncLeadToSheetSafe (con timeout) desde las rutas API.
  */
 export async function syncLeadToSheet(leadId: string): Promise<{ ok: boolean; row?: number | null; error?: string }> {
   try {
@@ -64,4 +63,21 @@ export async function syncLeadToSheet(leadId: string): Promise<{ ok: boolean; ro
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/**
+ * Versión non-blocking: si el sync demora más que `timeoutMs`, devolvemos
+ * inmediatamente y dejamos que el sync siga ejecutando en background.
+ * Esto evita que el modal de pago/llamada se cuelgue cuando Google Sheets
+ * responde lento.
+ */
+export function syncLeadToSheetSafe(leadId: string, timeoutMs = 3000): Promise<{ ok: boolean; row?: number | null; error?: string }> {
+  const real = syncLeadToSheet(leadId).catch((e) => ({
+    ok: false as const,
+    error: e instanceof Error ? e.message : String(e),
+  }));
+  const timeout = new Promise<{ ok: false; error: string }>((resolve) => {
+    setTimeout(() => resolve({ ok: false, error: "sheet-sync-timeout" }), timeoutMs);
+  });
+  return Promise.race([real, timeout]);
 }
