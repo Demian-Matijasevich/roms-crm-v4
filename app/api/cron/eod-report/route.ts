@@ -219,12 +219,16 @@ export async function GET(req: NextRequest) {
     mensajes.push({ tipo: "closer", nombre: c.nombre, texto: lines.join("\n") });
   }
 
+  // Huérfanos: leads del día sin closer asignado (iClosed bookea sin asignar
+  // host; queda NULL hasta que se marca la call como HELD).
+  const huerfanos = todayLeads.filter((l) => !l.closer_id);
+
   // Mensaje global al final
   const globalLines: string[] = [
     `📊 *EOD GLOBAL — ${fechaCap}*`,
     ``,
     `🎯 *Resumen del equipo*`,
-    `• Agendadas: ${globalAgendados}`,
+    `• Agendadas: ${globalAgendados}${huerfanos.length ? ` (+${huerfanos.length} sin asignar)` : ""}`,
     `• Show ups: ${globalShow}/${globalAgendados}${globalAgendados ? ` (${Math.round((globalShow / globalAgendados) * 100)}%)` : ""}`,
     `• Cerrados: ${globalCerrados}`,
     `• Cash collected: $${f(Math.round(globalCash))}`,
@@ -242,7 +246,22 @@ export async function GET(req: NextRequest) {
     globalLines.push(`• *${closer.nombre}*: ${míos.length} llamadas · ${cerrados} cerradas · $${f(Math.round(cash))} cash`);
   }
 
-  if (mensajes.length === 0) {
+  // Bucket de huérfanos — visible para asignar manualmente en /cerrar-dia
+  if (huerfanos.length > 0) {
+    globalLines.push(``);
+    globalLines.push(`━━━━━━━━━━━━━━━━━━━━`);
+    globalLines.push(`🚨 *${huerfanos.length} llamada${huerfanos.length === 1 ? "" : "s"} sin closer asignado*`);
+    globalLines.push(`_iClosed no mandó host. Hay que asignarlas manualmente._`);
+    for (const l of huerfanos) {
+      const hora = (l.fecha_agendado || l.fecha_llamada || "").slice(11, 16);
+      const nombre = (l.nombre || "—").slice(0, 35);
+      globalLines.push(`• ${hora ? `${hora} — ` : ""}${nombre}`);
+    }
+    globalLines.push(``);
+    globalLines.push(`Asignar: https://crm.backstagge.com/cerrar-dia`);
+  }
+
+  if (mensajes.length === 0 && huerfanos.length === 0) {
     globalLines.push("");
     globalLines.push("_Sin llamadas registradas hoy._");
   }
