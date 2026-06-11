@@ -51,7 +51,10 @@ export default async function CerrarDiaPage({ searchParams }: { searchParams: Pr
     leadsQuery = leadsQuery.eq("closer_id", sp.closer);
   }
 
-  const [leadsRes, teamRes] = await Promise.all([
+  // Para el comentario del día: traer del closer logueado o de quien filtre admin
+  const noteTargetMemberId = (session.is_admin && sp.closer) ? sp.closer : session.team_member_id;
+
+  const [leadsRes, teamRes, noteRes] = await Promise.all([
     leadsQuery,
     sb
       .from("team_members")
@@ -59,6 +62,14 @@ export default async function CerrarDiaPage({ searchParams }: { searchParams: Pr
       .eq("activo", true)
       .eq("is_closer", true)
       .order("nombre"),
+    noteTargetMemberId
+      ? sb
+          .from("closer_daily_notes")
+          .select("comentario, updated_at")
+          .eq("team_member_id", noteTargetMemberId)
+          .eq("fecha", targetDate)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
 
   // Aplanar closer/setter (PostgREST devuelve arrays para joins single-row)
@@ -82,6 +93,8 @@ export default async function CerrarDiaPage({ searchParams }: { searchParams: Pr
       currentMemberId={session.team_member_id || null}
       currentNombre={session.nombre}
       filterCloser={sp.closer || ""}
+      initialComentario={(noteRes.data as { comentario?: string } | null)?.comentario || ""}
+      comentarioTargetMemberId={noteTargetMemberId || null}
     />
   );
 }

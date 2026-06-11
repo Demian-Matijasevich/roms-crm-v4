@@ -39,6 +39,8 @@ interface Props {
   currentMemberId: string | null;
   currentNombre: string;
   filterCloser: string;
+  initialComentario?: string;
+  comentarioTargetMemberId?: string | null;
 }
 
 type ColKey = "por_llamar" | "show" | "seguimiento" | "cerrado_perdido";
@@ -61,13 +63,40 @@ function classify(l: Lead): ColKey {
   return "por_llamar";
 }
 
-export default function CerrarDiaClient({ leads: leadsProp, closers, currentDate, todayStr, isAdmin, currentMemberId, currentNombre, filterCloser }: Props) {
+export default function CerrarDiaClient({ leads: leadsProp, closers, currentDate, todayStr, isAdmin, currentMemberId, currentNombre, filterCloser, initialComentario = "", comentarioTargetMemberId = null }: Props) {
   const router = useRouter();
   const [leads, setLeads] = useState<Lead[]>(leadsProp);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [cerrando, setCerrando] = useState<Lead | null>(null);
   const [perdiendo, setPerdiendo] = useState<Lead | null>(null);
+  const [comentario, setComentario] = useState<string>(initialComentario);
+  const [comentarioSaved, setComentarioSaved] = useState<string>(initialComentario);
+  const [savingComentario, setSavingComentario] = useState(false);
+  const comentarioDirty = comentario !== comentarioSaved;
+
+  async function guardarComentario() {
+    setSavingComentario(true);
+    try {
+      const body: Record<string, unknown> = { fecha: currentDate, comentario };
+      if (comentarioTargetMemberId && isAdmin) body.team_member_id = comentarioTargetMemberId;
+      const res = await fetch("/api/cerrar-dia/comentario", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Error: ${err.error || res.statusText}`);
+      } else {
+        setComentarioSaved(comentario);
+      }
+    } catch (e) {
+      alert(`Error de red: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSavingComentario(false);
+    }
+  }
 
   const buckets = useMemo(() => {
     const m: Record<ColKey, Lead[]> = { por_llamar: [], show: [], seguimiento: [], cerrado_perdido: [] };
@@ -183,6 +212,44 @@ export default function CerrarDiaClient({ leads: leadsProp, closers, currentDate
           )}
         </div>
       </div>
+
+      {/* Comentario del día */}
+      {comentarioTargetMemberId && (
+        <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-4">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <label className="text-sm font-semibold flex items-center gap-2">
+              📝 Comentario del día
+              {isAdmin && filterCloser && (
+                <span className="text-xs text-[var(--muted)] font-normal">
+                  ({closers.find((c) => c.id === filterCloser)?.nombre || "—"})
+                </span>
+              )}
+            </label>
+            {comentarioDirty && (
+              <span className="text-[11px] text-amber-400">● Cambios sin guardar</span>
+            )}
+            {!comentarioDirty && comentarioSaved && (
+              <span className="text-[11px] text-[var(--muted)]">✓ Guardado</span>
+            )}
+          </div>
+          <textarea
+            value={comentario}
+            onChange={(e) => setComentario(e.target.value)}
+            placeholder="Notas, problemas, observaciones, contexto del día... (se incluye en el EOD de la noche)"
+            className="w-full bg-[#0d0d0f] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--purple)] resize-y min-h-[80px]"
+            rows={3}
+          />
+          <div className="flex justify-end mt-2">
+            <button
+              onClick={guardarComentario}
+              disabled={!comentarioDirty || savingComentario}
+              className="px-4 py-1.5 text-xs rounded-lg bg-[var(--purple)]/20 border border-[var(--purple)]/40 text-[var(--purple)] hover:bg-[var(--purple)]/30 disabled:opacity-40"
+            >
+              {savingComentario ? "Guardando..." : "💾 Guardar comentario"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Empty state */}
       {leads.length === 0 && (

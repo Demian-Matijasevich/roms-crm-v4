@@ -106,6 +106,16 @@ export async function GET(req: NextRequest) {
     .eq("estado", "pagado")
     .range(0, 999);
 
+  // Comentarios del día por closer
+  const { data: notes } = await sb
+    .from("closer_daily_notes")
+    .select("team_member_id, comentario")
+    .eq("fecha", targetDate);
+  const noteByMember = new Map<string, string>();
+  for (const n of notes || []) {
+    if (n.comentario && n.comentario.trim()) noteByMember.set(n.team_member_id, n.comentario.trim());
+  }
+
   const cashByLead = new Map<string, number>();
   for (const p of payments || []) {
     if (!p.lead_id) continue;
@@ -192,6 +202,15 @@ export async function GET(req: NextRequest) {
     if (stats.pendientes > 0) {
       lines.push("");
       lines.push(`⚠️ Tenés ${stats.pendientes} llamada${stats.pendientes === 1 ? "" : "s"} sin marcar. Cargá en /cerrar-dia.`);
+    }
+
+    // Comentario del día (si lo cargó)
+    const nota = noteByMember.get(c.id);
+    if (nota) {
+      lines.push("");
+      lines.push(`━━━━━━━━━━━━━━━━━━━━`);
+      lines.push(`*📝 Comentario del día*`);
+      lines.push(nota);
     }
 
     lines.push("");
