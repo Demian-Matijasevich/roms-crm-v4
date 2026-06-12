@@ -170,14 +170,20 @@ async function processEvent(payload: IClosedPayload) {
     estado: nuevoEstado,
     fecha_agendado: scheduledDateTime,
     fecha_llamada: isBookedOnly ? (lead?.fecha_llamada ?? null) : scheduledDateTime,
-    setter_id,
-    closer_id,
     utm_source: payload.tracking?.utm_source || null,
     utm_medium: payload.tracking?.utm_medium || null,
     utm_content: payload.tracking?.utm_content || null,
     fuente: (payload.tracking?.utm_source || "").toLowerCase() === "inbound" ? "instagram" : "otro",
     nicho: nichoDetectado,
   };
+
+  // closer_id / setter_id: solo escribirlos si los detectamos en este evento.
+  // iClosed no manda host en "Call booked", lo manda recién en "Contact updated"
+  // cuando un closer agarra/marca la call. Si un evento posterior sin host pisara
+  // este campo a NULL, perderíamos la asignación.
+  if (closer_id) data.closer_id = closer_id;
+  if (setter_id) data.setter_id = setter_id;
+
   // Si es política, inicializar etapa_politica='nuevo' al crear (no pisar si ya tiene)
   if (nichoDetectado === "politica" && !lead) {
     data.etapa_politica = "nuevo";

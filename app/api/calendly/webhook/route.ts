@@ -192,14 +192,17 @@ async function processEvent(payload: CalendlyPayload) {
     estado: nuevoEstado,
     fecha_agendado: scheduledDateTime,
     fecha_llamada: lead?.fecha_llamada ?? null,
-    setter_id,
-    closer_id,
     utm_source: inner.tracking?.utm_source || null,
     utm_medium: inner.tracking?.utm_medium || null,
     utm_content: inner.tracking?.utm_content || null,
     fuente: (inner.tracking?.utm_source || "").toLowerCase() === "inbound" ? "instagram" : "otro",
     nicho: nichoDetectado,
   };
+
+  // closer_id / setter_id: solo escribir si los matcheamos en este evento.
+  if (closer_id) data.closer_id = closer_id;
+  if (setter_id) data.setter_id = setter_id;
+
   if (nichoDetectado === "politica" && !lead) {
     data.etapa_politica = "nuevo";
     data.closer_id = null;
