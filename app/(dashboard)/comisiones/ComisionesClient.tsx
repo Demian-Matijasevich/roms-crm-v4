@@ -198,10 +198,11 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
     return m;
   }, [campaigns]);
 
-  // Filtrar pagos del mes seleccionado
+  // Filtrar pagos del mes seleccionado — solo "pagado" (refunds inflan tier multiplier).
   const monthPayments = useMemo(() => {
     return payments.filter(p => {
       if (!p.fecha_pago || !p.lead_id) return false;
+      if (p.estado !== "pagado") return false;
       const f = p.fecha_pago.split("T")[0];
       return f >= monthRange.start && f <= monthRange.end;
     });

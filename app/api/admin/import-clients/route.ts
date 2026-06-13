@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase-server";
 
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
 
 // Client list from the PDF "Clientes ROMS- Servicio.pdf"
 const CLIENTS: Array<{ nombre: string; programa: string }> = [

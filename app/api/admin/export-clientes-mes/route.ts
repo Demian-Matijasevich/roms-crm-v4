@@ -5,7 +5,7 @@ import { createServerClient } from "@/lib/supabase-server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
 
 const DEFAULT_SPREADSHEET_ID = "1Qpm47Yaq71YHIJwA2LYjFCFj_BPNwdZ_PQ8P3AyLt1I";
 

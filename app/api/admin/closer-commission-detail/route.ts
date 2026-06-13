@@ -3,7 +3,7 @@ import { createServerClient } from "@/lib/supabase-server";
 import { computeValenCommission, SETTER_PCT } from "@/lib/commissions";
 
 export const dynamic = "force-dynamic";
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
 
 function fmtUSD(n: number): string {
   return "$" + (Math.round(n * 100) / 100).toLocaleString("es-AR");

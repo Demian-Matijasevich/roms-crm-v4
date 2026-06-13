@@ -3,7 +3,7 @@ import { google } from "googleapis";
 
 export const dynamic = "force-dynamic";
 
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
 const SPREADSHEET_ID = "14l6eg-JfY5M00NRSmOT-38f5eRsC0xsOqZl9bsggDv4";
 const TAB = "'👥 Payroll'";
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
 
 /** Full trace of a lead: all columns + payments + matching utm campaign. ?s=X&q=name */
 export async function GET(req: NextRequest) {

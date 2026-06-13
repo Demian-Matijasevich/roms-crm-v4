@@ -41,6 +41,12 @@ interface CerrarBody {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireSession();
   if ("error" in auth) return auth.error;
+  const session = auth.session;
+
+  // Solo closers o admin pueden cerrar lead política.
+  if (!session.is_admin && !session.roles?.includes("closer")) {
+    return NextResponse.json({ error: "Solo closers pueden cerrar leads" }, { status: 403 });
+  }
 
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as CerrarBody;
@@ -52,6 +58,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { data: lead } = await sb.from("leads").select("*").eq("id", id).maybeSingle();
   if (!lead) return NextResponse.json({ error: "lead no encontrado" }, { status: 404 });
 
+  // Verificar ownership: el closer solo puede cerrar leads asignados a él
+  // (admin puede cerrar cualquiera).
+  if (!session.is_admin && lead.closer_id && lead.closer_id !== session.team_member_id) {
+    return NextResponse.json({ error: "Este lead está asignado a otro closer" }, { status: 403 });
+  }
+
   const updates: Record<string, unknown> = {
     nicho: "politica",
     estado: "cerrado",
@@ -60,7 +72,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   };
   if (body.plan_pago) updates.plan_pago = body.plan_pago;
   if (body.programa_pitcheado) updates.programa_pitcheado = body.programa_pitcheado;
-  if (body.whatsapp) updates.telefono = body.whatsapp;
+  // Solo escribir teléfono si el lead no tenía uno cargado (evita pisar dato existente).
+  if (body.whatsapp && !lead.telefono) updates.telefono = body.whatsapp;
 
   // Acumular contexto_closer con notas handoff
   if (body.notas_handoff) {

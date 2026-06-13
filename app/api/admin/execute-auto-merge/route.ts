@@ -5,7 +5,7 @@ import { syncLeadToSheet } from "@/lib/sheet-sync";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
 
 const COPY_FIELDS = [
   "instagram", "email", "telefono", "setter_id", "closer_id", "cobrador_id",

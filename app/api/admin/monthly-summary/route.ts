@@ -3,7 +3,7 @@ import { createServerClient } from "@/lib/supabase-server";
 import { computeTeamCommissions } from "@/lib/commissions";
 
 export const dynamic = "force-dynamic";
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
 
 // Sueldo fijo + quien lo paga (default: Juanma)
 const SUELDO_MEL_USD = 650;

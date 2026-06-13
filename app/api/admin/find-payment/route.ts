@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
 
 /** Find payments by amount + optional closer. ?s=X&monto=10000&closer=Valentino */
 export async function GET(req: NextRequest) {

@@ -4,7 +4,7 @@ import { createServerClient } from "@/lib/supabase-server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
 
 /**
  * Backfill fecha_vencimiento de cuotas pendientes que no la tienen cargada.

@@ -4,9 +4,13 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "./supabase-server";
 import type { AuthSession, TeamMember } from "./types";
 
-const SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "roms-crm-default-secret"
-);
+// JWT_SECRET es obligatorio en prod. Si falta, tiramos error explícito
+// en lugar de usar un fallback inseguro que permitiría forjar tokens admin.
+const JWT_SECRET_RAW = process.env.JWT_SECRET;
+if (process.env.NODE_ENV === "production" && (!JWT_SECRET_RAW || JWT_SECRET_RAW.length < 16)) {
+  throw new Error("[auth] JWT_SECRET no configurado o demasiado corto en producción");
+}
+const SECRET = new TextEncoder().encode(JWT_SECRET_RAW || "dev-only-do-not-use-in-prod");
 const COOKIE_NAME = "roms_session";
 
 export async function createSessionToken(member: TeamMember): Promise<string> {

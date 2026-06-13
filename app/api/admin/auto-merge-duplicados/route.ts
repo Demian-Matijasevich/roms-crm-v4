@@ -5,7 +5,7 @@ import { syncLeadToSheet } from "@/lib/sheet-sync";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
 
 // Fields to preserve / copy when merging
 const COPY_FIELDS = [

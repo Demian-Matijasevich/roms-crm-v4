@@ -125,27 +125,40 @@ export async function POST(req: NextRequest) {
       };
 
       if (paymentData.monto_usd && paymentData.monto_usd > 0) {
-        const payRes = await createPaymentVerbose({
-          lead_id,
-          client_id: null,
-          renewal_id: null,
-          numero_cuota: 1,
-          monto_usd: paymentData.monto_usd,
-          monto_ars: 0,
-          fecha_pago: paymentData.fecha_pago || toDateString(getToday()),
-          fecha_vencimiento: null,
-          estado: "pagado",
-          metodo_pago: (paymentData.metodo_pago as MetodoPago) || null,
-          receptor: paymentData.receptor || null,
-          comprobante_url: paymentData.comprobante_url || null,
-          cobrador_id: result.session.team_member_id,
-          verificado: false,
-          es_renovacion: false,
-        });
-        if (payRes.ok) {
-          paymentCreated = payRes.payment;
+        // Idempotencia: skip si ya existe cuota#1 para este lead (replay/doble click).
+        const sbCheck = createServerClient();
+        const { data: existingC1 } = await sbCheck
+          .from("payments")
+          .select("id")
+          .eq("lead_id", lead_id)
+          .eq("numero_cuota", 1)
+          .eq("estado", "pagado")
+          .maybeSingle();
+        if (existingC1) {
+          paymentCreated = existingC1;
         } else {
-          paymentError = `Lead guardado, pero pago falló: ${payRes.error}`;
+          const payRes = await createPaymentVerbose({
+            lead_id,
+            client_id: null,
+            renewal_id: null,
+            numero_cuota: 1,
+            monto_usd: paymentData.monto_usd,
+            monto_ars: 0,
+            fecha_pago: paymentData.fecha_pago || toDateString(getToday()),
+            fecha_vencimiento: null,
+            estado: "pagado",
+            metodo_pago: (paymentData.metodo_pago as MetodoPago) || null,
+            receptor: paymentData.receptor || null,
+            comprobante_url: paymentData.comprobante_url || null,
+            cobrador_id: result.session.team_member_id,
+            verificado: false,
+            es_renovacion: false,
+          });
+          if (payRes.ok) {
+            paymentCreated = payRes.payment;
+          } else {
+            paymentError = `Lead guardado, pero pago falló: ${payRes.error}`;
+          }
         }
       }
     }
@@ -156,7 +169,16 @@ export async function POST(req: NextRequest) {
     if (isCerrado && Array.isArray(body.cuotas) && body.cuotas.length > 0) {
       const cuotasParsed = z.array(cuotaPendienteSchema).safeParse(body.cuotas);
       if (cuotasParsed.success) {
+        // Idempotencia: traer las cuotas ya existentes para skip duplicados.
+        const sbCheck = createServerClient();
+        const { data: existingCuotas } = await sbCheck
+          .from("payments")
+          .select("numero_cuota")
+          .eq("lead_id", lead_id);
+        const yaCargadas = new Set((existingCuotas || []).map((p) => p.numero_cuota));
+
         for (const c of cuotasParsed.data) {
+          if (yaCargadas.has(c.numero_cuota)) continue; // skip si ya existe
           const cuotaRes = await createPaymentVerbose({
             lead_id,
             client_id: null,

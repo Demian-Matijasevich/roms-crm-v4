@@ -5,7 +5,7 @@ import { getUsdRate } from "@/lib/queries/settings";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
 
 /**
  * Recalcula monto_usd de gastos viejos que tienen monto_ars > 0 pero monto_usd = 0

@@ -3,7 +3,7 @@ import { getSettings } from "@/lib/queries/settings";
 import { createServerClient } from "@/lib/supabase-server";
 import { upsertLeadToSheet } from "@/lib/sheets-write";
 
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
 
 // Re-uses the same processing logic as the webhook handler.
 // Reads from settings.iclosed_events and processes each payload.

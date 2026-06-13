@@ -15,6 +15,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if ("error" in auth) return auth.error;
   const session = auth.session;
 
+  // Solo closers (o admin) pueden "tomar" un lead. Setters/cobranzas no.
+  if (!session.is_admin && !session.roles?.includes("closer")) {
+    return NextResponse.json({ error: "Solo closers pueden tomar leads" }, { status: 403 });
+  }
+
   if (!session.team_member_id) {
     return NextResponse.json({ error: "tu usuario no está asociado a un team_member" }, { status: 403 });
   }

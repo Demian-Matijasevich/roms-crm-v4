@@ -4,7 +4,7 @@ import { createServerClient } from "@/lib/supabase-server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
 
 /**
  * Fix para leads donde fecha_agendado == fecha_llamada porque el webhook de iClosed

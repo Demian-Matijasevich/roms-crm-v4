@@ -4,7 +4,7 @@ import { createServerClient } from "@/lib/supabase-server";
 import { upsertLeadToSheet } from "@/lib/sheets-write";
 import { createNotificationsForPolitica } from "@/lib/notifications";
 
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
 
 interface IClosedPayload {
   id?: number;

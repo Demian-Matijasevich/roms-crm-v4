@@ -8,7 +8,7 @@ import { computeHealthScore } from "@/lib/health-score";
  */
 export async function GET(req: NextRequest) {
   const secret = req.headers.get("x-cron-secret") || req.nextUrl.searchParams.get("secret");
-  if (secret !== process.env.CRON_SECRET && secret !== "dev-secret") {
+  if (secret !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: "auth requerida" }, { status: 401 });
   }
 
