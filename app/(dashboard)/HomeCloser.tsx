@@ -158,8 +158,36 @@ export default function HomeCloser({
 
   const medals = ["\u{1F947}", "\u{1F948}", "\u{1F949}"];
 
+  // EOD CTA: cuántas calls pendientes tiene hoy (sin marcar)
+  const pendientesHoy = useMemo(() => {
+    return todayLeads.filter((l) => l.estado === "pendiente").length;
+  }, [todayLeads]);
+
   return (
     <div className="space-y-6">
+      {/* EOD CTA Banner — visible solo si hay pendientes */}
+      {pendientesHoy > 0 && (
+        <a
+          href="/eod"
+          className="block group bg-gradient-to-r from-emerald-500 via-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 rounded-2xl p-5 shadow-lg shadow-emerald-500/20 transition-all duration-200 active:scale-[0.99]"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="text-4xl">⚡</div>
+              <div>
+                <div className="text-white font-bold text-lg leading-tight">
+                  Cerrá tu día rápido
+                </div>
+                <div className="text-emerald-50 text-sm">
+                  {pendientesHoy} llamada{pendientesHoy === 1 ? "" : "s"} sin marcar
+                </div>
+              </div>
+            </div>
+            <div className="text-white text-2xl group-hover:translate-x-1 transition-transform">→</div>
+          </div>
+        </a>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>

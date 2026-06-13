@@ -49,8 +49,8 @@ export async function POST(req: NextRequest) {
       body.payment ||
       body.cuotas ||
       plan_pago ||
-      ticket_total ||
-      cerrado_en_llamada !== undefined && cerrado_en_llamada !== null
+      (typeof ticket_total === "number" && ticket_total > 0) ||
+      (cerrado_en_llamada !== undefined && cerrado_en_llamada !== null)
     );
 
     if (isFromCallForm) {
@@ -254,16 +254,21 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Se requiere id del lead" }, { status: 400 });
     }
 
-    const allowedFields = [
+    // Campos editables por todos (gente del equipo)
+    const baseFields = [
       "estado", "programa_pitcheado", "lead_calificado", "lead_score",
       "ticket_total", "notas_internas", "reporte_general",
       "nombre", "instagram", "email", "telefono",
       "fecha_agendado", "fecha_llamada",
-      "closer_id", "setter_id", "cobrador_id",
       "utm_source", "utm_medium", "utm_content",
       "fuente", "concepto", "plan_pago",
       "etiquetas", "fecha_cierre_estimada",
     ];
+    // Campos solo modificables por admin (asignaciones)
+    const adminOnlyFields = ["closer_id", "setter_id", "cobrador_id"];
+    const allowedFields = result.session.is_admin
+      ? [...baseFields, ...adminOnlyFields]
+      : baseFields;
 
     const updates: Record<string, unknown> = {};
     for (const k of allowedFields) {

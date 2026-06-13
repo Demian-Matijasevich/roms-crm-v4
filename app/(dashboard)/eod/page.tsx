@@ -30,11 +30,11 @@ export default async function EodPage({ searchParams }: { searchParams: Promise<
   const sb = createServerClient();
   const nicho = await getNichoFilter();
 
-  const dayStart = `${targetDate}T00:00:00`;
+  const dayStart = `${targetDate}T00:00:00-03:00`;
   const dayEndExclusive = (() => {
-    const d = new Date(targetDate + "T12:00:00");
+    const d = new Date(targetDate + "T12:00:00-03:00");
     d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10) + "T00:00:00";
+    return d.toISOString().slice(0, 10) + "T00:00:00-03:00";
   })();
 
   // Solo leads PENDIENTES del día (los que el closer todavía no marcó)
@@ -54,6 +54,18 @@ export default async function EodPage({ searchParams }: { searchParams: Promise<
     leadsQuery = leadsQuery.eq("closer_id", sp.closer);
   }
 
+  // Huérfanos del día (closer_id NULL) — visibles para que el closer "agarre"
+  // las suyas si iClosed no las asignó.
+  let huerfanosQuery = sb
+    .from("leads")
+    .select("id, nombre, fecha_agendado, fecha_llamada, estado, closer_id, programa_pitcheado, ticket_total, telefono, instagram, nicho")
+    .or(`and(fecha_llamada.gte.${dayStart},fecha_llamada.lt.${dayEndExclusive}),and(fecha_agendado.gte.${dayStart},fecha_agendado.lt.${dayEndExclusive})`)
+    .is("closer_id", null)
+    .eq("estado", "pendiente")
+    .order("fecha_agendado", { ascending: true })
+    .range(0, 99);
+  if (nicho) huerfanosQuery = huerfanosQuery.eq("nicho", nicho);
+
   // Total del día (para mostrar "3 de 8 marcadas")
   let totalQuery = sb
     .from("leads")
@@ -65,9 +77,10 @@ export default async function EodPage({ searchParams }: { searchParams: Promise<
 
   const noteTargetMemberId = (session.is_admin && sp.closer) ? sp.closer : session.team_member_id;
 
-  const [leadsRes, totalRes, noteRes] = await Promise.all([
+  const [leadsRes, totalRes, huerfanosRes, noteRes] = await Promise.all([
     leadsQuery,
     totalQuery,
+    huerfanosQuery,
     noteTargetMemberId
       ? sb
           .from("closer_daily_notes")
@@ -81,10 +94,12 @@ export default async function EodPage({ searchParams }: { searchParams: Promise<
   return (
     <EodWizardClient
       leads={(leadsRes.data || []) as never[]}
+      huerfanos={(huerfanosRes.data || []) as never[]}
       totalDelDia={totalRes.count || 0}
       currentDate={targetDate}
       todayStr={today}
       isAdmin={session.is_admin}
+      currentMemberId={session.team_member_id || null}
       currentNombre={session.nombre}
       filterCloser={sp.closer || ""}
       initialComentario={(noteRes.data as { comentario?: string } | null)?.comentario || ""}

@@ -62,18 +62,18 @@ export async function GET(req: NextRequest) {
   })();
 
   const tomorrow = (() => {
-    const d = new Date(targetDate + "T12:00:00");
+    const d = new Date(targetDate + "T12:00:00-03:00");
     d.setDate(d.getDate() + 1);
     return d.toISOString().slice(0, 10);
   })();
 
-  // Rangos para matchear contra timestamps (las fechas en DB tienen hora)
-  const dayStart = `${targetDate}T00:00:00`;
-  const dayEndExclusive = `${tomorrow}T00:00:00`;
+  // Rangos con TZ Argentina (UTC-3) para matchear timestamps correctamente.
+  const dayStart = `${targetDate}T00:00:00-03:00`;
+  const dayEndExclusive = `${tomorrow}T00:00:00-03:00`;
   const tomorrowEndExclusive = (() => {
-    const d = new Date(tomorrow + "T12:00:00");
+    const d = new Date(tomorrow + "T12:00:00-03:00");
     d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10) + "T00:00:00";
+    return d.toISOString().slice(0, 10) + "T00:00:00-03:00";
   })();
 
   const sb = createServerClient();

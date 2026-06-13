@@ -28,13 +28,13 @@ export default async function CerrarDiaPage({ searchParams }: { searchParams: Pr
   const sb = createServerClient();
   const nicho = await getNichoFilter();
 
-  // Leads del día — usamos rango porque las fechas en DB son timestamps con hora
-  // (no fechas planas), entonces .eq. no matcha con YYYY-MM-DD.
-  const dayStart = `${targetDate}T00:00:00`;
+  // Leads del día — rango con TZ Argentina (UTC-3) para que calls entre
+  // 21:00 y 23:59 ART no caigan en el día siguiente UTC.
+  const dayStart = `${targetDate}T00:00:00-03:00`;
   const dayEndExclusive = (() => {
-    const d = new Date(targetDate + "T12:00:00");
+    const d = new Date(targetDate + "T12:00:00-03:00");
     d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10) + "T00:00:00";
+    return d.toISOString().slice(0, 10) + "T00:00:00-03:00";
   })();
   let leadsQuery = sb
     .from("leads")

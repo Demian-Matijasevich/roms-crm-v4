@@ -26,10 +26,12 @@ type Lead = {
 
 type Props = {
   leads: Lead[];
+  huerfanos: Lead[];
   totalDelDia: number;
   currentDate: string;
   todayStr: string;
   isAdmin: boolean;
+  currentMemberId: string | null;
   currentNombre: string;
   filterCloser: string;
   initialComentario: string;
@@ -54,9 +56,11 @@ export default function EodWizardClient(props: Props) {
   const [pending, startTransition] = useTransition();
 
   const [queue, setQueue] = useState<Lead[]>(props.leads);
+  const [huerfanos, setHuerfanos] = useState<Lead[]>(props.huerfanos);
   const [current, setCurrent] = useState(0);
   const [step, setStep] = useState<Step>("presento");
   const [error, setError] = useState<string | null>(null);
+  const [agarrando, setAgarrando] = useState<string | null>(null);
 
   // datos en construcción para el lead actual
   const [draftPresento, setDraftPresento] = useState<"si" | "no" | "cancelado" | null>(null);
@@ -121,7 +125,9 @@ export default function EodWizardClient(props: Props) {
         payload.payment = {
           monto_usd: cobroNum,
           receptor: draftReceptor,
-          fecha_pago: props.todayStr,
+          // Si el closer entra atrasado (?d=YYYY-MM-DD), el pago va con la fecha
+          // del día de la llamada, no la fecha de hoy.
+          fecha_pago: props.currentDate,
         };
       }
     }
@@ -199,6 +205,29 @@ export default function EodWizardClient(props: Props) {
     void saveLead(draftResultado);
   }
 
+  async function tomarHuerfano(leadId: string) {
+    if (!props.currentMemberId || agarrando) return;
+    setAgarrando(leadId);
+    const res = await fetch(`/api/leads/${leadId}/tomar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (res.ok) {
+      const taken = huerfanos.find((h) => h.id === leadId);
+      if (taken) {
+        setHuerfanos(huerfanos.filter((h) => h.id !== leadId));
+        setQueue([...queue, taken].sort((a, b) =>
+          (a.fecha_agendado || "").localeCompare(b.fecha_agendado || "")
+        ));
+      }
+    } else {
+      const j = await res.json().catch(() => ({}));
+      setError(j.error || "No se pudo tomar la llamada.");
+    }
+    setAgarrando(null);
+  }
+
   // ─── PANTALLA: TODO HECHO ────────────────────────────────────
   if (step === "saved" || queue.length === 0) {
     const isCero = queue.length === 0;
@@ -214,6 +243,35 @@ export default function EodWizardClient(props: Props) {
               ? "No tenés calls sin marcar para hoy."
               : `Marcaste ${completadas} de ${props.totalDelDia} llamadas.`}
           </p>
+
+          {/* Huérfanos del día — botón "Yo tomé esta" */}
+          {huerfanos.length > 0 && !props.isAdmin && (
+            <div className="text-left mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+              <div className="text-sm font-semibold text-amber-900 mb-2">
+                🆓 {huerfanos.length} sin asignar — ¿tomaste alguna?
+              </div>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {huerfanos.map((h) => (
+                  <button
+                    key={h.id}
+                    onClick={() => tomarHuerfano(h.id)}
+                    disabled={!!agarrando}
+                    className="w-full text-left bg-white hover:bg-amber-100 active:bg-amber-200 border border-amber-200 rounded-xl px-3 py-2 transition disabled:opacity-50"
+                  >
+                    <div className="text-xs text-slate-500">
+                      {timeART(h.fecha_agendado || h.fecha_llamada)}
+                    </div>
+                    <div className="font-semibold text-slate-800 text-sm">
+                      {h.nombre || "Sin nombre"}
+                    </div>
+                    <div className="text-xs text-amber-700 font-medium mt-0.5">
+                      {agarrando === h.id ? "Asignando…" : "Tap para tomar →"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {props.comentarioTargetMemberId && (
             <div className="text-left mb-6">

@@ -251,6 +251,10 @@ export async function POST(req: NextRequest) {
   const url = new URL(req.url);
   const secret = url.searchParams.get("s") || req.headers.get("x-webhook-secret");
   const secretValid = secret === SECRET;
+  if (!secretValid) {
+    // No procesar — el secret no coincide. Evita inyección de leads/asignaciones.
+    return NextResponse.json({ error: "invalid secret" }, { status: 401 });
+  }
 
   let payload: IClosedPayload;
   try {

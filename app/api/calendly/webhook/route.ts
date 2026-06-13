@@ -265,6 +265,9 @@ export async function POST(req: NextRequest) {
   const url = new URL(req.url);
   const secret = url.searchParams.get("s") || req.headers.get("x-webhook-secret");
   const secretValid = secret === SECRET;
+  if (!secretValid) {
+    return NextResponse.json({ error: "invalid secret" }, { status: 401 });
+  }
 
   let payload: CalendlyPayload;
   try {

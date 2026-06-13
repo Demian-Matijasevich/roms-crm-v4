@@ -18,7 +18,10 @@ export function getToday(): Date {
  * parseLocalDate("2026-03-07") → March 7 00:00 local (CORRECT)
  */
 export function parseLocalDate(dateStr: string): Date {
-  const [y, m, d] = dateStr.split("-").map(Number);
+  // Acepta tanto "YYYY-MM-DD" como ISO completo "YYYY-MM-DDTHH:mm:ss…":
+  // tomamos solo los primeros 10 chars antes de parsear.
+  const ymd = (dateStr || "").slice(0, 10);
+  const [y, m, d] = ymd.split("-").map(Number);
   return new Date(y, m - 1, d);
 }
 
