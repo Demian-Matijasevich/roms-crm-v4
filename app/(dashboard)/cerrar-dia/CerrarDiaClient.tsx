@@ -191,7 +191,13 @@ export default function CerrarDiaClient({ leads: leadsProp, closers, currentDate
             {leads.length} llamadas · {buckets.show.length} se presentaron · {cuentaCerrados} cerrados · {cuentaPerdidos} perdidos · {buckets.seguimiento.length} en seguimiento
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
+          <a
+            href={`/eod${currentDate !== todayStr ? `?d=${currentDate}` : ""}${isAdmin && filterCloser ? `${currentDate !== todayStr ? "&" : "?"}closer=${filterCloser}` : ""}`}
+            className="bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-lg px-4 py-2 text-sm shadow-md shadow-emerald-200 transition"
+          >
+            ⚡ EOD rápido
+          </a>
           <input
             type="date"
             value={currentDate}
