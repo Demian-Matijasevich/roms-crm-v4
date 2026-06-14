@@ -142,10 +142,15 @@ export default function CierreMesClient({ leads, payments, clients, renewals, ga
 
     const ESTADOS_NO_AGENDA = ["cancelada", "reprogramada", "broke_cancelado"];
 
-    // Agendas (leads con fecha_llamada en mes)
+    // Agendas (leads con fecha_llamada o fecha_agendado en mes)
+    // Importante: usar el fallback a fecha_agendado porque los leads en estado
+    // "pendiente" todavía no tienen fecha_llamada (se setea cuando se marca).
+    // Sin el fallback, todas las pendientes del mes quedaban invisibles.
     for (const l of leads) {
-      if (!l.closer_id || !l.fecha_llamada) continue;
-      const f = l.fecha_llamada.split("T")[0];
+      if (!l.closer_id) continue;
+      const fechaRaw = l.fecha_llamada || l.fecha_agendado;
+      if (!fechaRaw) continue;
+      const f = fechaRaw.split("T")[0];
       if (f < monthRange.start || f > monthRange.end) continue;
       const entry = map.get(l.closer_id);
       if (!entry) continue;
