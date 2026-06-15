@@ -18,7 +18,7 @@ import EodWizardClient from "./EodWizardClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function EodPage({ searchParams }: { searchParams: Promise<{ d?: string; closer?: string; mode?: string }> }) {
+export default async function EodPage({ searchParams }: { searchParams: Promise<{ d?: string; closer?: string; mode?: string; vista?: string }> }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (!session.is_admin && !session.roles.includes("closer")) redirect("/");
@@ -26,9 +26,60 @@ export default async function EodPage({ searchParams }: { searchParams: Promise<
   const sp = await searchParams;
   const today = toDateString(getToday());
   const targetDate = sp.d || today;
+  const vistaSemana = session.is_admin && sp.vista === "semana";
 
   const sb = createServerClient();
   const nicho = await getNichoFilter();
+
+  // Si vista semana → bajamos los últimos 7 días con leads por closer (matrix).
+  if (vistaSemana) {
+    const weekStartDate = (() => {
+      const d = new Date(targetDate + "T12:00:00-03:00");
+      d.setDate(d.getDate() - 6);
+      return d.toISOString().slice(0, 10);
+    })();
+    const weekStart = `${weekStartDate}T00:00:00-03:00`;
+    const weekEnd = (() => {
+      const d = new Date(targetDate + "T12:00:00-03:00");
+      d.setDate(d.getDate() + 1);
+      return d.toISOString().slice(0, 10) + "T00:00:00-03:00";
+    })();
+
+    let weekLeadsQuery = sb
+      .from("leads")
+      .select("id, fecha_agendado, fecha_llamada, estado, closer_id")
+      .or(`and(fecha_llamada.gte.${weekStart},fecha_llamada.lt.${weekEnd}),and(fecha_agendado.gte.${weekStart},fecha_agendado.lt.${weekEnd})`)
+      .range(0, 9999);
+    if (nicho) weekLeadsQuery = weekLeadsQuery.eq("nicho", nicho);
+    if (sp.closer) weekLeadsQuery = weekLeadsQuery.eq("closer_id", sp.closer);
+
+    const [weekRes, closersListRes] = await Promise.all([
+      weekLeadsQuery,
+      sb.from("team_members").select("id, nombre").eq("activo", true).eq("is_closer", true).order("nombre"),
+    ]);
+
+    return (
+      <EodWizardClient
+        leads={[] as never[]}
+        huerfanos={[] as never[]}
+        totalDelDia={0}
+        currentDate={targetDate}
+        todayStr={today}
+        isAdmin={session.is_admin}
+        currentMemberId={session.team_member_id || null}
+        currentNombre={session.nombre}
+        filterCloser={sp.closer || ""}
+        mode="pendientes"
+        vista="semana"
+        weekLeads={(weekRes.data || []) as never[]}
+        weekStartDate={weekStartDate}
+        weekEndDate={targetDate}
+        closersList={(closersListRes.data || []) as never[]}
+        initialComentario=""
+        comentarioTargetMemberId={null}
+      />
+    );
+  }
 
   const dayStart = `${targetDate}T00:00:00-03:00`;
   const dayEndExclusive = (() => {
@@ -112,6 +163,10 @@ export default async function EodPage({ searchParams }: { searchParams: Promise<
       currentNombre={session.nombre}
       filterCloser={sp.closer || ""}
       mode={sp.mode === "todas" ? "todas" : "pendientes"}
+      vista="dia"
+      weekLeads={[] as never[]}
+      weekStartDate=""
+      weekEndDate=""
       closersList={(closersListRes.data || []) as never[]}
       initialComentario={(noteRes.data as { comentario?: string } | null)?.comentario || ""}
       comentarioTargetMemberId={noteTargetMemberId || null}
