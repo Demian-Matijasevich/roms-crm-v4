@@ -15,6 +15,7 @@ import { createServerClient } from "@/lib/supabase-server";
 import { getFiscalStart, getFiscalEnd, getFiscalMonth, getToday, toDateString } from "@/lib/date-utils";
 import { computeTeamCommissions } from "@/lib/commissions";
 import { computeComisionesDetail } from "@/lib/comisiones-detail";
+import { getNichoFilter } from "@/lib/vista";
 import SociosClient from "./SociosClient";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,15 @@ export default async function CierreSocios({ searchParams }: { searchParams: Pro
   const endStr = toDateString(end);
 
   const supabase = createServerClient();
+  const nicho = await getNichoFilter();
+
+  // Si hay filtro de vista (política), calcular set de lead_ids del nicho
+  // para post-filtrar payments / refunds que no tienen nicho directo.
+  let leadIdsNicho: Set<string> | null = null;
+  if (nicho) {
+    const { data: leadsN } = await supabase.from("leads").select("id").eq("nicho", nicho).range(0, 9999);
+    leadIdsNicho = new Set((leadsN || []).map((l: { id: string }) => l.id));
+  }
 
   const targetYM = startStr.slice(0, 7); // "2026-05"
 
@@ -49,22 +59,34 @@ export default async function CierreSocios({ searchParams }: { searchParams: Pro
       .gte("fecha_pago", startStr)
       .lte("fecha_pago", endStr)
       .range(0, 4999),
-    supabase
-      .from("gastos")
-      .select("id, fecha, concepto, categoria, monto_usd, monto_ars, billetera, pagado_por, pagado_a, estado")
-      .gte("fecha", startStr)
-      .lte("fecha", endStr)
-      .order("fecha", { ascending: true }),
+    (() => {
+      let q = supabase
+        .from("gastos")
+        .select("id, fecha, concepto, categoria, monto_usd, monto_ars, billetera, pagado_por, pagado_a, estado")
+        .gte("fecha", startStr)
+        .lte("fecha", endStr)
+        .order("fecha", { ascending: true });
+      if (nicho) q = q.eq("nicho", nicho);
+      return q;
+    })(),
     // leads y campaigns: para calcular comisiones del mes
-    supabase
-      .from("leads")
-      .select("id, closer_id, setter_id, utm_medium, programa_pitcheado")
-      .range(0, 9999),
+    (() => {
+      let q = supabase
+        .from("leads")
+        .select("id, closer_id, setter_id, utm_medium, programa_pitcheado")
+        .range(0, 9999);
+      if (nicho) q = q.eq("nicho", nicho);
+      return q;
+    })(),
     // leads completos con nombre + ticket — para el cálculo de comisiones detalle
-    supabase
-      .from("leads")
-      .select("id, nombre, closer_id, setter_id, utm_medium, programa_pitcheado")
-      .range(0, 9999),
+    (() => {
+      let q = supabase
+        .from("leads")
+        .select("id, nombre, closer_id, setter_id, utm_medium, programa_pitcheado")
+        .range(0, 9999);
+      if (nicho) q = q.eq("nicho", nicho);
+      return q;
+    })(),
     supabase
       .from("team_members")
       .select("id, user_id, nombre, etiqueta, rol, email, telefono, fecha_nacimiento, foto_url, observaciones, is_admin, is_closer, is_setter, is_cobranzas, is_seguimiento, comision_pct, pin, activo")
@@ -142,17 +164,27 @@ export default async function CierreSocios({ searchParams }: { searchParams: Pro
   // Refunds del mes (descuento del cash)
   const refundsRes = await supabase
     .from("payments")
-    .select("monto_usd, monto_ars, receptor, fecha_pago")
+    .select("monto_usd, monto_ars, receptor, fecha_pago, lead_id")
     .eq("estado", "refund")
     .gte("fecha_pago", startStr)
     .lte("fecha_pago", endStr);
-  const refunds = (refundsRes.data ?? []) as Array<{ monto_usd: number | null; monto_ars: number | null; receptor: string | null; fecha_pago: string | null }>;
+  const refundsRaw = (refundsRes.data ?? []) as Array<{ monto_usd: number | null; monto_ars: number | null; receptor: string | null; fecha_pago: string | null; lead_id: string | null }>;
+  const refunds = leadIdsNicho
+    ? refundsRaw.filter((r) => r.lead_id && leadIdsNicho!.has(r.lead_id))
+    : refundsRaw;
+
+  // Filtrar payments por leadIdsNicho (post-filter, payments no tiene nicho directo)
+  const paymentsFiltered = leadIdsNicho
+    ? ((paymentsRes.data ?? []) as Array<{ lead_id: string | null }>).filter(
+        (p) => p.lead_id && leadIdsNicho!.has(p.lead_id)
+      )
+    : paymentsRes.data ?? [];
 
   return (
     <SociosClient
       mes={startStr}
       mesLabel={getFiscalMonth(baseDate)}
-      payments={(paymentsRes.data ?? []) as never[]}
+      payments={paymentsFiltered as never[]}
       refunds={refunds as never[]}
       gastos={(gastosRes.data ?? []) as never[]}
       teamCommissions={teamCommissions}

@@ -56,7 +56,13 @@ export default async function FinanzasPage() {
       nicho
         ? supabase.from("v_treasury_by_nicho").select("*").eq("nicho", nicho)
         : supabase.from("v_treasury").select("*"),
-      supabase.from("gastos").select("*").order("fecha", { ascending: false }),
+      (() => {
+        // Gastos filtrados por nicho cuando hay filtro de vista (política).
+        // Si la vista es general / sin filtro, traer todos (sin tocar política).
+        let q = supabase.from("gastos").select("*").order("fecha", { ascending: false });
+        if (nicho) q = q.eq("nicho", nicho);
+        return q;
+      })(),
       supabase
         .from("payments")
         .select("id, lead_id, monto_usd, monto_ars, receptor, fecha_pago, estado, metodo_pago, numero_cuota")

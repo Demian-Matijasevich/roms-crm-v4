@@ -73,16 +73,19 @@ function extractInstagram(qa: Record<string, string> | undefined): string | null
  */
 function detectNicho(payload: IClosedPayload): "politica" | "general" {
   const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  // Word boundary regex: matchea "politica", "politico", "politicas" pero NO
+  // substrings tipo "apolitical-marketing" o "geopolitics-test".
+  const POLITIC_RE = /\bpolitic[ao]?s?\b/;
 
   // 1) Evento de iClosed
   const eventName = norm(String(payload.event?.name || ""));
   const eventType = norm(String(payload.event?.eventType || ""));
-  if (eventName.includes("politic") || eventType.includes("politic")) return "politica";
+  if (POLITIC_RE.test(eventName) || POLITIC_RE.test(eventType)) return "politica";
 
   // 2) UTM (cualquiera de los 4)
   const t = payload.tracking || {};
   const utms = [t.utm_source, t.utm_medium, t.utm_content, t.utm_campaign].map((v) => norm(String(v || "")));
-  if (utms.some((u) => u.includes("politic"))) return "politica";
+  if (utms.some((u) => POLITIC_RE.test(u))) return "politica";
 
   return "general";
 }

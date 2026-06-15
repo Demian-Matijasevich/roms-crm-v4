@@ -106,11 +106,12 @@ function extractTelefono(payload: CalendlyPayload["payload"]): string | null {
 
 function detectNicho(p: CalendlyPayload): "politica" | "general" {
   const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const POLITIC_RE = /\bpolitic[ao]?s?\b/;
   const eventName = norm(p.payload?.scheduled_event?.name || "");
-  if (eventName.includes("politic")) return "politica";
+  if (POLITIC_RE.test(eventName)) return "politica";
   const t = p.payload?.tracking || {};
   const utms = [t.utm_source, t.utm_medium, t.utm_content, t.utm_campaign].map((v) => norm(String(v || "")));
-  if (utms.some((u) => u.includes("politic"))) return "politica";
+  if (utms.some((u) => POLITIC_RE.test(u))) return "politica";
   return "general";
 }
 

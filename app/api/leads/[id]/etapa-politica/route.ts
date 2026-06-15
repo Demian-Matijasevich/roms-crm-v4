@@ -2,7 +2,11 @@
  * POST /api/leads/[id]/etapa-politica
  * Actualiza el campo etapa_politica de un lead.
  * Solo acepta valores: nuevo, caliente, aserrado, preserrado, cerrado, perdido.
- * Si el lead no es nicho=politica todavía, lo marca como politica (auto-propagación).
+ *
+ * Si el lead NO es nicho=politica:
+ *   - Requiere body.confirmar_migrar=true para migrarlo (evita pisar nicho
+ *     por accidente al arrastrar en kanban).
+ *   - Sin esa flag → 409 con mensaje explicito.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
@@ -39,11 +43,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (leadErr) return NextResponse.json({ error: leadErr.message }, { status: 500 });
   if (!lead) return NextResponse.json({ error: "lead no encontrado" }, { status: 404 });
 
+  // Guard: si el lead NO es política, requiere confirmación explícita para migrar.
+  // Evita que un arrastre en kanban convierta silenciosamente un lead general.
+  const confirmarMigrar = body.confirmar_migrar === true;
+  if (lead.nicho !== "politica" && !confirmarMigrar) {
+    return NextResponse.json({
+      error: "Este lead no es nicho política. Confirmá la migración con confirmar_migrar:true.",
+      lead_nicho: lead.nicho,
+    }, { status: 409 });
+  }
+
   const updates: Record<string, unknown> = { etapa_politica: etapa };
   if (lead.nicho !== "politica") updates.nicho = "politica";
 
-  const { error } = await sb.from("leads").update(updates).eq("id", id);
+  // UPDATE atómico: usar .eq() en el nicho que vimos para detectar race conditions
+  // (otra request cambiando nicho entre nuestro SELECT y UPDATE).
+  let updateQuery = sb.from("leads").update(updates).eq("id", id);
+  if (lead.nicho !== null) updateQuery = updateQuery.eq("nicho", lead.nicho);
+  else updateQuery = updateQuery.is("nicho", null);
+  const { data: updated, error } = await updateQuery.select("id");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!updated || updated.length === 0) {
+    return NextResponse.json({ error: "El nicho del lead cambió en otra request, recargá." }, { status: 409 });
+  }
 
   // Activity log + Notif al equipo política cuando cambia de etapa
   if (lead.etapa_politica !== etapa) {

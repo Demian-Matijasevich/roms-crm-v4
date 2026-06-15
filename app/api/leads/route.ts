@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase-server";
 import { syncLeadToSheetSafe } from "@/lib/sheet-sync";
+import { getNichoFilter } from "@/lib/vista";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,7 @@ export async function POST(req: NextRequest) {
       "ticket_total", "programa_pitcheado", "concepto", "plan_pago",
       "lead_calificado", "lead_score",
       "contexto_setter", "reporte_general", "notas_internas",
+      "nicho",
     ];
 
     const insertData: Record<string, unknown> = {
@@ -69,6 +71,12 @@ export async function POST(req: NextRequest) {
     };
     for (const k of allowed) {
       if (k in body && body[k] !== undefined && body[k] !== "") insertData[k] = body[k];
+    }
+    // Si el body no envió nicho, heredar de la vista activa (política / general).
+    // Esto evita que un setter en vista política cree leads que terminan en general.
+    if (!insertData.nicho) {
+      const vistaNicho = await getNichoFilter();
+      insertData.nicho = vistaNicho ?? "general";
     }
     // Normalizar telefono automáticamente
     if (insertData.telefono) {

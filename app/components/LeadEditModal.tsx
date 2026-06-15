@@ -201,11 +201,10 @@ export default function LeadEditModal({ lead, closers, setters, onClose, onSaved
             <Field label="Plan pago">
               <select value={(data.plan_pago as string) ?? ""} onChange={(e) => setData({ ...data, plan_pago: e.target.value })} className={selectClass}>
                 <option value="">---</option>
-                <option value="cash">Cash</option>
+                <option value="paid_in_full">Cash (full)</option>
                 <option value="2_cuotas">2 cuotas</option>
                 <option value="3_cuotas">3 cuotas</option>
-                <option value="4_cuotas">4 cuotas</option>
-                <option value="otro">Otro</option>
+                <option value="personalizado">Personalizado</option>
               </select>
             </Field>
             <Field label="Concepto">
