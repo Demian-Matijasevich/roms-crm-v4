@@ -21,6 +21,7 @@ export interface GastoRow {
   pagado_a: string | null;
   pagado_por: string | null;
   estado: string;
+  nicho: string;
   created_at: string;
 }
 

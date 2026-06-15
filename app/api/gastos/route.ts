@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { fecha, concepto, categoria, monto_usd, monto_ars, billetera, pagado_a, pagado_por, estado } = body;
+    const { fecha, concepto, categoria, monto_usd, monto_ars, billetera, pagado_a, pagado_por, estado, nicho } = body;
 
     if (!fecha || !concepto) {
       return NextResponse.json({ error: "fecha y concepto son requeridos" }, { status: 400 });
@@ -68,6 +68,7 @@ export async function POST(req: NextRequest) {
         pagado_a: pagado_a || null,
         pagado_por: pagado_por || null,
         estado: estado || "pagado",
+        nicho: nicho === "politica" ? "politica" : "general",
         usd_rate_aplicado: rateAplicado,
       })
       .select()
@@ -93,7 +94,7 @@ export async function PATCH(req: NextRequest) {
     const { id, ...updates } = body;
     if (!id) return NextResponse.json({ error: "id requerido" }, { status: 400 });
 
-    const allowed = ["fecha", "concepto", "categoria", "monto_usd", "monto_ars", "billetera", "pagado_a", "pagado_por", "estado", "usd_rate_aplicado"];
+    const allowed = ["fecha", "concepto", "categoria", "monto_usd", "monto_ars", "billetera", "pagado_a", "pagado_por", "estado", "usd_rate_aplicado", "nicho"];
     const patch: Record<string, unknown> = {};
     for (const k of allowed) if (k in updates) patch[k] = updates[k];
 

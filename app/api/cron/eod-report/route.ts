@@ -1,12 +1,19 @@
 /**
- * GET /api/cron/eod-report?token=XXX&date=YYYY-MM-DD&target=phone
+ * GET /api/cron/eod-report?token=XXX&date=YYYY-MM-DD&target=phone&nicho=general|politica
  *
- * Genera el reporte EOD y envía un mensaje WhatsApp por closer (más un resumen
- * global al final). Cada mensaje muestra el detalle de cada llamada con su
- * estado, en formato lista discriminada.
+ * Genera el reporte EOD y envía mensajes WhatsApp:
+ *   - Un mensaje por closer con actividad del día (detalle de llamadas).
+ *   - Un resumen global al final.
+ *   - Separado por nicho (general / política), cada uno a su target WA.
+ *
+ * Sin ?nicho= → procesa ambos nichos (2 ciclos).
+ * Targets:
+ *   - general:  EOD_TARGET_NUMBER (env) o ?target=
+ *   - politica: EOD_TARGET_NUMBER_POLITICA (env) o ?target_politica=
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase-server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +27,18 @@ interface LeadDia {
   closer_id: string | null;
   ticket_total: number | null;
   programa_pitcheado: string | null;
+  nicho: string | null;
 }
+
+interface PaymentDia {
+  monto_usd: number | null;
+  lead_id: string | null;
+  fecha_pago: string | null;
+  estado: string;
+  numero_cuota: number | null;
+}
+
+interface CloserRow { id: string; nombre: string }
 
 const ESTADO_LABEL: Record<string, string> = {
   cerrado: "💰 Cerrado",
@@ -37,7 +55,6 @@ const ESTADO_LABEL: Record<string, string> = {
 };
 
 function labelEstado(l: LeadDia): string {
-  // Si no_show explícito por se_presento=no y estado pendiente: forzar no_show
   if (l.se_presento === "no" && l.estado === "pendiente") return ESTADO_LABEL.no_show;
   if (l.se_presento === "cancelado") return ESTADO_LABEL.cancelada;
   return ESTADO_LABEL[l.estado] || `⚪ ${l.estado}`;
@@ -47,101 +64,31 @@ function f(n: number): string {
   return n.toLocaleString("en-US");
 }
 
-export async function GET(req: NextRequest) {
-  const url = new URL(req.url);
-  const token = url.searchParams.get("token") || "";
-  const expectedToken = process.env.EOD_CRON_TOKEN || "";
-  if (!expectedToken || token !== expectedToken) {
-    return NextResponse.json({ error: "auth" }, { status: 401 });
-  }
+type BuildArgs = {
+  nichoLabel: string;            // "general" / "politica" — para banner
+  nichoEmoji: string;            // "📊" / "🏛"
+  todayLeads: LeadDia[];
+  tomorrowLeads: Array<{ id: string; nombre: string | null; closer_id: string | null; fecha_agendado: string | null }>;
+  cashByLead: Map<string, number>;
+  closers: CloserRow[];
+  noteByMember: Map<string, string>;
+  fechaCap: string;
+};
 
-  const targetDate = url.searchParams.get("date") || (() => {
-    const now = new Date();
-    const sp = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
-    return sp.toISOString().slice(0, 10);
-  })();
-
-  const tomorrow = (() => {
-    const d = new Date(targetDate + "T12:00:00-03:00");
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10);
-  })();
-
-  // Rangos con TZ Argentina (UTC-3) para matchear timestamps correctamente.
-  const dayStart = `${targetDate}T00:00:00-03:00`;
-  const dayEndExclusive = `${tomorrow}T00:00:00-03:00`;
-  const tomorrowEndExclusive = (() => {
-    const d = new Date(tomorrow + "T12:00:00-03:00");
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10) + "T00:00:00-03:00";
-  })();
-
-  const sb = createServerClient();
-
-  const { data: closers } = await sb
-    .from("team_members")
-    .select("id, nombre")
-    .eq("activo", true)
-    .eq("is_closer", true)
-    .order("nombre");
-
-  const { data: todayLeadsRaw } = await sb
-    .from("leads")
-    .select("id, nombre, fecha_agendado, fecha_llamada, estado, se_presento, closer_id, ticket_total, programa_pitcheado")
-    .or(`and(fecha_llamada.gte.${dayStart},fecha_llamada.lt.${dayEndExclusive}),and(fecha_agendado.gte.${dayStart},fecha_agendado.lt.${dayEndExclusive})`)
-    .range(0, 9999);
-
-  const todayLeads: LeadDia[] = (todayLeadsRaw || []) as LeadDia[];
-
-  const { data: tomorrowLeads } = await sb
-    .from("leads")
-    .select("id, nombre, closer_id, fecha_agendado")
-    .or(`and(fecha_llamada.gte.${dayEndExclusive},fecha_llamada.lt.${tomorrowEndExclusive}),and(fecha_agendado.gte.${dayEndExclusive},fecha_agendado.lt.${tomorrowEndExclusive})`)
-    .range(0, 9999);
-
-  const { data: payments } = await sb
-    .from("payments")
-    .select("monto_usd, lead_id, fecha_pago, estado, numero_cuota")
-    .eq("fecha_pago", targetDate)
-    .eq("estado", "pagado")
-    .range(0, 999);
-
-  // Comentarios del día por closer
-  const { data: notes } = await sb
-    .from("closer_daily_notes")
-    .select("team_member_id, comentario")
-    .eq("fecha", targetDate);
-  const noteByMember = new Map<string, string>();
-  for (const n of notes || []) {
-    if (n.comentario && n.comentario.trim()) noteByMember.set(n.team_member_id, n.comentario.trim());
-  }
-
-  const cashByLead = new Map<string, number>();
-  for (const p of payments || []) {
-    if (!p.lead_id) continue;
-    cashByLead.set(p.lead_id, (cashByLead.get(p.lead_id) || 0) + Number(p.monto_usd || 0));
-  }
-
-  const fechaLabel = new Date(targetDate + "T00:00:00").toLocaleDateString("es-AR", {
-    weekday: "long", day: "numeric", month: "long",
-  });
-  const fechaCap = fechaLabel.charAt(0).toUpperCase() + fechaLabel.slice(1);
-
-  // Mensajes a enviar: uno por closer + uno global al final
+function buildMessages(args: BuildArgs): Array<{ tipo: string; nombre: string; texto: string }> {
+  const { nichoLabel, nichoEmoji, todayLeads, tomorrowLeads, cashByLead, closers, noteByMember, fechaCap } = args;
   const mensajes: Array<{ tipo: string; nombre: string; texto: string }> = [];
 
-  // Stats globales mientras armamos por closer
   let globalAgendados = 0;
   let globalShow = 0;
   let globalCerrados = 0;
   let globalCash = 0;
   let globalManana = 0;
 
-  for (const c of closers || []) {
+  for (const c of closers) {
     const míos = todayLeads.filter((l) => l.closer_id === c.id);
     if (míos.length === 0) continue;
 
-    // Orden: cerrados primero, luego seguimiento, luego perdidos/no show, luego pendientes
     const orden: Record<string, number> = {
       cerrado: 1, adentro_seguimiento: 1, reserva: 2,
       seguimiento: 3,
@@ -163,7 +110,7 @@ export async function GET(req: NextRequest) {
     };
 
     const cashCloser = míos.reduce((s, l) => s + (cashByLead.get(l.id) || 0), 0);
-    const mananaCloser = (tomorrowLeads || []).filter((l) => l.closer_id === c.id).length;
+    const mananaCloser = tomorrowLeads.filter((l) => l.closer_id === c.id).length;
 
     globalAgendados += stats.agendados;
     globalShow += stats.show;
@@ -171,9 +118,8 @@ export async function GET(req: NextRequest) {
     globalCash += cashCloser;
     globalManana += mananaCloser;
 
-    // Armar mensaje del closer
     const lines: string[] = [
-      `📊 *EOD ${c.nombre} — ${fechaCap}*`,
+      `${nichoEmoji} *EOD ${nichoLabel.toUpperCase()} · ${c.nombre} — ${fechaCap}*`,
       ``,
       `🎯 *Resumen*`,
       `• Llamadas: ${stats.agendados}`,
@@ -191,7 +137,7 @@ export async function GET(req: NextRequest) {
       const nombre = (l.nombre || "—").slice(0, 35);
       let extra = "";
       const cash = cashByLead.get(l.id) || 0;
-      if ((l.estado === "cerrado" || l.estado === "adentro_seguimiento" || l.estado === "reserva")) {
+      if (l.estado === "cerrado" || l.estado === "adentro_seguimiento" || l.estado === "reserva") {
         const tic = Number(l.ticket_total || 0);
         if (tic > 0) extra += ` ${l.programa_pitcheado || ""} $${f(tic)}`;
         if (cash > 0) extra += ` (cobró $${f(Math.round(cash))})`;
@@ -204,7 +150,6 @@ export async function GET(req: NextRequest) {
       lines.push(`⚠️ Tenés ${stats.pendientes} llamada${stats.pendientes === 1 ? "" : "s"} sin marcar. Cargá en /cerrar-dia.`);
     }
 
-    // Comentario del día (si lo cargó)
     const nota = noteByMember.get(c.id);
     if (nota) {
       lines.push("");
@@ -219,13 +164,11 @@ export async function GET(req: NextRequest) {
     mensajes.push({ tipo: "closer", nombre: c.nombre, texto: lines.join("\n") });
   }
 
-  // Huérfanos: leads del día sin closer asignado (iClosed bookea sin asignar
-  // host; queda NULL hasta que se marca la call como HELD).
+  // Huerfanos del nicho
   const huerfanos = todayLeads.filter((l) => !l.closer_id);
 
-  // Mensaje global al final
   const globalLines: string[] = [
-    `📊 *EOD GLOBAL — ${fechaCap}*`,
+    `${nichoEmoji} *EOD GLOBAL · ${nichoLabel.toUpperCase()} — ${fechaCap}*`,
     ``,
     `🎯 *Resumen del equipo*`,
     `• Agendadas: ${globalAgendados}${huerfanos.length ? ` (+${huerfanos.length} sin asignar)` : ""}`,
@@ -238,7 +181,7 @@ export async function GET(req: NextRequest) {
     `*👥 Por closer*`,
   ];
   for (const m of mensajes) {
-    const closer = (closers || []).find((c) => c.nombre === m.nombre);
+    const closer = closers.find((c) => c.nombre === m.nombre);
     if (!closer) continue;
     const míos = todayLeads.filter((l) => l.closer_id === closer.id);
     const cerrados = míos.filter((l) => l.estado === "cerrado" || l.estado === "adentro_seguimiento" || l.estado === "reserva").length;
@@ -246,12 +189,11 @@ export async function GET(req: NextRequest) {
     globalLines.push(`• *${closer.nombre}*: ${míos.length} llamadas · ${cerrados} cerradas · $${f(Math.round(cash))} cash`);
   }
 
-  // Bucket de huérfanos — visible para asignar manualmente en /cerrar-dia
   if (huerfanos.length > 0) {
     globalLines.push(``);
     globalLines.push(`━━━━━━━━━━━━━━━━━━━━`);
     globalLines.push(`🚨 *${huerfanos.length} llamada${huerfanos.length === 1 ? "" : "s"} sin closer asignado*`);
-    globalLines.push(`_iClosed no mandó host. Hay que asignarlas manualmente._`);
+    globalLines.push(`_Hay que asignarlas manualmente._`);
     for (const l of huerfanos) {
       const hora = (l.fecha_agendado || l.fecha_llamada || "").slice(11, 16);
       const nombre = (l.nombre || "—").slice(0, 35);
@@ -270,47 +212,195 @@ export async function GET(req: NextRequest) {
 
   mensajes.push({ tipo: "global", nombre: "GLOBAL", texto: globalLines.join("\n") });
 
-  // Enviar via Evolution API — uno por mensaje
+  return mensajes;
+}
+
+async function sendWA(opts: { evolUrl: string; evolKey: string; evolInstance: string; target: string; mensajes: Array<{ tipo: string; nombre: string; texto: string }> }) {
+  const envios: Array<{ tipo: string; nombre: string; status: number | null; error: string | null }> = [];
+  for (const m of opts.mensajes) {
+    try {
+      const sendRes = await fetch(`${opts.evolUrl}/message/sendText/${encodeURIComponent(opts.evolInstance)}`, {
+        method: "POST",
+        headers: { apikey: opts.evolKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ number: opts.target, text: m.texto, delay: 1500 }),
+      });
+      let err: string | null = null;
+      if (!sendRes.ok) {
+        const txt = await sendRes.text().catch(() => "");
+        err = `HTTP ${sendRes.status}: ${txt.slice(0, 150)}`;
+      }
+      envios.push({ tipo: m.tipo, nombre: m.nombre, status: sendRes.status, error: err });
+      await new Promise((r) => setTimeout(r, 800));
+    } catch (e) {
+      envios.push({ tipo: m.tipo, nombre: m.nombre, status: null, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return envios;
+}
+
+async function processNicho(opts: {
+  sb: SupabaseClient;
+  nicho: "general" | "politica";
+  targetDate: string;
+  dayStart: string;
+  dayEndExclusive: string;
+  tomorrowEndExclusive: string;
+  fechaCap: string;
+  evol: { url: string; key: string; instance: string } | null;
+  target: string;
+}) {
+  const { sb, nicho, targetDate, dayStart, dayEndExclusive, tomorrowEndExclusive, fechaCap, evol, target } = opts;
+
+  const { data: closers } = await sb
+    .from("team_members")
+    .select("id, nombre")
+    .eq("activo", true)
+    .eq("is_closer", true)
+    .order("nombre");
+
+  const { data: todayLeadsRaw } = await sb
+    .from("leads")
+    .select("id, nombre, fecha_agendado, fecha_llamada, estado, se_presento, closer_id, ticket_total, programa_pitcheado, nicho")
+    .or(`and(fecha_llamada.gte.${dayStart},fecha_llamada.lt.${dayEndExclusive}),and(fecha_agendado.gte.${dayStart},fecha_agendado.lt.${dayEndExclusive})`)
+    .eq("nicho", nicho)
+    .range(0, 9999);
+
+  const todayLeads = (todayLeadsRaw || []) as LeadDia[];
+
+  const { data: tomorrowLeadsRaw } = await sb
+    .from("leads")
+    .select("id, nombre, closer_id, fecha_agendado, nicho")
+    .or(`and(fecha_llamada.gte.${dayEndExclusive},fecha_llamada.lt.${tomorrowEndExclusive}),and(fecha_agendado.gte.${dayEndExclusive},fecha_agendado.lt.${tomorrowEndExclusive})`)
+    .eq("nicho", nicho)
+    .range(0, 9999);
+  const tomorrowLeads = (tomorrowLeadsRaw || []) as Array<{ id: string; nombre: string | null; closer_id: string | null; fecha_agendado: string | null }>;
+
+  // payments del día — filtrar por leads del nicho (post-fetch)
+  const todayLeadIds = new Set(todayLeads.map((l) => l.id));
+  const { data: paymentsRaw } = await sb
+    .from("payments")
+    .select("monto_usd, lead_id, fecha_pago, estado, numero_cuota")
+    .eq("fecha_pago", targetDate)
+    .eq("estado", "pagado")
+    .range(0, 999);
+  const payments = (paymentsRaw || []).filter((p) => p.lead_id && todayLeadIds.has(p.lead_id)) as PaymentDia[];
+
+  const cashByLead = new Map<string, number>();
+  for (const p of payments) {
+    if (!p.lead_id) continue;
+    cashByLead.set(p.lead_id, (cashByLead.get(p.lead_id) || 0) + Number(p.monto_usd || 0));
+  }
+
+  // Comentarios del día por closer (no se segrega por nicho — son del día del closer)
+  const closersDelNicho = (closers || []).filter((c) => todayLeads.some((l) => l.closer_id === c.id));
+  const { data: notes } = closersDelNicho.length > 0
+    ? await sb
+        .from("closer_daily_notes")
+        .select("team_member_id, comentario")
+        .eq("fecha", targetDate)
+        .in("team_member_id", closersDelNicho.map((c) => c.id))
+    : { data: [] };
+  const noteByMember = new Map<string, string>();
+  for (const n of notes || []) {
+    if (n.comentario && n.comentario.trim()) noteByMember.set(n.team_member_id, n.comentario.trim());
+  }
+
+  const mensajes = buildMessages({
+    nichoLabel: nicho === "politica" ? "Política" : "ROMS",
+    nichoEmoji: nicho === "politica" ? "🏛" : "📊",
+    todayLeads,
+    tomorrowLeads,
+    cashByLead,
+    closers: closers || [],
+    noteByMember,
+    fechaCap,
+  });
+
+  // Envío
+  if (!evol) {
+    return { nicho, mensajes, envios: [{ tipo: "config", nombre: "—", status: null, error: "Evolution no configurado" }] };
+  }
+  if (!target) {
+    return { nicho, mensajes, envios: [{ tipo: "config", nombre: "—", status: null, error: `Falta target WA para ${nicho}` }] };
+  }
+  const envios = await sendWA({ evolUrl: evol.url, evolKey: evol.key, evolInstance: evol.instance, target, mensajes });
+  return { nicho, mensajes, envios };
+}
+
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url);
+  const token = url.searchParams.get("token") || "";
+  const expectedToken = process.env.EOD_CRON_TOKEN || "";
+  if (!expectedToken || token !== expectedToken) {
+    return NextResponse.json({ error: "auth" }, { status: 401 });
+  }
+
+  const targetDate = url.searchParams.get("date") || (() => {
+    const now = new Date();
+    const sp = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+    return sp.toISOString().slice(0, 10);
+  })();
+
+  const tomorrow = (() => {
+    const d = new Date(targetDate + "T12:00:00-03:00");
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  })();
+  const dayStart = `${targetDate}T00:00:00-03:00`;
+  const dayEndExclusive = `${tomorrow}T00:00:00-03:00`;
+  const tomorrowEndExclusive = (() => {
+    const d = new Date(tomorrow + "T12:00:00-03:00");
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10) + "T00:00:00-03:00";
+  })();
+
+  const fechaLabel = new Date(targetDate + "T00:00:00").toLocaleDateString("es-AR", {
+    weekday: "long", day: "numeric", month: "long",
+  });
+  const fechaCap = fechaLabel.charAt(0).toUpperCase() + fechaLabel.slice(1);
+
+  const sb = createServerClient();
+
   const evolUrl = process.env.EVOLUTION_API_URL;
   const evolKey = process.env.EVOLUTION_API_KEY;
   const evolInstance = process.env.EVOLUTION_INSTANCE;
-  const target = (url.searchParams.get("target") || process.env.EOD_TARGET_NUMBER || "").trim().replace(/^﻿/, "");
+  const evol = evolUrl && evolKey && evolInstance
+    ? { url: evolUrl, key: evolKey, instance: evolInstance }
+    : null;
 
-  const envios: Array<{ tipo: string; nombre: string; status: number | null; error: string | null }> = [];
+  // ¿Qué nichos procesar? ?nicho=politica|general → solo ese. Sin param → ambos.
+  const requestedNicho = url.searchParams.get("nicho");
+  const nichosAProcesar: Array<"general" | "politica"> = requestedNicho === "politica" || requestedNicho === "general"
+    ? [requestedNicho]
+    : ["general", "politica"];
 
-  if (!evolUrl || !evolKey || !evolInstance) {
-    envios.push({ tipo: "config", nombre: "—", status: null, error: "Evolution API no configurado" });
-  } else if (!target) {
-    envios.push({ tipo: "config", nombre: "—", status: null, error: "Falta EOD_TARGET_NUMBER" });
-  } else {
-    for (const m of mensajes) {
-      try {
-        const sendRes = await fetch(`${evolUrl}/message/sendText/${encodeURIComponent(evolInstance)}`, {
-          method: "POST",
-          headers: { apikey: evolKey, "Content-Type": "application/json" },
-          body: JSON.stringify({ number: target, text: m.texto, delay: 1500 }),
-        });
-        let err: string | null = null;
-        if (!sendRes.ok) {
-          const txt = await sendRes.text().catch(() => "");
-          err = `HTTP ${sendRes.status}: ${txt.slice(0, 150)}`;
-        }
-        envios.push({ tipo: m.tipo, nombre: m.nombre, status: sendRes.status, error: err });
-        // Pequeña pausa entre mensajes para que WhatsApp no los junte y queden ordenados
-        await new Promise((r) => setTimeout(r, 800));
-      } catch (e) {
-        envios.push({ tipo: m.tipo, nombre: m.nombre, status: null, error: e instanceof Error ? e.message : String(e) });
-      }
-    }
+  const targetGeneral = (url.searchParams.get("target") || process.env.EOD_TARGET_NUMBER || "").trim().replace(/^﻿/, "");
+  const targetPolitica = (url.searchParams.get("target_politica") || process.env.EOD_TARGET_NUMBER_POLITICA || "").trim().replace(/^﻿/, "");
+
+  const resultados = [];
+  for (const nicho of nichosAProcesar) {
+    const target = nicho === "politica" ? targetPolitica : targetGeneral;
+    const r = await processNicho({
+      sb,
+      nicho,
+      targetDate,
+      dayStart,
+      dayEndExclusive,
+      tomorrowEndExclusive,
+      fechaCap,
+      evol,
+      target,
+    });
+    resultados.push(r);
   }
 
   return NextResponse.json({
-    ok: envios.every((e) => !e.error),
+    ok: resultados.every((r) => r.envios.every((e) => !e.error)),
     date: targetDate,
-    target,
-    closers_con_actividad: mensajes.filter((m) => m.tipo === "closer").length,
-    globalCerrados,
-    globalCash,
-    envios,
+    nichos: resultados.map((r) => ({
+      nicho: r.nicho,
+      mensajes_count: r.mensajes.length,
+      envios: r.envios,
+    })),
   });
 }

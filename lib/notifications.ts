@@ -47,10 +47,12 @@ export async function createNotificationsForAdmins(input: Omit<CreateNotifInput,
 }
 
 /**
- * Notifica a todos los miembros del equipo política (whitelist).
- * Si querés excluir a alguien, pasalo en `excludeNombres`.
+ * Notifica a todos los miembros del equipo política.
+ * Se basa en la flag team_members.is_politica (boolean). Para agregar/quitar
+ * gente, toggle desde `/admin` o directo en la DB. Fallback de migración:
+ * si la flag no está seteada todavía, usa la whitelist legacy.
  */
-const POLITICA_NOMBRES = ["Juanma", "Mati", "Fran", "Seba", "Nacho", "Nicolás"];
+const POLITICA_NOMBRES_LEGACY = ["Juanma", "Mati", "Fran", "Seba", "Nacho", "Nicolás"];
 
 export async function createNotificationsForPolitica(
   input: Omit<CreateNotifInput, "recipient_id">,
@@ -58,14 +60,29 @@ export async function createNotificationsForPolitica(
 ): Promise<number> {
   const sb = createServerClient();
   const exclude = new Set(opts.excludeNombres || []);
-  const allowed = POLITICA_NOMBRES.filter((n) => !exclude.has(n));
-  const { data: members } = await sb
+
+  // Primero intenta la flag is_politica.
+  const { data: politicaMembers } = await sb
     .from("team_members")
     .select("id, nombre")
-    .in("nombre", allowed)
+    .eq("is_politica", true)
     .eq("activo", true);
-  if (!members || members.length === 0) return 0;
-  const rows = members.map((m) => ({
+
+  let members = politicaMembers || [];
+  // Fallback: si nadie tiene la flag (post-migración inmediata o si nunca se
+  // setea), usar la whitelist hardcodeada por compatibilidad.
+  if (members.length === 0) {
+    const { data: fallback } = await sb
+      .from("team_members")
+      .select("id, nombre")
+      .in("nombre", POLITICA_NOMBRES_LEGACY)
+      .eq("activo", true);
+    members = fallback || [];
+  }
+
+  const filtered = members.filter((m) => !exclude.has(m.nombre));
+  if (filtered.length === 0) return 0;
+  const rows = filtered.map((m) => ({
     recipient_id: m.id,
     tipo: input.tipo,
     titulo: input.titulo,

@@ -190,6 +190,7 @@ export default function FinanzasClient({
     pagado_a: "",
     pagado_por: "",
     estado: "pagado",
+    nicho: "general",
   });
   const [submitting, setSubmitting] = useState(false);
   const [localGastos, setLocalGastos] = useState<GastoRow[]>(gastos);
@@ -596,6 +597,7 @@ export default function FinanzasClient({
           pagado_a: "",
           pagado_por: "",
           estado: "pagado",
+          nicho: "general",
         });
       }
     } catch (err) {
@@ -1417,6 +1419,7 @@ export default function FinanzasClient({
                   pagado_a: "",
                   pagado_por: "",
                   estado: "pagado",
+                  nicho: "general",
                 });
               }
               setShowGastoForm(!showGastoForm);
@@ -1505,7 +1508,7 @@ export default function FinanzasClient({
                 className="px-3 py-2 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)] text-white text-sm"
               />
             </div>
-            <div className="mt-3 flex items-center gap-3">
+            <div className="mt-3 flex items-center gap-3 flex-wrap">
               <select
                 value={gastoForm.estado}
                 onChange={(e) =>
@@ -1515,6 +1518,15 @@ export default function FinanzasClient({
               >
                 <option value="pagado">Pagado</option>
                 <option value="pendiente">Pendiente</option>
+              </select>
+              <select
+                value={gastoForm.nicho}
+                onChange={(e) => setGastoForm({ ...gastoForm, nicho: e.target.value })}
+                className="px-3 py-2 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)] text-white text-sm"
+                title="Nicho del gasto (separa entre ROMS general y Política)"
+              >
+                <option value="general">📊 General</option>
+                <option value="politica">🏛 Política</option>
               </select>
               <button
                 type="submit"
