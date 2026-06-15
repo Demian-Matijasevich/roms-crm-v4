@@ -18,7 +18,7 @@ import EodWizardClient from "./EodWizardClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function EodPage({ searchParams }: { searchParams: Promise<{ d?: string; closer?: string }> }) {
+export default async function EodPage({ searchParams }: { searchParams: Promise<{ d?: string; closer?: string; mode?: string }> }) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (!session.is_admin && !session.roles.includes("closer")) redirect("/");
@@ -37,15 +37,18 @@ export default async function EodPage({ searchParams }: { searchParams: Promise<
     return d.toISOString().slice(0, 10) + "T00:00:00-03:00";
   })();
 
-  // Solo leads PENDIENTES del día (los que el closer todavía no marcó)
+  // mode=todas (solo admin): incluye también leads ya marcados para edición.
+  // Para closers o modo default: solo pendientes (los que no marcaron aún).
+  const showAll = session.is_admin && sp.mode === "todas";
+
   let leadsQuery = sb
     .from("leads")
-    .select("id, nombre, fecha_agendado, fecha_llamada, estado, closer_id, programa_pitcheado, ticket_total, telefono, instagram, nicho")
+    .select("id, nombre, fecha_agendado, fecha_llamada, estado, se_presento, closer_id, programa_pitcheado, ticket_total, telefono, instagram, nicho")
     .or(`and(fecha_llamada.gte.${dayStart},fecha_llamada.lt.${dayEndExclusive}),and(fecha_agendado.gte.${dayStart},fecha_agendado.lt.${dayEndExclusive})`)
-    .eq("estado", "pendiente")
     .order("fecha_agendado", { ascending: true })
     .range(0, 999);
 
+  if (!showAll) leadsQuery = leadsQuery.eq("estado", "pendiente");
   if (nicho) leadsQuery = leadsQuery.eq("nicho", nicho);
 
   if (!session.is_admin && session.team_member_id) {
@@ -77,7 +80,12 @@ export default async function EodPage({ searchParams }: { searchParams: Promise<
 
   const noteTargetMemberId = (session.is_admin && sp.closer) ? sp.closer : session.team_member_id;
 
-  const [leadsRes, totalRes, huerfanosRes, noteRes] = await Promise.all([
+  // Lista de closers para el selector admin
+  const closersListQuery = session.is_admin
+    ? sb.from("team_members").select("id, nombre").eq("activo", true).eq("is_closer", true).order("nombre")
+    : Promise.resolve({ data: [] });
+
+  const [leadsRes, totalRes, huerfanosRes, noteRes, closersListRes] = await Promise.all([
     leadsQuery,
     totalQuery,
     huerfanosQuery,
@@ -89,6 +97,7 @@ export default async function EodPage({ searchParams }: { searchParams: Promise<
           .eq("fecha", targetDate)
           .maybeSingle()
       : Promise.resolve({ data: null }),
+    closersListQuery,
   ]);
 
   return (
@@ -102,6 +111,8 @@ export default async function EodPage({ searchParams }: { searchParams: Promise<
       currentMemberId={session.team_member_id || null}
       currentNombre={session.nombre}
       filterCloser={sp.closer || ""}
+      mode={sp.mode === "todas" ? "todas" : "pendientes"}
+      closersList={(closersListRes.data || []) as never[]}
       initialComentario={(noteRes.data as { comentario?: string } | null)?.comentario || ""}
       comentarioTargetMemberId={noteTargetMemberId || null}
     />

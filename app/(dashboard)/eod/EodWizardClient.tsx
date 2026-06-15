@@ -9,6 +9,9 @@
  *   4. POST y avanza al siguiente.
  *
  * Al final: textarea comentario opcional + botón "Cerrar día".
+ *
+ * Para admin: barra superior con navegación de día (←/Hoy/→), selector
+ * closer y toggle "Pendientes / Todas" para editar marcadas.
  */
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -18,11 +21,15 @@ type Lead = {
   nombre: string | null;
   fecha_agendado: string | null;
   fecha_llamada: string | null;
+  estado?: string | null;
+  se_presento?: string | null;
   programa_pitcheado: string | null;
   ticket_total: number | null;
   telefono: string | null;
   instagram: string | null;
 };
+
+type Closer = { id: string; nombre: string };
 
 type Props = {
   leads: Lead[];
@@ -34,8 +41,24 @@ type Props = {
   currentMemberId: string | null;
   currentNombre: string;
   filterCloser: string;
+  mode: "pendientes" | "todas";
+  closersList: Closer[];
   initialComentario: string;
   comentarioTargetMemberId: string | null;
+};
+
+const ESTADO_LABEL: Record<string, { label: string; color: string }> = {
+  cerrado: { label: "💰 Cerró", color: "bg-emerald-100 text-emerald-800" },
+  adentro_seguimiento: { label: "💰 Cerró (seg.)", color: "bg-emerald-100 text-emerald-800" },
+  reserva: { label: "📌 Reserva", color: "bg-teal-100 text-teal-800" },
+  seguimiento: { label: "⏰ Seguimiento", color: "bg-amber-100 text-amber-800" },
+  no_cierre: { label: "🚫 No cerró", color: "bg-rose-100 text-rose-800" },
+  no_calificado: { label: "🚫 No calificó", color: "bg-rose-100 text-rose-800" },
+  broke_cancelado: { label: "🚫 Sin plata", color: "bg-rose-100 text-rose-800" },
+  no_show: { label: "❌ No show", color: "bg-slate-200 text-slate-700" },
+  cancelada: { label: "🚫 Canceló", color: "bg-slate-200 text-slate-700" },
+  reprogramada: { label: "📅 Reagendó", color: "bg-slate-200 text-slate-700" },
+  pendiente: { label: "⏳ Pendiente", color: "bg-amber-100 text-amber-800" },
 };
 
 type Step = "presento" | "resultado" | "ticket" | "saved";
@@ -49,6 +72,33 @@ function timeART(iso: string | null): string {
     const d = new Date(iso);
     return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" });
   } catch { return "—"; }
+}
+
+function shiftDate(dateStr: string, days: number): string {
+  const d = new Date(dateStr + "T12:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function dateLabel(dateStr: string, todayStr: string): string {
+  if (dateStr === todayStr) return "Hoy";
+  const yesterday = shiftDate(todayStr, -1);
+  if (dateStr === yesterday) return "Ayer";
+  const tomorrow = shiftDate(todayStr, 1);
+  if (dateStr === tomorrow) return "Mañana";
+  try {
+    const d = new Date(dateStr + "T12:00:00");
+    return d.toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" });
+  } catch { return dateStr; }
+}
+
+function buildEodUrl(opts: { date?: string; closer?: string; mode?: string; todayStr: string }): string {
+  const params = new URLSearchParams();
+  if (opts.date && opts.date !== opts.todayStr) params.set("d", opts.date);
+  if (opts.closer) params.set("closer", opts.closer);
+  if (opts.mode && opts.mode !== "pendientes") params.set("mode", opts.mode);
+  const q = params.toString();
+  return q ? `/eod?${q}` : "/eod";
 }
 
 export default function EodWizardClient(props: Props) {
@@ -228,11 +278,135 @@ export default function EodWizardClient(props: Props) {
     setAgarrando(null);
   }
 
+  // Toolbar admin: navegación día + selector closer + toggle modo
+  const adminToolbar = props.isAdmin ? (
+    <div className="bg-slate-900 text-white px-4 py-3 sticky top-0 z-20 shadow-lg">
+      <div className="max-w-xl mx-auto flex flex-wrap items-center gap-2">
+        <a
+          href={buildEodUrl({ date: shiftDate(props.currentDate, -1), closer: props.filterCloser, mode: props.mode, todayStr: props.todayStr })}
+          className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-medium transition"
+        >
+          ←
+        </a>
+        <div className="text-center flex-1 min-w-[120px]">
+          <div className="text-xs uppercase tracking-wider text-slate-400">
+            {dateLabel(props.currentDate, props.todayStr)}
+          </div>
+          <div className="text-sm font-semibold">{props.currentDate}</div>
+        </div>
+        <a
+          href={buildEodUrl({ date: shiftDate(props.currentDate, 1), closer: props.filterCloser, mode: props.mode, todayStr: props.todayStr })}
+          className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-medium transition"
+        >
+          →
+        </a>
+        {props.currentDate !== props.todayStr && (
+          <a
+            href={buildEodUrl({ closer: props.filterCloser, mode: props.mode, todayStr: props.todayStr })}
+            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-semibold transition"
+          >
+            Hoy
+          </a>
+        )}
+      </div>
+      <div className="max-w-xl mx-auto mt-2 flex flex-wrap items-center gap-2">
+        <select
+          value={props.filterCloser}
+          onChange={(e) => {
+            window.location.href = buildEodUrl({ date: props.currentDate, closer: e.target.value, mode: props.mode, todayStr: props.todayStr });
+          }}
+          className="flex-1 min-w-[140px] bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm"
+        >
+          <option value="">Todos los closers</option>
+          {props.closersList.map((c) => (
+            <option key={c.id} value={c.id}>{c.nombre}</option>
+          ))}
+        </select>
+        <div className="flex gap-1 bg-slate-800 rounded-lg p-1 border border-slate-700">
+          <a
+            href={buildEodUrl({ date: props.currentDate, closer: props.filterCloser, mode: "pendientes", todayStr: props.todayStr })}
+            className={`px-3 py-1 rounded-md text-xs font-semibold transition ${props.mode === "pendientes" ? "bg-emerald-500 text-white" : "text-slate-400 hover:text-white"}`}
+          >
+            Pendientes
+          </a>
+          <a
+            href={buildEodUrl({ date: props.currentDate, closer: props.filterCloser, mode: "todas", todayStr: props.todayStr })}
+            className={`px-3 py-1 rounded-md text-xs font-semibold transition ${props.mode === "todas" ? "bg-blue-500 text-white" : "text-slate-400 hover:text-white"}`}
+          >
+            Todas
+          </a>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  // En modo "todas" para admin: vista de lista con estado actual + click para editar
+  if (props.isAdmin && props.mode === "todas") {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        {adminToolbar}
+        <div className="max-w-xl mx-auto p-4 space-y-2">
+          <div className="text-sm text-slate-500 mb-2">
+            {props.leads.length} llamada{props.leads.length === 1 ? "" : "s"} · {dateLabel(props.currentDate, props.todayStr)}
+          </div>
+          {props.leads.length === 0 ? (
+            <div className="bg-white rounded-2xl p-8 text-center text-slate-400">
+              Sin llamadas este día
+            </div>
+          ) : (
+            props.leads.map((l) => {
+              const estado = ESTADO_LABEL[l.estado || "pendiente"] || { label: l.estado || "?", color: "bg-slate-100 text-slate-700" };
+              return (
+                <button
+                  key={l.id}
+                  onClick={() => {
+                    // Si admin quiere editar: regresar a modo pendientes filtrado al lead
+                    // Más simple: queueamos el lead y arrancamos wizard sobre él.
+                    setQueue([l]);
+                    setCurrent(0);
+                    setStep("presento");
+                    resetDraft();
+                    // Cambiar URL por consistencia
+                    window.history.replaceState({}, "", buildEodUrl({ date: props.currentDate, closer: props.filterCloser, mode: "pendientes", todayStr: props.todayStr }));
+                  }}
+                  className="w-full bg-white hover:bg-slate-50 active:bg-slate-100 border border-slate-200 rounded-2xl p-4 text-left transition shadow-sm"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs text-slate-500">
+                        {timeART(l.fecha_agendado || l.fecha_llamada)} ART
+                      </div>
+                      <div className="font-semibold text-slate-800 truncate">{l.nombre || "Sin nombre"}</div>
+                      {l.programa_pitcheado && (
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          {l.programa_pitcheado}
+                          {l.ticket_total ? ` · $${l.ticket_total.toLocaleString("en-US")}` : ""}
+                        </div>
+                      )}
+                    </div>
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${estado.color}`}>
+                      {estado.label}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-blue-600 mt-2 font-semibold">
+                    Tap para editar →
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // ─── PANTALLA: TODO HECHO ────────────────────────────────────
   if (step === "saved" || queue.length === 0) {
     const isCero = queue.length === 0;
     return (
-      <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-blue-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-blue-50">
+        {adminToolbar}
+        <div className="flex items-center justify-center p-4 min-h-[80vh]">
         <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center">
           <div className="text-6xl mb-4">{isCero ? "📭" : "✅"}</div>
           <h1 className="text-2xl font-bold text-slate-800 mb-2">
@@ -298,6 +472,7 @@ export default function EodWizardClient(props: Props) {
             Volver al CRM
           </button>
         </div>
+        </div>
       </div>
     );
   }
@@ -305,6 +480,7 @@ export default function EodWizardClient(props: Props) {
   // ─── PANTALLA: PREGUNTAS ─────────────────────────────────────
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
+      {adminToolbar}
       {/* Header con progress */}
       <div className="bg-white border-b border-slate-200 px-4 py-3 sticky top-0 z-10">
         <div className="flex items-center justify-between max-w-md mx-auto">
