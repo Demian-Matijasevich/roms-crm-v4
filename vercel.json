@@ -7,6 +7,10 @@
     {
       "path": "/api/admin/auto-mark-inactive",
       "schedule": "0 12 * * 1"
+    },
+    {
+      "path": "/api/cron/iclosed-resync",
+      "schedule": "0 * * * *"
     }
   ]
 }
