@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       evento_calendly: null,
       calendly_event_id: null,
       fecha_agendado: null,
-      fecha_llamada: getToday().toISOString(),
+      fecha_llamada: new Date().toISOString(),
       estado: "cerrado" as LeadEstado,
       setter_id: setter_id,
       closer_id: null,

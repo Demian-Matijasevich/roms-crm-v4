@@ -82,7 +82,8 @@ export async function POST(req: NextRequest) {
     // Update the lead
     const leadUpdate: Record<string, unknown> = {
       estado: estado as LeadEstado,
-      fecha_llamada: getToday().toISOString(),
+      // UTC real, no getToday().toISOString() (que está corrupto por construcción).
+      fecha_llamada: new Date().toISOString(),
     };
 
     if (programa_pitcheado) leadUpdate.programa_pitcheado = programa_pitcheado;
@@ -223,17 +224,23 @@ export async function POST(req: NextRequest) {
         const yaCargadas = new Set((existing || []).map((p) => p.numero_cuota));
 
         const restante = Math.max(0, Number(ticket_total) - Number(paymentMonto));
-        const montoPorCuota = totalCuotas > 1 ? Math.round(restante / (totalCuotas - 1)) : 0;
+        // Distribuir el restante en (totalCuotas - 1) cuotas. Para evitar
+        // drift por redondeo, las primeras N-1 usan floor y la última cuota
+        // absorbe la diferencia. Suma queda EXACTA igual a restante.
+        const cuotasACrear = totalCuotas - 1;
+        const montoBase = cuotasACrear > 0 ? Math.floor(restante / cuotasACrear) : 0;
+        const ultimaCuotaMonto = restante - montoBase * (cuotasACrear - 1);
         const baseFecha = (body.payment as { fecha_pago?: string } | undefined)?.fecha_pago || toDateString(getToday());
 
         const aCrear: Array<Record<string, unknown>> = [];
         for (let n = 2; n <= totalCuotas; n++) {
           if (yaCargadas.has(n)) continue;
+          const esUltima = n === totalCuotas;
           aCrear.push({
             lead_id,
             client_id: null,
             numero_cuota: n,
-            monto_usd: montoPorCuota,
+            monto_usd: esUltima ? ultimaCuotaMonto : montoBase,
             monto_ars: 0,
             fecha_pago: null,
             fecha_vencimiento: addDays(baseFecha, 30 * (n - 1)),

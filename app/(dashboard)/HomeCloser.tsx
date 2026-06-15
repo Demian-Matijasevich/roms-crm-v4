@@ -61,7 +61,12 @@ export default function HomeCloser({
   usdRate,
   objective,
 }: Props) {
-  const today = new Date().toISOString().split("T")[0];
+  // YYYY-MM-DD en hora ART, no UTC. Si usaramos UTC, a las 21h ART (00 UTC
+  // del dia siguiente) el dashboard mostraria "Agenda Hoy (0)" durante 3hs.
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
 
   // Personal KPIs
   const myKpis = closerKpis.find((k) => k.team_member_id === currentMemberId);

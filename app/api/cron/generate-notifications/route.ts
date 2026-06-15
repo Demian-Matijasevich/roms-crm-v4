@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase-server";
 import { createNotification, createNotificationsForAdmins } from "@/lib/notifications";
+import { getToday, toDateString } from "@/lib/date-utils";
 
 /**
  * GET /api/cron/generate-notifications
@@ -24,8 +25,14 @@ export async function GET(req: NextRequest) {
   }
 
   const sb = createServerClient();
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  // YYYY-MM-DD ART, no UTC. Sino el cron a 00:30 UTC (21:30 ART) reporta
+  // del día siguiente y dispara notifs 3hs temprano.
+  const todayStr = toDateString(getToday());
+  const sevenDaysAgo = (() => {
+    const d = getToday();
+    d.setDate(d.getDate() - 7);
+    return toDateString(d);
+  })();
 
   let count_lead_frio = 0;
   let count_reserva_vencida = 0;

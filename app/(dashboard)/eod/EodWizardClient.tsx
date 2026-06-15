@@ -124,6 +124,8 @@ export default function EodWizardClient(props: Props) {
   const [step, setStep] = useState<Step>("presento");
   const [error, setError] = useState<string | null>(null);
   const [agarrando, setAgarrando] = useState<string | null>(null);
+  // Guard contra doble-tap rápido (evita 2 POST sobre el mismo lead).
+  const [saving, setSaving] = useState(false);
 
   // datos en construcción para el lead actual
   const [draftPresento, setDraftPresento] = useState<"si" | "no" | "cancelado" | null>(null);
@@ -163,7 +165,10 @@ export default function EodWizardClient(props: Props) {
 
   async function saveLead(estado: string, payment?: { monto_usd: number; receptor: string }) {
     if (!lead) return;
+    if (saving) return; // doble-tap guard
+    setSaving(true);
     setError(null);
+    try {
 
     const payload: Record<string, unknown> = {
       lead_id: lead.id,
@@ -206,6 +211,9 @@ export default function EodWizardClient(props: Props) {
       return;
     }
     nextLead();
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function guardarComentario() {
@@ -664,19 +672,19 @@ export default function EodWizardClient(props: Props) {
             <div className="p-6">
               <div className="text-lg font-semibold text-slate-700 mb-5 text-center">¿Vino?</div>
               <div className="space-y-3">
-                <button onClick={() => handlePresento("si")} disabled={pending}
+                <button onClick={() => handlePresento("si")} disabled={pending || saving}
                   className="w-full py-5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-2xl text-lg shadow-md shadow-emerald-200 transition disabled:opacity-50">
                   ✅ Sí vino
                 </button>
-                <button onClick={() => handlePresento("no")} disabled={pending}
+                <button onClick={() => handlePresento("no")} disabled={pending || saving}
                   className="w-full py-5 bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white font-bold rounded-2xl text-lg shadow-md shadow-rose-200 transition disabled:opacity-50">
                   ❌ No show
                 </button>
-                <button onClick={() => handlePresento("reprogramada")} disabled={pending}
+                <button onClick={() => handlePresento("reprogramada")} disabled={pending || saving}
                   className="w-full py-4 bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold rounded-2xl text-base transition disabled:opacity-50">
                   📅 Reagendó
                 </button>
-                <button onClick={() => handlePresento("cancelado")} disabled={pending}
+                <button onClick={() => handlePresento("cancelado")} disabled={pending || saving}
                   className="w-full py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl text-base transition disabled:opacity-50">
                   🚫 Canceló
                 </button>
@@ -689,31 +697,31 @@ export default function EodWizardClient(props: Props) {
             <div className="p-6">
               <div className="text-lg font-semibold text-slate-700 mb-5 text-center">¿Resultado?</div>
               <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => handleResultado("cerrado")} disabled={pending}
+                <button onClick={() => handleResultado("cerrado")} disabled={pending || saving}
                   className="py-6 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-2xl shadow-md transition disabled:opacity-50">
                   <div className="text-3xl mb-1">💰</div>
                   Cerró
                 </button>
-                <button onClick={() => handleResultado("reserva")} disabled={pending}
+                <button onClick={() => handleResultado("reserva")} disabled={pending || saving}
                   className="py-6 bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-2xl shadow-md transition disabled:opacity-50">
                   <div className="text-3xl mb-1">📌</div>
                   Reserva
                 </button>
-                <button onClick={() => handleResultado("seguimiento")} disabled={pending}
+                <button onClick={() => handleResultado("seguimiento")} disabled={pending || saving}
                   className="py-6 bg-amber-400 hover:bg-amber-500 text-white font-bold rounded-2xl shadow-md transition disabled:opacity-50">
                   <div className="text-3xl mb-1">⏰</div>
                   Seguimiento
                 </button>
-                <button onClick={() => handleResultado("no_cierre")} disabled={pending}
+                <button onClick={() => handleResultado("no_cierre")} disabled={pending || saving}
                   className="py-6 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded-2xl shadow-md transition disabled:opacity-50">
                   <div className="text-3xl mb-1">🚫</div>
                   No cerró
                 </button>
-                <button onClick={() => handleResultado("no_calificado")} disabled={pending}
+                <button onClick={() => handleResultado("no_calificado")} disabled={pending || saving}
                   className="py-4 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-2xl text-sm transition disabled:opacity-50">
                   No calificó
                 </button>
-                <button onClick={() => handleResultado("broke_cancelado")} disabled={pending}
+                <button onClick={() => handleResultado("broke_cancelado")} disabled={pending || saving}
                   className="py-4 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-2xl text-sm transition disabled:opacity-50">
                   Sin plata
                 </button>
@@ -776,7 +784,7 @@ export default function EodWizardClient(props: Props) {
                   className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl text-sm">
                   ← Atrás
                 </button>
-                <button type="submit" disabled={pending}
+                <button type="submit" disabled={pending || saving}
                   className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-bold rounded-2xl text-base shadow-md disabled:opacity-50">
                   Guardar y siguiente →
                 </button>
