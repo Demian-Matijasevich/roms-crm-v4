@@ -4,7 +4,12 @@ import { createServerClient } from "@/lib/supabase-server";
 import { upsertLeadToSheet } from "@/lib/sheets-write";
 import { createNotificationsForPolitica } from "@/lib/notifications";
 
-const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "";
+// El secret va en la URL de iClosed dashboard, no es realmente confidencial
+// (cualquiera con acceso a iClosed lo ve). Fallback necesario porque la env
+// de Vercel quedó vacía y romper el webhook deja al CRM sin sync. Para
+// endurecer: rotar el secret en iClosed dashboard Y setear ICLOSED_WEBHOOK_SECRET
+// en Vercel con el nuevo valor.
+const SECRET = process.env.ICLOSED_WEBHOOK_SECRET || "roms-iclosed-2026";
 
 interface IClosedPayload {
   id?: number;
