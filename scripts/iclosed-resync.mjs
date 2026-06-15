@@ -91,7 +91,7 @@ async function main() {
     let from = 0;
     const PAGE = 1000;
     while (true) {
-      const { data, error } = await sb.from("leads").select("id, email, telefono, nombre, closer_id").range(from, from + PAGE - 1);
+      const { data, error } = await sb.from("leads").select("id, email, telefono, nombre, closer_id, fecha_agendado, fecha_llamada").range(from, from + PAGE - 1);
       if (error) throw error;
       for (const l of data || []) {
         if (l.email) leadsByEmail.set(normEmail(l.email), l);
@@ -119,8 +119,10 @@ async function main() {
     skip_viejo: 0,
     a_crear: 0,
     skip_existe_por_tel: 0,
+    a_completar_fecha: 0,
     update_ops: [],
     create_ops: [],
+    fecha_ops: [],
   };
 
   for (const [email, call] of byEmail) {
@@ -153,6 +155,20 @@ async function main() {
           stats.skip_viejo++;
         }
       }
+      // ── COMPLETAR FECHA si el lead existe pero no tiene fecha_agendado ──
+      // Esto cubre los ~855 leads creados por iClosed Contact-events sin call.
+      if (!lead.fecha_agendado && call.dateTimeUTC) {
+        const fecha = call.dateTimeUTC.slice(0, 10);
+        if (fecha >= CUTOFF) {
+          stats.a_completar_fecha++;
+          stats.fecha_ops.push({
+            id: lead.id,
+            email,
+            nombre: lead.nombre,
+            fecha_agendado: call.dateTimeUTC,
+          });
+        }
+      }
     } else {
       // No existe — verificar con teléfono otra vez (defensive) y crear
       if (phone && phone.length >= 8 && leadsByPhone.has(phone)) {
@@ -180,6 +196,7 @@ async function main() {
   console.log(`  • Calls con user sin mapeo:     ${stats.sin_mapeo}`);
   console.log(`  • Ya asignados correctos:       ${stats.ya_correcto}`);
   console.log(`  • A asignar (closer NULL ≥mayo): ${stats.a_asignar}  ✏️`);
+  console.log(`  • A completar fecha_agendado:   ${stats.a_completar_fecha}  📅`);
   console.log(`  • Skip reasignar (ya tiene):    ${stats.skip_reasignar}  ⏭️`);
   console.log(`  • Skip por viejo (<mayo):       ${stats.skip_viejo}  ⏭️`);
   console.log(`  • Skip existe por teléfono:     ${stats.skip_existe_por_tel}  ⏭️`);
@@ -211,14 +228,27 @@ async function main() {
 
   console.log("\n🚀 Aplicando cambios…");
 
-  // UPDATEs en chunks
+  // UPDATEs de closer en chunks
   let updOk = 0, updErr = 0;
   for (const op of stats.update_ops) {
     const { error } = await sb.from("leads").update({ closer_id: op.to }).eq("id", op.id);
     if (error) { updErr++; console.error(`  err UPDATE ${op.email}: ${error.message}`); }
     else updOk++;
   }
-  console.log(`  Updates: ${updOk} ok / ${updErr} err`);
+  console.log(`  Updates closer: ${updOk} ok / ${updErr} err`);
+
+  // UPDATEs de fecha_agendado para leads existentes sin fecha
+  let fOk = 0, fErr = 0;
+  for (const op of stats.fecha_ops) {
+    const { error } = await sb
+      .from("leads")
+      .update({ fecha_agendado: op.fecha_agendado })
+      .eq("id", op.id)
+      .is("fecha_agendado", null);
+    if (error) { fErr++; console.error(`  err FECHA ${op.email}: ${error.message}`); }
+    else fOk++;
+  }
+  console.log(`  Updates fechas: ${fOk} ok / ${fErr} err`);
 
   // CREATES
   let crOk = 0, crErr = 0;
