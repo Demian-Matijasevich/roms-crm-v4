@@ -11,6 +11,7 @@ const updateTeamSchema = z.object({
   is_setter: z.boolean().optional(),
   is_cobranzas: z.boolean().optional(),
   is_seguimiento: z.boolean().optional(),
+  is_politica: z.boolean().optional(),
   pin: z.string().length(4).regex(/^\d{4}$/).optional(),
   comision_pct: z.number().min(0).max(1).optional(),
   activo: z.boolean().optional(),

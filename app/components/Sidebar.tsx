@@ -102,7 +102,8 @@ function getNav(session: AuthSession): NavSection[] {
         title: "CONFIG",
         items: [
           { href: "/admin", label: "Admin Panel", icon: "\u2699\uFE0F" },
-          { href: "/admin/bulk-nicho", label: "Bulk-tag nicho", icon: "\u{1F3F7}\uFE0F" },
+          { href: "/admin/bulk-nicho", label: "Bulk-tag nicho leads", icon: "\u{1F3F7}\uFE0F" },
+          { href: "/admin/bulk-gastos-nicho", label: "Bulk-tag nicho gastos", icon: "\u{1F4B8}" },
           { href: "/admin/refunds-import", label: "Importar refunds", icon: "\u21A9" },
           { href: "/admin/leads-sin-programa", label: "Leads sin programa", icon: "\u26A0\uFE0F" },
           { href: "/admin/duplicados", label: "Duplicados", icon: "\u{1F50D}" },

@@ -30,7 +30,7 @@ export async function updateTeamMember(
     Pick<
       TeamMember,
       "nombre" | "rol" | "is_admin" | "is_closer" | "is_setter" | "is_cobranzas" | "is_seguimiento" | "pin" | "comision_pct" | "activo"
-    >
+    > & { is_politica?: boolean }
   >
 ): Promise<TeamMember> {
   const supabase = createServerClient();

@@ -44,6 +44,7 @@ function TeamMemberEditModal({
     is_setter: member.is_setter,
     is_cobranzas: member.is_cobranzas,
     is_seguimiento: member.is_seguimiento,
+    is_politica: member.is_politica ?? false,
     pin: member.pin || "",
     comision_pct: member.comision_pct,
     activo: member.activo,
@@ -139,6 +140,7 @@ function TeamMemberEditModal({
               ["is_setter", "Setter"],
               ["is_cobranzas", "Cobranzas"],
               ["is_seguimiento", "Seguimiento"],
+              ["is_politica", "🏛 Política"],
               ["activo", "Activo"],
             ] as [string, string][]
           ).map(([key, label]) => (

@@ -66,6 +66,7 @@ export interface TeamMember {
   is_cobranzas: boolean;
   is_seguimiento: boolean;
   is_jefe_ventas?: boolean;
+  is_politica?: boolean;
   comision_pct: number;
   pin: string | null;
   activo: boolean;
