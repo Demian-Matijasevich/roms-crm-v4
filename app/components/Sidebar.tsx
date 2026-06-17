@@ -20,11 +20,49 @@ interface NavSection {
   items: NavItem[];
 }
 
-function getNav(session: AuthSession): NavSection[] {
+function getNav(session: AuthSession, isPoliticaLocked = false): NavSection[] {
   const { is_admin, roles } = session;
   const isCloser = roles.includes("closer");
   const isSetter = roles.includes("setter");
   const isSeguimiento = roles.includes("seguimiento");
+
+  // Sidebar simplificado para subdominio política — solo lo esencial.
+  if (isPoliticaLocked && is_admin) {
+    return [
+      {
+        title: "PRINCIPAL",
+        items: [
+          { href: "/", label: "Dashboard", icon: "\u{1F4CA}" },
+          { href: "/pipeline", label: "Pipeline", icon: "\u{1F4DE}" },
+          { href: "/llamadas", label: "CRM Llamadas", icon: "\u{1F4CB}" },
+          { href: "/cobranzas", label: "Cobranzas", icon: "\u{1F4B0}" },
+          { href: "/clientes", label: "Clientes", icon: "\u{1F465}" },
+        ],
+      },
+      {
+        title: "CIERRE",
+        items: [
+          { href: "/cierre-mes", label: "Cierre de Mes", icon: "\u{1F4C5}" },
+          { href: "/finanzas", label: "Finanzas", icon: "\u{1F4B5}" },
+          { href: "/comisiones", label: "Comisiones", icon: "\u{1F4B8}" },
+        ],
+      },
+      {
+        title: "CARGAR",
+        items: [
+          { href: "/form/llamada", label: "Llamada", icon: "\u{1F4DE}" },
+          { href: "/form/pago", label: "Pago", icon: "\u{1F4B3}" },
+          { href: "/form/gasto", label: "Gasto", icon: "\u{1F4B8}" },
+        ],
+      },
+      {
+        title: "CONFIG",
+        items: [
+          { href: "/admin", label: "Admin", icon: "⚙️" },
+        ],
+      },
+    ];
+  }
 
   if (is_admin) {
     const sections: NavSection[] = [
@@ -302,7 +340,7 @@ export default function Sidebar({ session, vista = "todos", isPoliticaLocked = f
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pushStatus, setPushStatus] = useState<"idle" | "enabled" | "denied" | "unsupported">("idle");
-  const nav = getNav(session);
+  const nav = getNav(session, isPoliticaLocked);
   const bottomNav = getBottomNav(session);
 
   // Swipe handling
