@@ -33,6 +33,7 @@ function getNav(session: AuthSession, isPoliticaLocked = false): NavSection[] {
         title: "PRINCIPAL",
         items: [
           { href: "/", label: "Dashboard", icon: "\u{1F4CA}" },
+          { href: "/pendientes", label: "Mis pendientes", icon: "\u{26A0}️" },
           { href: "/pipeline", label: "Pipeline", icon: "\u{1F4DE}" },
           { href: "/llamadas", label: "CRM Llamadas", icon: "\u{1F4CB}" },
           { href: "/cobranzas", label: "Cobranzas", icon: "\u{1F4B0}" },
