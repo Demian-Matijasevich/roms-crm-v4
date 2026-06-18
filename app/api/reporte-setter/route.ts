@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
         agendas: parsed.data.agendas,
         agendas_calificadas: parsed.data.agendas_calificadas,
         fuente: parsed.data.fuente || null,
+        aclaracion: parsed.data.aclaracion || null,
       })
       .select()
       .single();

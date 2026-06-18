@@ -11,11 +11,6 @@ const inputClass =
   "w-full bg-[var(--background)] border border-[var(--card-border)] rounded-lg px-3 py-2.5 text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--purple)] placeholder:text-[var(--muted)]";
 const labelClass = "text-sm text-[var(--muted)] block mb-1";
 
-const ORIGENES = [
-  "Historias", "DM directo", "Lead magnet", "YouTube",
-  "Comentarios", "Reels", "Encuesta", "WhatsApp", "Otro",
-];
-
 function todayISO(): string {
   return new Date().toISOString().split("T")[0];
 }
@@ -25,55 +20,43 @@ export default function ReporteSetterForm({ session }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Form fields
+  // 4 campos EOD simplificado
   const [fecha, setFecha] = useState(todayISO());
-  const [conversacionesIniciadas, setConversacionesIniciadas] = useState("");
-  const [respuestasHistorias, setRespuestasHistorias] = useState("");
-  const [calendariosEnviados, setCalendariosEnviados] = useState("");
-  const [ventasPorChat, setVentasPorChat] = useState("");
-  const [agendasConfirmadas, setAgendasConfirmadas] = useState("");
-  const [origenPrincipal, setOrigenPrincipal] = useState<string[]>([]);
-  // 025 — Secure Scale fields
-  const [fups, setFups] = useState("");
-  const [agendas, setAgendas] = useState("");
-  const [agendasCalificadas, setAgendasCalificadas] = useState("");
-  const [fuente, setFuente] = useState<"" | "ig" | "landing" | "whatsapp" | "otro">("");
-
-  function toggleOrigen(origen: string) {
-    setOrigenPrincipal((prev) =>
-      prev.includes(origen) ? prev.filter((o) => o !== origen) : [...prev, origen]
-    );
-  }
+  const [conversaciones, setConversaciones] = useState("");
+  const [agendasEnviadas, setAgendasEnviadas] = useState("");
+  const [agendadas, setAgendadas] = useState("");
+  const [aclaracion, setAclaracion] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
 
-    const conv = parseInt(conversacionesIniciadas, 10);
-    const resp = parseInt(respuestasHistorias, 10);
-    const cal = parseInt(calendariosEnviados, 10);
+    const conv = parseInt(conversaciones, 10);
+    const env = parseInt(agendasEnviadas, 10);
+    const ag = parseInt(agendadas, 10);
 
-    if (isNaN(conv) || conv < 0 || isNaN(resp) || resp < 0 || isNaN(cal) || cal < 0) {
-      setError("Ingresa numeros validos (>= 0) en los campos numericos.");
+    if (isNaN(conv) || conv < 0 || isNaN(env) || env < 0 || isNaN(ag) || ag < 0) {
+      setError("Ingresa números válidos (>= 0).");
       return;
     }
 
     setLoading(true);
 
+    // Mantenemos compat con schema viejo:
+    // conversaciones → conversaciones_iniciadas
+    // agendasEnviadas → calendarios_enviados
+    // agendadas → agendas (numérico Secure Scale)
     const body = {
       setter_id: session.team_member_id,
       fecha,
       conversaciones_iniciadas: conv,
-      respuestas_historias: resp,
-      calendarios_enviados: cal,
-      ventas_por_chat: ventasPorChat.trim() || undefined,
-      agendas_confirmadas: agendasConfirmadas.trim() || undefined,
-      origen_principal: origenPrincipal,
-      // 025
-      fups: parseInt(fups, 10) || 0,
-      agendas: parseInt(agendas, 10) || 0,
-      agendas_calificadas: parseInt(agendasCalificadas, 10) || 0,
-      fuente: fuente || undefined,
+      respuestas_historias: 0,
+      calendarios_enviados: env,
+      origen_principal: [],
+      fups: 0,
+      agendas: ag,
+      agendas_calificadas: 0,
+      aclaracion: aclaracion.trim() || undefined,
     };
 
     try {
@@ -98,21 +81,14 @@ export default function ReporteSetterForm({ session }: Props) {
 
   function reset() {
     setFecha(todayISO());
-    setConversacionesIniciadas("");
-    setRespuestasHistorias("");
-    setCalendariosEnviados("");
-    setVentasPorChat("");
-    setAgendasConfirmadas("");
-    setOrigenPrincipal([]);
-    setFups("");
-    setAgendas("");
-    setAgendasCalificadas("");
-    setFuente("");
+    setConversaciones("");
+    setAgendasEnviadas("");
+    setAgendadas("");
+    setAclaracion("");
     setError("");
     setSubmitted(false);
   }
 
-  // ── Success state ──
   if (submitted) {
     return (
       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-10 text-center flex flex-col items-center gap-4 max-w-md mx-auto">
@@ -122,12 +98,12 @@ export default function ReporteSetterForm({ session }: Props) {
           </svg>
         </div>
         <h3 className="text-lg font-semibold text-[var(--foreground)]">Reporte enviado</h3>
-        <p className="text-sm text-[var(--muted)]">Tus datos se guardaron en Supabase.</p>
+        <p className="text-sm text-[var(--muted)]">Cierre EOD listo.</p>
         <button
           onClick={reset}
           className="mt-2 bg-[var(--purple)] hover:bg-[var(--purple-dark)] text-white px-6 py-2.5 rounded-lg text-sm font-medium transition-colors"
         >
-          Crear otro reporte
+          Cargar otro día
         </button>
       </div>
     );
@@ -137,138 +113,75 @@ export default function ReporteSetterForm({ session }: Props) {
     <div className="max-w-xl mx-auto">
       <form onSubmit={handleSubmit} className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl p-6">
         <div className="mb-5 pb-4 border-b border-[var(--card-border)]">
-          <p className="text-sm font-semibold">Reporte Diario</p>
+          <p className="text-sm font-semibold">Reporte EOD — Setter</p>
           <p className="text-xs text-[var(--muted)]">{session.nombre}</p>
         </div>
 
-        {/* Fecha */}
         <div className="mb-4">
           <label className={labelClass}>Fecha *</label>
-          <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} required className={inputClass} />
+          <input
+            type="date"
+            value={fecha}
+            onChange={(e) => setFecha(e.target.value)}
+            required
+            className={inputClass}
+          />
         </div>
 
-        {/* Conversaciones iniciadas */}
         <div className="mb-4">
-          <label className={labelClass}>Conversaciones iniciadas *</label>
+          <label className={labelClass}>Conversaciones del día *</label>
           <input
             type="number"
             min={0}
-            value={conversacionesIniciadas}
-            onChange={(e) => setConversacionesIniciadas(e.target.value)}
+            value={conversaciones}
+            onChange={(e) => setConversaciones(e.target.value)}
             placeholder="0"
             className={`${inputClass} text-center text-lg`}
             required
+            inputMode="numeric"
           />
+          <p className="text-[10px] text-[var(--muted)] mt-1">Total de chats que iniciaste o respondiste hoy.</p>
         </div>
 
-        {/* Respuestas a historias */}
         <div className="mb-4">
-          <label className={labelClass}>Respuestas a historias *</label>
+          <label className={labelClass}>Agendas enviadas *</label>
           <input
             type="number"
             min={0}
-            value={respuestasHistorias}
-            onChange={(e) => setRespuestasHistorias(e.target.value)}
+            value={agendasEnviadas}
+            onChange={(e) => setAgendasEnviadas(e.target.value)}
             placeholder="0"
             className={`${inputClass} text-center text-lg`}
             required
+            inputMode="numeric"
           />
+          <p className="text-[10px] text-[var(--muted)] mt-1">Cuántos links de calendario mandaste.</p>
         </div>
 
-        {/* Calendarios enviados */}
         <div className="mb-4">
-          <label className={labelClass}>Calendarios enviados *</label>
+          <label className={labelClass}>Agendadas *</label>
           <input
             type="number"
             min={0}
-            value={calendariosEnviados}
-            onChange={(e) => setCalendariosEnviados(e.target.value)}
+            value={agendadas}
+            onChange={(e) => setAgendadas(e.target.value)}
             placeholder="0"
             className={`${inputClass} text-center text-lg`}
             required
+            inputMode="numeric"
           />
+          <p className="text-[10px] text-[var(--muted)] mt-1">De las enviadas, cuántas quedaron en el calendario.</p>
         </div>
 
-        {/* 025 — Secure Scale: FUPs, Agendas, Agendas Calificadas, Fuente */}
-        <div className="mb-4 grid grid-cols-3 gap-2">
-          <div>
-            <label className={labelClass}>FUPs enviados</label>
-            <input type="number" min={0} value={fups} onChange={(e) => setFups(e.target.value)} placeholder="0" className={`${inputClass} text-center`} />
-          </div>
-          <div>
-            <label className={labelClass}>Agendas confirmadas</label>
-            <input type="number" min={0} value={agendas} onChange={(e) => setAgendas(e.target.value)} placeholder="0" className={`${inputClass} text-center`} />
-          </div>
-          <div>
-            <label className={labelClass}>De ellas, calificadas</label>
-            <input type="number" min={0} value={agendasCalificadas} onChange={(e) => setAgendasCalificadas(e.target.value)} placeholder="0" className={`${inputClass} text-center`} />
-          </div>
-        </div>
-
-        <div className="mb-4">
-          <label className={labelClass}>Fuente principal del día</label>
-          <div className="grid grid-cols-4 gap-2">
-            {(["ig", "landing", "whatsapp", "otro"] as const).map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setFuente(fuente === f ? "" : f)}
-                className={`py-2 rounded-lg text-xs font-medium border transition-colors capitalize ${
-                  fuente === f
-                    ? "bg-[var(--purple)]/10 border-[var(--purple)] text-purple-300"
-                    : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--muted)]"
-                }`}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
-          <p className="text-[10px] text-[var(--muted)] mt-1">Si trabajaste varias por igual, dejá vacío.</p>
-        </div>
-
-        {/* Ventas por chat */}
-        <div className="mb-4">
-          <label className={labelClass}>Ventas por chat (nombres)</label>
-          <textarea
-            value={ventasPorChat}
-            onChange={(e) => setVentasPorChat(e.target.value)}
-            placeholder="Nombre 1, Nombre 2..."
-            rows={2}
-            className={`${inputClass} resize-none`}
-          />
-        </div>
-
-        {/* Agendas confirmadas */}
-        <div className="mb-4">
-          <label className={labelClass}>Agendas confirmadas (nombres)</label>
-          <textarea
-            value={agendasConfirmadas}
-            onChange={(e) => setAgendasConfirmadas(e.target.value)}
-            placeholder="Nombre 1, Nombre 2..."
-            rows={2}
-            className={`${inputClass} resize-none`}
-          />
-        </div>
-
-        {/* Origen principal */}
         <div className="mb-6">
-          <label className={labelClass}>Origen principal de los leads</label>
-          <div className="flex flex-wrap gap-2 mt-1">
-            {ORIGENES.map((o) => (
-              <button
-                type="button"
-                key={o}
-                onClick={() => toggleOrigen(o)}
-                className={`text-xs py-1.5 px-3 rounded-lg border transition-colors ${
-                  origenPrincipal.includes(o)
-                    ? "bg-[var(--purple)]/10 border-[var(--purple)] text-purple-300"
-                    : "border-[var(--card-border)] text-[var(--muted)] hover:border-[var(--muted)]"
-                }`}
-              >
-                {o}
-              </button>
-            ))}
-          </div>
+          <label className={labelClass}>Aclaración</label>
+          <textarea
+            value={aclaracion}
+            onChange={(e) => setAclaracion(e.target.value)}
+            placeholder="Algo a destacar del día — objeción común, lead caliente, problema..."
+            rows={3}
+            className={`${inputClass} resize-none`}
+          />
         </div>
 
         {error && <p className="mb-4 text-sm text-red-400">{error}</p>}

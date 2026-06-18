@@ -83,6 +83,7 @@ export const reporteSetterSchema = z.object({
   agendas: z.number().int().min(0).default(0),
   agendas_calificadas: z.number().int().min(0).default(0),
   fuente: z.enum(["ig", "landing", "whatsapp", "otro"]).optional().nullable(),
+  aclaracion: safeString(2000).optional(),
 });
 
 export const followUpSchema = z.object({
