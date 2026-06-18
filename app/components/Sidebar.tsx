@@ -147,6 +147,7 @@ function getNav(session: AuthSession, isPoliticaLocked = false): NavSection[] {
           { href: "/admin/leads-sin-programa", label: "Leads sin programa", icon: "\u26A0\uFE0F" },
           { href: "/admin/duplicados", label: "Duplicados", icon: "\u{1F50D}" },
           { href: "/admin/audit", label: "Audit log", icon: "\u{1F575}\uFE0F" },
+          { href: "/conectar-calendar", label: "Mi calendar Google", icon: "\u{1F4C5}" },
           { href: "/presentacion", label: "Presentaci\u00F3n I\u00F1aki", icon: "\u{1F4FD}\uFE0F" },
         ],
       },
@@ -204,6 +205,7 @@ function getNav(session: AuthSession, isPoliticaLocked = false): NavSection[] {
         items: [
           { href: "/form/llamada", label: "Cargar Llamada", icon: "\u{1F4DE}" },
           { href: "/form/pago", label: "Cargar Pago", icon: "\u{1F4B3}" },
+          { href: "/conectar-calendar", label: "Mi calendar Google", icon: "\u{1F4C5}" },
           { href: "/form/venta-chat", label: "Venta por Chat", icon: "\u{1F4AC}" },
           { href: "/form/reporte-setter", label: "Reporte Diario", icon: "\u{1F4DD}" },
         ],
@@ -238,6 +240,7 @@ function getNav(session: AuthSession, isPoliticaLocked = false): NavSection[] {
         items: [
           { href: "/form/llamada", label: "Cargar Llamada", icon: "\u{1F4DE}" },
           { href: "/form/pago", label: "Cargar Pago", icon: "\u{1F4B3}" },
+          { href: "/conectar-calendar", label: "Mi calendar Google", icon: "\u{1F4C5}" },
         ],
       },
     ];
