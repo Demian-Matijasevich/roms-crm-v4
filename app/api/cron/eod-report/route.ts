@@ -73,10 +73,11 @@ type BuildArgs = {
   closers: CloserRow[];
   noteByMember: Map<string, string>;
   fechaCap: string;
+  preSyncSummary?: string | null;
 };
 
 function buildMessages(args: BuildArgs): Array<{ tipo: string; nombre: string; texto: string }> {
-  const { nichoLabel, nichoEmoji, todayLeads, tomorrowLeads, cashByLead, closers, noteByMember, fechaCap } = args;
+  const { nichoLabel, nichoEmoji, todayLeads, tomorrowLeads, cashByLead, closers, noteByMember, fechaCap, preSyncSummary } = args;
   const mensajes: Array<{ tipo: string; nombre: string; texto: string }> = [];
 
   let globalAgendados = 0;
@@ -167,9 +168,14 @@ function buildMessages(args: BuildArgs): Array<{ tipo: string; nombre: string; t
   // Huerfanos del nicho
   const huerfanos = todayLeads.filter((l) => !l.closer_id);
 
+  const preSyncBlock = preSyncSummary
+    ? [`${preSyncSummary}`, ``, `━━━━━━━━━━━━━━━━━━━━`, ``]
+    : [];
+
   const globalLines: string[] = [
     `${nichoEmoji} *EOD GLOBAL · ${nichoLabel.toUpperCase()} — ${fechaCap}*`,
     ``,
+    ...preSyncBlock,
     `🎯 *Resumen del equipo*`,
     `• Agendadas: ${globalAgendados}${huerfanos.length ? ` (+${huerfanos.length} sin asignar)` : ""}`,
     `• Show ups: ${globalShow}/${globalAgendados}${globalAgendados ? ` (${Math.round((globalShow / globalAgendados) * 100)}%)` : ""}`,
@@ -248,8 +254,9 @@ async function processNicho(opts: {
   fechaCap: string;
   evol: { url: string; key: string; instance: string } | null;
   target: string;
+  preSyncSummary?: string | null;
 }) {
-  const { sb, nicho, targetDate, dayStart, dayEndExclusive, tomorrowEndExclusive, fechaCap, evol, target } = opts;
+  const { sb, nicho, targetDate, dayStart, dayEndExclusive, tomorrowEndExclusive, fechaCap, evol, target, preSyncSummary } = opts;
 
   const { data: closers } = await sb
     .from("team_members")
@@ -314,6 +321,7 @@ async function processNicho(opts: {
     closers: closers || [],
     noteByMember,
     fechaCap,
+    preSyncSummary: opts.preSyncSummary,
   });
 
   // Envío
@@ -368,6 +376,26 @@ export async function GET(req: NextRequest) {
     ? { url: evolUrl, key: evolKey, instance: evolInstance }
     : null;
 
+  // === PRE-SYNC: calendar-sync + pagos-wa-sync (a menos que ?skip_sync=1) ===
+  const skipSync = url.searchParams.get("skip_sync") === "1";
+  let preSync: { cal: unknown; pagos: unknown } = { cal: null, pagos: null };
+  if (!skipSync) {
+    const origin = url.origin;
+    const tokenQ = encodeURIComponent(token);
+    try {
+      const cs = await fetch(`${origin}/api/cron/calendar-sync?token=${tokenQ}&date=${targetDate}`, { method: "GET" });
+      preSync.cal = await cs.json().catch(() => ({ error: "parse_fail" }));
+    } catch (e) {
+      preSync.cal = { error: (e as Error).message };
+    }
+    try {
+      const ps = await fetch(`${origin}/api/cron/pagos-wa-sync?token=${tokenQ}&date=${targetDate}`, { method: "GET" });
+      preSync.pagos = await ps.json().catch(() => ({ error: "parse_fail" }));
+    } catch (e) {
+      preSync.pagos = { error: (e as Error).message };
+    }
+  }
+
   // ¿Qué nichos procesar? ?nicho=politica|general → solo ese. Sin param → ambos.
   const requestedNicho = url.searchParams.get("nicho");
   const nichosAProcesar: Array<"general" | "politica"> = requestedNicho === "politica" || requestedNicho === "general"
@@ -390,6 +418,7 @@ export async function GET(req: NextRequest) {
       fechaCap,
       evol,
       target,
+      preSyncSummary: nicho === "general" ? buildPreSyncSummary(preSync) : null,
     });
     resultados.push(r);
   }
@@ -397,10 +426,49 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     ok: resultados.every((r) => r.envios.every((e) => !e.error)),
     date: targetDate,
+    pre_sync: preSync,
     nichos: resultados.map((r) => ({
       nicho: r.nicho,
       mensajes_count: r.mensajes.length,
       envios: r.envios,
     })),
   });
+}
+
+function buildPreSyncSummary(preSync: { cal: unknown; pagos: unknown }): string | null {
+  const cal = preSync.cal as { total_externas_creadas?: number; total_fechas_actualizadas?: number } | null;
+  const pagos = preSync.pagos as {
+    auto_cargados?: Array<{ cliente: string; monto_usd: number | null; monto_ars: number | null }>;
+    pendientes_review?: Array<{ cliente: string | null; razon: string; texto_short: string }>;
+  } | null;
+  if (!cal && !pagos) return null;
+
+  const parts: string[] = [];
+  if (cal) {
+    const extras = cal.total_externas_creadas || 0;
+    const fechas = cal.total_fechas_actualizadas || 0;
+    if (extras > 0 || fechas > 0) {
+      parts.push(`🆕 *Calendar sync:* ${extras} externa${extras === 1 ? "" : "s"} cargada${extras === 1 ? "" : "s"}, ${fechas} fecha${fechas === 1 ? "" : "s"} actualizada${fechas === 1 ? "" : "s"}`);
+    }
+  }
+  if (pagos) {
+    const auto = pagos.auto_cargados || [];
+    const review = pagos.pendientes_review || [];
+    if (auto.length > 0) {
+      parts.push(`✅ *Pagos WA auto-cargados (${auto.length}):*`);
+      for (const a of auto) {
+        const m = a.monto_usd ? `$${a.monto_usd.toLocaleString()}` : `ARS ${(a.monto_ars || 0).toLocaleString()}`;
+        parts.push(`  • ${a.cliente} ${m}`);
+      }
+    }
+    if (review.length > 0) {
+      parts.push(`⚠️ *Pagos WA a confirmar (${review.length}):*`);
+      for (const r of review) {
+        parts.push(`  • ${r.cliente || "(sin nombre)"} — ${r.razon}`);
+      }
+    }
+  }
+
+  if (parts.length === 0) return null;
+  return parts.join("\n");
 }
