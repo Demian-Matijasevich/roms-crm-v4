@@ -293,25 +293,43 @@ export async function PATCH(req: NextRequest) {
       "fuente", "concepto", "plan_pago",
       "etiquetas", "fecha_cierre_estimada",
     ];
-    // Campos solo modificables por admin (asignaciones)
-    const adminOnlyFields = ["closer_id", "setter_id", "cobrador_id"];
-    const allowedFields = result.session.is_admin
-      ? [...baseFields, ...adminOnlyFields]
-      : baseFields;
+    // Campos de asignación: admin edita todos; closer/setter del lead edita en SU propio lead
+    const assignmentFields = ["closer_id", "setter_id", "cobrador_id"];
+
+    let canEditAssignments = Boolean(result.session.is_admin);
+    if (!canEditAssignments && result.session.team_member_id) {
+      const sb = createServerClient();
+      const { data: leadRow } = await sb
+        .from("leads")
+        .select("closer_id, setter_id")
+        .eq("id", id)
+        .maybeSingle();
+      if (leadRow && (leadRow.closer_id === result.session.team_member_id || leadRow.setter_id === result.session.team_member_id)) {
+        canEditAssignments = true;
+      }
+    }
+
+    const allowedFields = canEditAssignments ? [...baseFields, ...assignmentFields] : baseFields;
 
     const updates: Record<string, unknown> = {};
-    for (const k of allowedFields) {
-      if (k in rest) {
+    const ignoredFields: string[] = [];
+    for (const k of Object.keys(rest)) {
+      if (allowedFields.includes(k)) {
         if (k === "ticket_total") updates[k] = rest[k] !== null ? Number(rest[k]) : null;
         else if (k === "estado") updates[k] = rest[k] as LeadEstado;
         else if (k === "programa_pitcheado") updates[k] = rest[k] as Programa;
         else if (k === "lead_calificado") updates[k] = rest[k] as LeadCalificacion;
         else updates[k] = rest[k];
+      } else if (assignmentFields.includes(k)) {
+        ignoredFields.push(k);
       }
     }
 
     if (Object.keys(updates).length === 0) {
-      return NextResponse.json({ error: "No hay campos para actualizar" }, { status: 400 });
+      const msg = ignoredFields.length > 0
+        ? `Sin permiso para editar asignaciones (${ignoredFields.join(", ")}) en este lead. Pedile a un admin.`
+        : "No hay campos para actualizar";
+      return NextResponse.json({ error: msg }, { status: ignoredFields.length > 0 ? 403 : 400 });
     }
 
     const updateRes = await updateLeadVerbose(id, updates);
@@ -320,7 +338,13 @@ export async function PATCH(req: NextRequest) {
     }
 
     await syncLeadToSheetSafe(id);
-    return NextResponse.json({ ok: true, lead: updateRes.lead });
+    return NextResponse.json({
+      ok: true,
+      lead: updateRes.lead,
+      ...(ignoredFields.length > 0
+        ? { warning: `No se editaron por permisos: ${ignoredFields.join(", ")}. Solo admin puede cambiarlos en leads que no son tuyos.` }
+        : {}),
+    });
   } catch (err) {
     console.error("[PATCH /api/llamadas]", err);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });

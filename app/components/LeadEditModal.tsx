@@ -92,9 +92,15 @@ export default function LeadEditModal({ lead, closers, setters, onClose, onSaved
       });
       const json = await res.json();
       if (json.ok) {
-        setMsg("Guardado");
-        if (onSaved) onSaved(payload as Partial<EditableLead>);
-        setTimeout(() => onClose(), 600);
+        if (json.warning) {
+          setMsg(`⚠️ ${json.warning}`);
+          if (onSaved) onSaved(payload as Partial<EditableLead>);
+          // No autocerrar — que vea el aviso
+        } else {
+          setMsg("Guardado");
+          if (onSaved) onSaved(payload as Partial<EditableLead>);
+          setTimeout(() => onClose(), 600);
+        }
       } else {
         setMsg(`Error: ${json.error || "desconocido"}`);
       }
