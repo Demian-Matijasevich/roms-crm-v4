@@ -115,7 +115,9 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
   // Filtros de comisiones
   // Regla actual: closer/setter solo cobran por "nuevos ingresos" = fee (c0) + primera cuota (c1)
   // Las cuotas 2+ son cobranza de clientes viejos, no generan comisión nueva
-  const [soloNuevos, setSoloNuevos] = useState(true);
+  // Modos: "nuevos" (c0+c1) | "todas" | "cobranza" (c2+)
+  type CuotaMode = "nuevos" | "todas" | "cobranza";
+  const [cuotaMode, setCuotaMode] = useState<CuotaMode>("nuevos");
 
   // Blue histórico por fecha (para convertir pagos en ARS a USD del día)
   const [blueRates, setBlueRates] = useState<Map<string, number>>(new Map());
@@ -163,9 +165,11 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
     return Number(p.monto_usd || 0);
   }
 
-  function esCuotaNueva(numero_cuota: number): boolean {
-    // Regla: c0 (fee) y c1 (primera cuota) = nuevo ingreso
-    return numero_cuota === 0 || numero_cuota === 1;
+  function pasaFiltroCuota(numero_cuota: number): boolean {
+    if (cuotaMode === "todas") return true;
+    if (cuotaMode === "nuevos") return numero_cuota === 0 || numero_cuota === 1;
+    if (cuotaMode === "cobranza") return numero_cuota >= 2;
+    return true;
   }
 
   // Cálculo detallado de comisiones para el mensaje WA
@@ -256,17 +260,17 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
 
   // Filtrar pagos del mes seleccionado.
   // Refunds descuentan cash/comisión (signed), pagados suman.
-  // Si soloNuevos: filtramos por cuota (c0 fee + c1 primera cuota).
   const monthPayments = useMemo(() => {
     return payments.filter(p => {
       if (!p.fecha_pago || !p.lead_id) return false;
       if (p.estado !== "pagado" && p.estado !== "refund") return false;
       const f = p.fecha_pago.split("T")[0];
       if (f < monthRange.start || f > monthRange.end) return false;
-      if (soloNuevos && !esCuotaNueva(p.numero_cuota)) return false;
+      if (!pasaFiltroCuota(p.numero_cuota)) return false;
       return true;
     });
-  }, [payments, monthRange, soloNuevos]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payments, monthRange, cuotaMode]);
 
   // Por cada team_member, generar la lista de ventas (closer + setter por separado)
   const breakdownPorMiembro = useMemo(() => {
@@ -416,24 +420,31 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
         <span className="text-xs font-semibold uppercase text-[var(--muted)] tracking-wider">Mostrar:</span>
         <div className="inline-flex rounded-lg overflow-hidden border border-[var(--card-border)]">
           <button
-            onClick={() => setSoloNuevos(true)}
-            className={`text-xs px-3 py-1.5 font-medium transition ${soloNuevos ? "bg-[var(--purple)] text-white" : "bg-transparent text-[var(--muted)] hover:text-white"}`}
+            onClick={() => setCuotaMode("nuevos")}
+            className={`text-xs px-3 py-1.5 font-medium transition ${cuotaMode==="nuevos" ? "bg-[var(--purple)] text-white" : "bg-transparent text-[var(--muted)] hover:text-white"}`}
             title="Solo fees (c0) + primera cuota (c1) — nuevos ingresos del mes"
           >
-            Solo nuevos ingresos (c0 + c1)
+            Nuevos ingresos (c0 + c1)
           </button>
           <button
-            onClick={() => setSoloNuevos(false)}
-            className={`text-xs px-3 py-1.5 font-medium transition ${!soloNuevos ? "bg-[var(--purple)] text-white" : "bg-transparent text-[var(--muted)] hover:text-white"}`}
-            title="Todas las cuotas incluidas las 2+ (cobranza de clientes viejos)"
+            onClick={() => setCuotaMode("cobranza")}
+            className={`text-xs px-3 py-1.5 font-medium transition ${cuotaMode==="cobranza" ? "bg-[var(--purple)] text-white" : "bg-transparent text-[var(--muted)] hover:text-white"}`}
+            title="Solo cuotas 2+ (cobranza de clientes viejos)"
           >
-            Todas las cuotas
+            Cobranza (c2+)
+          </button>
+          <button
+            onClick={() => setCuotaMode("todas")}
+            className={`text-xs px-3 py-1.5 font-medium transition ${cuotaMode==="todas" ? "bg-[var(--purple)] text-white" : "bg-transparent text-[var(--muted)] hover:text-white"}`}
+            title="Todas las cuotas: fee + c1 + c2+ juntas"
+          >
+            Todas
           </button>
         </div>
         <span className="text-[11px] text-[var(--muted)] ml-2">
-          {soloNuevos
-            ? "Regla actual: closer/setter solo cobran por venta nueva (fee + c1). Cuotas 2+ no generan comisión."
-            : "⚠ Vista extendida: incluye cuotas 2+ de clientes viejos."}
+          {cuotaMode === "nuevos" && "✅ Regla actual: closer/setter cobran solo por venta nueva (fee + c1). Cuotas 2+ NO generan comisión."}
+          {cuotaMode === "cobranza" && "📥 Vista cobranza: cuotas 2+ de clientes viejos. Referencial, no genera comisión bajo la regla actual."}
+          {cuotaMode === "todas" && "⚠ Vista extendida: fee + c1 + cuotas 2+. Los totales van a inflarse."}
         </span>
         {arsDatesNeeded.length > 0 && (
           <span className="text-[10px] text-[var(--green)] ml-auto">
