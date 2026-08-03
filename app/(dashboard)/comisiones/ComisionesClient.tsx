@@ -152,17 +152,19 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
     return () => { cancelled = true; };
   }, [arsDatesNeeded, blueRates]);
 
-  // Helper: USD equivalente de un pago (si hay ARS, usa blue del día; sino, monto_usd)
+  // Helper: USD equivalente de un pago.
+  // Prioriza monto_usd si > 0 (el closer reporta en USD, es la moneda de referencia).
+  // Solo cuando monto_usd = 0, convierte ARS al blue venta del día del pago.
   function usdEquiv(p: PaymentRow): number {
+    const usd = Number(p.monto_usd || 0);
+    if (usd > 0) return usd;
     const ars = Number(p.monto_ars || 0);
     if (ars > 0) {
       const fecha = (p.fecha_pago || "").split("T")[0];
       const rate = blueRates.get(fecha);
       if (rate && rate > 0) return ars / rate;
-      // fallback: usar monto_usd cargado si aún no llegó el rate
-      return Number(p.monto_usd || 0);
     }
-    return Number(p.monto_usd || 0);
+    return 0;
   }
 
   function pasaFiltroCuota(numero_cuota: number): boolean {
