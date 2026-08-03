@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import MonthSelector77 from "@/app/components/MonthSelector77";
 import LeadEditModal, { type EditableLead } from "@/app/components/LeadEditModal";
 import AddPaymentModal, { type PaymentResult } from "@/app/components/AddPaymentModal";
@@ -112,6 +112,62 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
   const [skipRefundIds, setSkipRefundIds] = useState<Set<string>>(new Set());
   const [marking, setMarking] = useState(false);
 
+  // Filtros de comisiones
+  // Regla actual: closer/setter solo cobran por "nuevos ingresos" = fee (c0) + primera cuota (c1)
+  // Las cuotas 2+ son cobranza de clientes viejos, no generan comisión nueva
+  const [soloNuevos, setSoloNuevos] = useState(true);
+
+  // Blue histórico por fecha (para convertir pagos en ARS a USD del día)
+  const [blueRates, setBlueRates] = useState<Map<string, number>>(new Map());
+  const arsDatesNeeded = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of payments) {
+      if (!p.fecha_pago) continue;
+      const ars = Number(p.monto_ars || 0);
+      if (ars > 0) set.add(p.fecha_pago.split("T")[0]);
+    }
+    return Array.from(set);
+  }, [payments]);
+  useEffect(() => {
+    const missing = arsDatesNeeded.filter((d) => !blueRates.has(d));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/blue-rate?dates=${missing.join(",")}`);
+        if (!res.ok) return;
+        const j = (await res.json()) as { rates: Record<string, number | null> };
+        if (cancelled) return;
+        setBlueRates((prev) => {
+          const next = new Map(prev);
+          for (const [d, r] of Object.entries(j.rates || {})) {
+            if (r && r > 0) next.set(d, r);
+          }
+          return next;
+        });
+      } catch { /* silent */ }
+    })();
+    return () => { cancelled = true; };
+  }, [arsDatesNeeded, blueRates]);
+
+  // Helper: USD equivalente de un pago (si hay ARS, usa blue del día; sino, monto_usd)
+  function usdEquiv(p: PaymentRow): number {
+    const ars = Number(p.monto_ars || 0);
+    if (ars > 0) {
+      const fecha = (p.fecha_pago || "").split("T")[0];
+      const rate = blueRates.get(fecha);
+      if (rate && rate > 0) return ars / rate;
+      // fallback: usar monto_usd cargado si aún no llegó el rate
+      return Number(p.monto_usd || 0);
+    }
+    return Number(p.monto_usd || 0);
+  }
+
+  function esCuotaNueva(numero_cuota: number): boolean {
+    // Regla: c0 (fee) y c1 (primera cuota) = nuevo ingreso
+    return numero_cuota === 0 || numero_cuota === 1;
+  }
+
   // Cálculo detallado de comisiones para el mensaje WA
   const detalleComisiones = useMemo(() => {
     return computeComisionesDetail({
@@ -198,15 +254,19 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
     return m;
   }, [campaigns]);
 
-  // Filtrar pagos del mes seleccionado — solo "pagado" (refunds inflan tier multiplier).
+  // Filtrar pagos del mes seleccionado.
+  // Refunds descuentan cash/comisión (signed), pagados suman.
+  // Si soloNuevos: filtramos por cuota (c0 fee + c1 primera cuota).
   const monthPayments = useMemo(() => {
     return payments.filter(p => {
       if (!p.fecha_pago || !p.lead_id) return false;
-      if (p.estado !== "pagado") return false;
+      if (p.estado !== "pagado" && p.estado !== "refund") return false;
       const f = p.fecha_pago.split("T")[0];
-      return f >= monthRange.start && f <= monthRange.end;
+      if (f < monthRange.start || f > monthRange.end) return false;
+      if (soloNuevos && !esCuotaNueva(p.numero_cuota)) return false;
+      return true;
     });
-  }, [payments, monthRange]);
+  }, [payments, monthRange, soloNuevos]);
 
   // Por cada team_member, generar la lista de ventas (closer + setter por separado)
   const breakdownPorMiembro = useMemo(() => {
@@ -225,35 +285,42 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
 
     for (const m of team) {
       // Pagos donde el lead.closer_id = m.id
+      // Refunds cuentan con signo negativo; ARS→USD por blue del día de cada pago
       const ventasCloser: SaleRow[] = [];
       const closerPaymentsForCalc: { monto_usd: number; programa: string | null }[] = [];
       let cashClosed = 0;
       for (const p of monthPayments) {
         const l = leadById.get(p.lead_id!);
         if (!l || l.closer_id !== m.id) continue;
-        cashClosed += p.monto_usd;
-        closerPaymentsForCalc.push({ monto_usd: p.monto_usd, programa: l.programa_pitcheado });
+        const usd = usdEquiv(p);
+        const signed = p.estado === "refund" ? -Math.abs(usd) : usd;
+        cashClosed += signed;
+        closerPaymentsForCalc.push({ monto_usd: signed, programa: l.programa_pitcheado });
       }
-      if (cashClosed > 0) {
-        const result = computeValenCommission(closerPaymentsForCalc, cashClosed);
+      // Tier del multiplicador siempre con cash NETO (no negativo)
+      const tierCash = Math.max(0, cashClosed);
+      if (closerPaymentsForCalc.length > 0) {
+        const result = computeValenCommission(closerPaymentsForCalc, tierCash);
         for (const p of monthPayments) {
           const l = leadById.get(p.lead_id!);
           if (!l || l.closer_id !== m.id) continue;
+          const usd = usdEquiv(p);
+          const signed = p.estado === "refund" ? -Math.abs(usd) : usd;
           const prog = (l.programa_pitcheado || "").toLowerCase();
           const pct = prog.includes("multi") ? result.pctEff.multi
             : prog.includes("consult") ? result.pctEff.consultoria
             : result.pctEff.omni;
           ventasCloser.push({
             paymentId: p.id,
-            leadName: l.nombre,
+            leadName: l.nombre + (p.estado === "refund" ? " ⊗ REFUND" : ""),
             leadId: l.id,
             fecha: p.fecha_pago!.split("T")[0],
-            monto: p.monto_usd,
+            monto: signed,
             cuota: p.numero_cuota,
             receptor: p.receptor,
             programa: l.programa_pitcheado,
             pctAplicado: pct,
-            comision: p.monto_usd * (pct / 100),
+            comision: signed * (pct / 100),
           });
         }
       }
@@ -270,18 +337,20 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
           isSetter = mediumToSetter.get(l.utm_medium.toLowerCase()) === m.id;
         }
         if (!isSetter) continue;
-        cashAsSetter += p.monto_usd;
+        const usd = usdEquiv(p);
+        const signed = p.estado === "refund" ? -Math.abs(usd) : usd;
+        cashAsSetter += signed;
         ventasSetter.push({
           paymentId: p.id,
-          leadName: l.nombre,
+          leadName: l.nombre + (p.estado === "refund" ? " ⊗ REFUND" : ""),
           leadId: l.id,
           fecha: p.fecha_pago!.split("T")[0],
-          monto: p.monto_usd,
+          monto: signed,
           cuota: p.numero_cuota,
           receptor: p.receptor,
           programa: l.programa_pitcheado,
           pctAplicado: SETTER_PCT * 100,
-          comision: p.monto_usd * SETTER_PCT,
+          comision: signed * SETTER_PCT,
         });
       }
       const totalSetter = ventasSetter.reduce((s, v) => s + v.comision, 0);
@@ -289,12 +358,12 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
       const total = totalCloser + totalSetter;
       if (total === 0 && cashClosed === 0 && cashAsSetter === 0) continue;
 
-      // Tier multiplier para mostrar
-      const mul = cashClosed <= 70000 ? 1.0 : cashClosed <= 100000 ? 1.15 : 1.3;
+      // Tier multiplier para mostrar (basado en cashClosed neto)
+      const tierMul = tierCash <= 70000 ? 1.0 : tierCash <= 100000 ? 1.15 : 1.3;
       const pctsEff = {
-        omni: Math.min(7 * mul, 10),
-        multi: Math.min(5 * mul, 10),
-        consultoria: Math.min(7 * mul, 10),
+        omni: Math.min(7 * tierMul, 10),
+        multi: Math.min(5 * tierMul, 10),
+        consultoria: Math.min(7 * tierMul, 10),
       };
 
       out.push({
@@ -302,7 +371,7 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
         cashClosed,
         cashAsSetter,
         tierPct: pctsEff,
-        multiplier: mul,
+        multiplier: tierMul,
         ventasComoCloser: ventasCloser.sort((a, b) => b.fecha.localeCompare(a.fecha)),
         ventasComoSetter: ventasSetter.sort((a, b) => b.fecha.localeCompare(a.fecha)),
         totalCloser,
@@ -316,7 +385,9 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
       return sorted.filter((b) => b.member.id === currentTeamMemberId);
     }
     return sorted;
-  }, [team, monthPayments, leadById, mediumToSetter, isAdmin, currentTeamMemberId]);
+  // usdEquiv y esCuotaNueva se recalculan al cambiar blueRates/soloNuevos
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [team, monthPayments, leadById, mediumToSetter, isAdmin, currentTeamMemberId, blueRates]);
 
   void defaultStart; void defaultEnd;
 
@@ -338,6 +409,37 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
           </button>
           <MonthSelector77 value={selectedMonth} onChange={setSelectedMonth} />
         </div>
+      </div>
+
+      {/* 🎯 Filtro por cuota */}
+      <div className="flex items-center gap-3 flex-wrap bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-4 py-3">
+        <span className="text-xs font-semibold uppercase text-[var(--muted)] tracking-wider">Mostrar:</span>
+        <div className="inline-flex rounded-lg overflow-hidden border border-[var(--card-border)]">
+          <button
+            onClick={() => setSoloNuevos(true)}
+            className={`text-xs px-3 py-1.5 font-medium transition ${soloNuevos ? "bg-[var(--purple)] text-white" : "bg-transparent text-[var(--muted)] hover:text-white"}`}
+            title="Solo fees (c0) + primera cuota (c1) — nuevos ingresos del mes"
+          >
+            Solo nuevos ingresos (c0 + c1)
+          </button>
+          <button
+            onClick={() => setSoloNuevos(false)}
+            className={`text-xs px-3 py-1.5 font-medium transition ${!soloNuevos ? "bg-[var(--purple)] text-white" : "bg-transparent text-[var(--muted)] hover:text-white"}`}
+            title="Todas las cuotas incluidas las 2+ (cobranza de clientes viejos)"
+          >
+            Todas las cuotas
+          </button>
+        </div>
+        <span className="text-[11px] text-[var(--muted)] ml-2">
+          {soloNuevos
+            ? "Regla actual: closer/setter solo cobran por venta nueva (fee + c1). Cuotas 2+ no generan comisión."
+            : "⚠ Vista extendida: incluye cuotas 2+ de clientes viejos."}
+        </span>
+        {arsDatesNeeded.length > 0 && (
+          <span className="text-[10px] text-[var(--green)] ml-auto">
+            💵 Blue histórico: {blueRates.size}/{arsDatesNeeded.length} cotizaciones cargadas
+          </span>
+        )}
       </div>
 
       {/* 📋 Mensaje WhatsApp listo para copiar */}

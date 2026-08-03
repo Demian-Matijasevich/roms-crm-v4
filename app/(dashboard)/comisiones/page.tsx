@@ -28,7 +28,7 @@ export default async function ComisionesPage() {
 
   const [paymentsRes, leadsRes, teamRes, campaignsRes] = await Promise.all([
     sb.from("payments")
-      .select("id, lead_id, monto_usd, fecha_pago, estado, numero_cuota, receptor, es_renovacion, descuento_comision_closer_usd, descuento_comision_setter_usd, aplicado_en_comisiones_mes")
+      .select("id, lead_id, monto_usd, monto_ars, fecha_pago, estado, numero_cuota, receptor, es_renovacion, descuento_comision_closer_usd, descuento_comision_setter_usd, aplicado_en_comisiones_mes")
       .in("estado", ["pagado", "refund"])
       .range(0, 9999),
     leadsQuery,
@@ -61,6 +61,7 @@ export interface PaymentRow {
   id: string;
   lead_id: string | null;
   monto_usd: number;
+  monto_ars?: number | null;
   fecha_pago: string | null;
   estado: string;
   numero_cuota: number;
