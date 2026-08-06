@@ -6,20 +6,22 @@ const TEAM_ALL = [
   { nombre: "Fran", role: "admin", color: "#3b82f6" },
   { nombre: "Juanma", role: "admin", color: "#3b82f6" },
   { nombre: "Mati", role: "jefe_ventas", color: "#f59e0b" },
-  { nombre: "Seba", role: "admin", color: "#3b82f6" },
-  { nombre: "Nacho", role: "admin", color: "#3b82f6" },
-  { nombre: "Nicolás", role: "admin", color: "#3b82f6" },
   { nombre: "Valentino", role: "closer+setter", color: "#8b5cf6" },
-  { nombre: "Agust\u00edn", role: "closer", color: "#60a5fa" },
-  { nombre: "Juan Mart\u00edn", role: "closer", color: "#60a5fa" },
+  { nombre: "Juan Martín", role: "closer", color: "#60a5fa" },
   { nombre: "Fede", role: "closer", color: "#60a5fa" },
-  { nombre: "Guille", role: "setter", color: "#22c55e" },
   { nombre: "Igna", role: "setter", color: "#22c55e" },
   { nombre: "Mel", role: "cobranzas", color: "#ec4899" },
 ];
 
-// En el subdominio pol\u00edtica solo aparecen estos
-const POLITICA_TEAM = TEAM_ALL.filter((t) => ["Fran", "Juanma", "Mati", "Seba", "Nacho", "Nicolás"].includes(t.nombre));
+// En el subdominio política aparecen admins + equipo política
+const POLITICA_TEAM = [
+  { nombre: "Fran", role: "admin", color: "#3b82f6" },
+  { nombre: "Juanma", role: "admin", color: "#3b82f6" },
+  { nombre: "Mati", role: "jefe_ventas", color: "#f59e0b" },
+  { nombre: "Seba", role: "admin", color: "#3b82f6" },
+  { nombre: "Nacho", role: "admin", color: "#3b82f6" },
+  { nombre: "Nicolás", role: "admin", color: "#3b82f6" },
+];
 
 function getInPolitica(): boolean {
   if (typeof window === "undefined") return false;
@@ -84,24 +86,24 @@ export default function LoginPage() {
       clearTimeout(timeoutId);
 
       if (res.ok) {
-        // Si es admin, mostrar selector de vista (ROMS Normal / Pol\u00edtica / Todos).
+        // Si es admin, mostrar selector de vista (ROMS Normal / Política / Todos).
         // Para no-admins, va directo al dashboard.
         const data = await res.json().catch(() => ({}));
         const isAdmin = !!data?.session?.is_admin;
-        // Hard reload \u2014 evita race condition de Next App Router con cache RSC.
+        // Hard reload — evita race condition de Next App Router con cache RSC.
         window.location.assign(isAdmin ? "/seleccionar-vista" : "/");
         return;
       }
 
       const data = await res.json().catch(() => ({}));
-      setError(data.error || "Error al iniciar sesi\u00f3n");
+      setError(data.error || "Error al iniciar sesión");
       setPin(["", "", "", ""]);
       setLoading(false);
       pinRefs.current[0]?.focus();
     } catch (err) {
       clearTimeout(timeoutId);
       const isAbort = err instanceof Error && err.name === "AbortError";
-      setError(isAbort ? "Timeout \u2014 intent\u00e1 de nuevo" : "Error de conexi\u00f3n");
+      setError(isAbort ? "Timeout — intentá de nuevo" : "Error de conexión");
       setPin(["", "", "", ""]);
       setLoading(false);
       pinRefs.current[0]?.focus();
@@ -165,7 +167,7 @@ export default function LoginPage() {
             {isPolitica ? "🏛 ROMS Política" : "ROMS CRM"}
           </h1>
           <p className="text-sm text-zinc-400">
-            {isPolitica ? "Acceso restringido a equipo política" : "Sistema de Gesti\u00f3n — 7ROMS"}
+            {isPolitica ? "Acceso restringido a equipo política" : "Sistema de Gestión — 7ROMS"}
           </p>
         </div>
 
