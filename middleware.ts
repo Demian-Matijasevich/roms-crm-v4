@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 
-const SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "roms-crm-default-secret"
-);
+// Fail-closed: en prod, si falta JWT_SECRET, NO usar un default público.
+// Esto es idéntico al chequeo de lib/auth.ts para que middleware y handlers
+// nunca acepten tokens firmados con un secret conocido.
+const JWT_SECRET_RAW = process.env.JWT_SECRET;
+if (process.env.NODE_ENV === "production" && (!JWT_SECRET_RAW || JWT_SECRET_RAW.length < 16)) {
+  throw new Error("[middleware] JWT_SECRET no configurado o demasiado corto en producción");
+}
+const SECRET = new TextEncoder().encode(JWT_SECRET_RAW || "dev-only-do-not-use-in-prod");
 
 // Hostnames del subdominio de política. Si en algún ambiente cambia,
 // agregar a la lista (o usar env POLITICA_HOSTS).
@@ -56,7 +61,9 @@ export async function middleware(req: NextRequest) {
       // Forzar la cookie de vista=politica para que TODAS las queries filtren
       if (req.cookies.get("roms_vista")?.value !== "politica") {
         res.cookies.set("roms_vista", "politica", {
-          httpOnly: false,
+          // Solo la lee el server (lib/vista.ts via next/headers cookies()),
+          // no hay JS de cliente que la toque. httpOnly evita XSS reads.
+          httpOnly: true,
           secure: true,
           sameSite: "lax",
           maxAge: 60 * 60 * 24 * 30,

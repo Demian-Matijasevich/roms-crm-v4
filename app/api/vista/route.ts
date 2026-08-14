@@ -18,7 +18,8 @@ export async function POST(req: NextRequest) {
     }
     const res = NextResponse.json({ ok: true, vista });
     res.cookies.set(VISTA_COOKIE, vista, {
-      httpOnly: false, // Para que el cliente la pueda leer si quiere
+      // Solo la consume el server (lib/vista.ts).
+      httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       maxAge: 60 * 60 * 24 * 30, // 30 dias

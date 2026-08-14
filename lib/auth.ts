@@ -69,6 +69,31 @@ export async function requireAdmin(): Promise<
   return result;
 }
 
+/**
+ * Auth para endpoints admin invocables desde scripts.
+ * 1) Si hay sesión admin válida → OK
+ * 2) Si no, valida header `x-admin-secret` contra ADMIN_API_SECRET
+ *
+ * NO acepta el secret por query param (?s=): el query queda en logs de
+ * proxies, referer y history del browser. Los scripts que hoy manden ?s=
+ * fallarán con 401 y hay que actualizarlos para mandar el header.
+ * Nunca acepta secret vacío (fail-closed).
+ */
+export async function requireAdminOrSecret(
+  req: Request
+): Promise<{ ok: true } | { error: NextResponse }> {
+  const admin = await requireAdmin();
+  if (!("error" in admin)) return { ok: true };
+
+  const expected = (process.env.ADMIN_API_SECRET || "").trim();
+  if (!expected) {
+    return { error: NextResponse.json({ error: "ADMIN_API_SECRET no configurado" }, { status: 500 }) };
+  }
+  const provided = (req.headers.get("x-admin-secret") || "").trim();
+  if (provided && provided === expected) return { ok: true };
+  return { error: NextResponse.json({ error: "No autorizado" }, { status: 401 }) };
+}
+
 export async function loginWithPin(
   nombre: string,
   pin: string

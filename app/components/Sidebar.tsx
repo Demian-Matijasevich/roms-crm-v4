@@ -73,6 +73,7 @@ function getNav(session: AuthSession, isPoliticaLocked = false): NavSection[] {
           { href: "/", label: "Dashboard", icon: "\u{1F4CA}" },
           { href: "/hoy", label: "Actividad hoy", icon: "\u{1F4C6}" },
           { href: "/cerrar-dia", label: "Cerrar el día", icon: "\u{2705}" },
+          { href: "/eod-form", label: "Cerrar el día (rápido)", icon: "\u{1F4DD}" },
           { href: "/eod", label: "EOD rápido", icon: "\u{26A1}" },
           { href: "/calendario", label: "Calendario", icon: "\u{1F4C5}" },
           { href: "/coaching", label: "Coaching", icon: "\u{1F3AF}" },
@@ -82,6 +83,7 @@ function getNav(session: AuthSession, isPoliticaLocked = false): NavSection[] {
           { href: "/asistente", label: "Asistente IA", icon: "\u{1F916}" },
           { href: "/llamadas", label: "CRM Llamadas", icon: "\u{1F4CB}" },
           { href: "/finanzas", label: "Finanzas", icon: "\u{1F4B5}" },
+          { href: "/caja", label: "Caja Socios", icon: "\u{1F3E6}" },
         ],
       },
       {
@@ -147,7 +149,9 @@ function getNav(session: AuthSession, isPoliticaLocked = false): NavSection[] {
           { href: "/admin/leads-sin-programa", label: "Leads sin programa", icon: "\u26A0\uFE0F" },
           { href: "/admin/duplicados", label: "Duplicados", icon: "\u{1F50D}" },
           { href: "/admin/audit", label: "Audit log", icon: "\u{1F575}\uFE0F" },
+          { href: "/admin/eod-reports", label: "EOD Reports (admin)", icon: "\u{1F4CA}" },
           { href: "/conectar-calendar", label: "Mi calendar Google", icon: "\u{1F4C5}" },
+          { href: "/eod-form", label: "Cerrar el día", icon: "\u{1F4DD}" },
           { href: "/presentacion", label: "Presentaci\u00F3n I\u00F1aki", icon: "\u{1F4FD}\uFE0F" },
         ],
       },
@@ -184,6 +188,7 @@ function getNav(session: AuthSession, isPoliticaLocked = false): NavSection[] {
           { href: "/", label: "Mi Dashboard", icon: "\u{1F4CA}" },
           { href: "/hoy", label: "Actividad hoy", icon: "\u{1F4C6}" },
           { href: "/cerrar-dia", label: "Cerrar el día", icon: "\u{2705}" },
+          { href: "/eod-form", label: "Cerrar el día (rápido)", icon: "\u{1F4DD}" },
           { href: "/eod", label: "EOD rápido", icon: "\u{26A1}" },
           { href: "/calendario", label: "Calendario", icon: "\u{1F4C5}" },
           { href: "/pipeline", label: "Mi Pipeline", icon: "\u{1F4DE}" },
@@ -206,6 +211,7 @@ function getNav(session: AuthSession, isPoliticaLocked = false): NavSection[] {
           { href: "/form/llamada", label: "Cargar Llamada", icon: "\u{1F4DE}" },
           { href: "/form/pago", label: "Cargar Pago", icon: "\u{1F4B3}" },
           { href: "/conectar-calendar", label: "Mi calendar Google", icon: "\u{1F4C5}" },
+          { href: "/eod-form", label: "Cerrar el día", icon: "\u{1F4DD}" },
           { href: "/form/venta-chat", label: "Venta por Chat", icon: "\u{1F4AC}" },
           { href: "/form/reporte-setter", label: "Reporte Diario", icon: "\u{1F4DD}" },
         ],
@@ -221,6 +227,7 @@ function getNav(session: AuthSession, isPoliticaLocked = false): NavSection[] {
           { href: "/", label: "Mi Dashboard", icon: "\u{1F4CA}" },
           { href: "/hoy", label: "Actividad hoy", icon: "\u{1F4C6}" },
           { href: "/cerrar-dia", label: "Cerrar el día", icon: "\u{2705}" },
+          { href: "/eod-form", label: "Cerrar el día (rápido)", icon: "\u{1F4DD}" },
           { href: "/eod", label: "EOD rápido", icon: "\u{26A1}" },
           { href: "/calendario", label: "Calendario", icon: "\u{1F4C5}" },
           { href: "/pipeline", label: "Mi Pipeline", icon: "\u{1F4DE}" },
@@ -241,6 +248,7 @@ function getNav(session: AuthSession, isPoliticaLocked = false): NavSection[] {
           { href: "/form/llamada", label: "Cargar Llamada", icon: "\u{1F4DE}" },
           { href: "/form/pago", label: "Cargar Pago", icon: "\u{1F4B3}" },
           { href: "/conectar-calendar", label: "Mi calendar Google", icon: "\u{1F4C5}" },
+          { href: "/eod-form", label: "Cerrar el día", icon: "\u{1F4DD}" },
         ],
       },
     ];
@@ -486,7 +494,7 @@ export default function Sidebar({ session, vista = "todos", isPoliticaLocked = f
 
         <div className="p-4 border-t border-[var(--card-border)] mt-auto space-y-2">
           <button
-            onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
+            onClick={() => window.dispatchEvent(new Event("open-command-palette"))}
             className="flex items-center gap-2 px-3 py-2 text-sm text-[var(--muted)] hover:text-white hover:bg-white/5 rounded-lg transition-colors w-full"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

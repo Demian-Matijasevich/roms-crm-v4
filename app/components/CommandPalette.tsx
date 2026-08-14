@@ -72,7 +72,7 @@ export default function CommandPalette() {
     })
   );
 
-  // Global keyboard shortcut
+  // Global keyboard shortcut + evento custom para el boton del Sidebar.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -80,8 +80,15 @@ export default function CommandPalette() {
         setOpen((prev) => !prev);
       }
     }
+    function onOpen() {
+      setOpen((prev) => !prev);
+    }
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("open-command-palette", onOpen);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("open-command-palette", onOpen);
+    };
   }, []);
 
   // Focus input when opened
