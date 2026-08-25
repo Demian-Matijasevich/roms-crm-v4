@@ -1,7 +1,6 @@
 /**
- * GET /api/admin/wa-msgs-debug?group_id=X&pages=10
- * Baja mensajes crudos de un grupo WA sin filtrar por fecha.
- * Sirve para debug (ver si Evolution tiene retención del grupo).
+ * GET /api/admin/wa-msgs-debug?group_id=X&pages=10&since=YYYY-MM-DD
+ * Baja mensajes crudos de un grupo WA. Con `since`, filtra >= esa fecha.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
@@ -25,8 +24,11 @@ export async function GET(req: NextRequest) {
   const key = process.env.EVOLUTION_API_KEY;
   if (!url || !key) return NextResponse.json({ error: "envs missing" }, { status: 500 });
 
-  const gid = new URL(req.url).searchParams.get("group_id") || "120363425681899227@g.us";
-  const pages = parseInt(new URL(req.url).searchParams.get("pages") || "10", 10);
+  const u = new URL(req.url);
+  const gid = u.searchParams.get("group_id") || "120363425681899227@g.us";
+  const pages = parseInt(u.searchParams.get("pages") || "10", 10);
+  const since = u.searchParams.get("since");
+  const sinceTs = since ? Math.floor(new Date(`${since}T00:00:00-03:00`).getTime() / 1000) : 0;
 
   const all: WaMsg[] = [];
   const errores: string[] = [];
@@ -48,8 +50,8 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Extraer solo lo útil
-  const compact = all.map((m) => {
+  const filtered = sinceTs ? all.filter((m) => (m.messageTimestamp || 0) >= sinceTs) : all;
+  const compact = filtered.map((m) => {
     const mt = m.messageType || "";
     const text = mt === "conversation" ? m.message?.conversation :
                  mt === "extendedTextMessage" ? m.message?.extendedTextMessage?.text :
@@ -57,14 +59,7 @@ export async function GET(req: NextRequest) {
     const ts = m.messageTimestamp || 0;
     const fdt = ts > 0 ? new Date((ts - 3 * 3600) * 1000).toISOString().slice(0, 16).replace("T", " ") : "";
     return { wa_id: m.key?.id, fdt, push: m.pushName, mt, text: (text || "").slice(0, 400) };
-  });
+  }).sort((a, b) => (a.fdt || "").localeCompare(b.fdt || ""));
 
-  return NextResponse.json({
-    group_id: gid,
-    total: all.length,
-    errores,
-    ultimos_10: compact.slice(0, 10),
-    fdt_min: compact.length ? compact[compact.length - 1].fdt : null,
-    fdt_max: compact.length ? compact[0].fdt : null,
-  });
+  return NextResponse.json({ group_id: gid, total: all.length, filtered: filtered.length, errores, msgs: compact });
 }
