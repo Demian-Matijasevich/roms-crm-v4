@@ -537,7 +537,7 @@ export default function ComisionesClient({ payments: initialPayments, leads: ini
               Cash closer: {formatUSD(b.cashClosed)} · Setter: {formatUSD(b.cashAsSetter)}
             </p>
             <p className="text-[10px] text-[var(--muted)]">
-              Tier: Omni {b.tierPct.omni}% · Multi {b.tierPct.multi}% · Consult {b.tierPct.consultoria}%
+              Tier: Omni {b.tierPct.omni.toFixed(2)}% · Multi {b.tierPct.multi.toFixed(2)}% · Consult {b.tierPct.consultoria.toFixed(2)}%
             </p>
           </div>
         ))}
