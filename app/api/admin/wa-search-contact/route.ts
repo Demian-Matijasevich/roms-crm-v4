@@ -26,7 +26,9 @@ export async function GET(req: NextRequest) {
 
   const u = new URL(req.url);
   const suffix = (u.searchParams.get("suffix") || "").replace(/\D/g, "");
-  if (!suffix) return NextResponse.json({ error: "suffix required" }, { status: 400 });
+  const nameQuery = (u.searchParams.get("name") || "").toLowerCase().trim();
+  const onlyDMs = u.searchParams.get("dms") === "1";
+  if (!suffix && !nameQuery && !onlyDMs) return NextResponse.json({ error: "suffix, name o dms=1 required" }, { status: 400 });
 
   const chatsResp = await fetch(`${url}/chat/findChats/${EVO_INSTANCE}`, {
     method: "POST",
@@ -36,10 +38,14 @@ export async function GET(req: NextRequest) {
   if (!chatsResp.ok) return NextResponse.json({ error: `findChats ${chatsResp.status}` }, { status: 502 });
   const chats = (await chatsResp.json()) as Chat[];
 
-  // Filtrar por remoteJid ending with suffix
   const matches = chats.filter((c) => {
-    const jid = (c.remoteJid || c.id || "").replace(/@.*/, "").replace(/\D/g, "");
-    return jid.endsWith(suffix);
+    const jid = c.remoteJid || c.id || "";
+    const num = jid.replace(/@.*/, "").replace(/\D/g, "");
+    const push = ((c.pushName || c.name || "") + "").toLowerCase();
+    if (onlyDMs && !jid.endsWith("@s.whatsapp.net")) return false;
+    if (suffix && !num.endsWith(suffix)) return false;
+    if (nameQuery && !push.includes(nameQuery)) return false;
+    return true;
   }).map((c) => ({
     jid: c.remoteJid || c.id,
     pushName: c.pushName || c.name || null,
